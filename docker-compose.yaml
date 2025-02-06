@@ -9,7 +9,7 @@ services:
     # ports:
     #   - "8080:8080" 
     env_file:
-      - backend/.env
+      - .env
     environment:
       - SLURM_USER_NAME=${SLURM_USER_NAME}
       - SLURM_USER_TOKEN=${SLURM_USER_TOKEN}

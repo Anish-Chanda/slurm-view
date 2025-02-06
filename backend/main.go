@@ -8,6 +8,7 @@ import (
 
 	"github.com/anish-chanda/slurm-view/internal/handlers"
 	"github.com/gorilla/mux"
+	"github.com/rs/cors"
 )
 
 func getEnvOrExit(key string) string {
@@ -33,8 +34,14 @@ func main() {
 	r.HandleFunc("/clusters", handlers.GetClusters(slurmRestdIP, slurmRestdPort, slurmUser, slurmToken)).Methods("GET")
 	r.HandleFunc("/jobs", handlers.GetJobs(slurmRestdIP, slurmRestdPort, slurmUser, slurmToken)).Methods("GET")
 
+	c := cors.New(cors.Options{
+		AllowedOrigins: []string{"http://localhost:3000"},
+		// AllowCredentials: true,
+	})
+	handler := c.Handler(r)
+
 	// Start server
 	port := "8080" // Default port
 	log.Printf("Server listening on port %s", port)
-	log.Fatal(http.ListenAndServe(":"+port, r))
+	log.Fatal(http.ListenAndServe(":"+port, handler))
 }
