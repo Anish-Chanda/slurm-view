@@ -24,3 +24,48 @@ export interface Cluster {
 export interface ClusterResponse {
   clusters: Cluster[];
 }
+
+export interface JobDetails {
+  account: string;
+  comment: {
+    administrator: string;
+    job: string;
+    system: string;
+  };
+  allocation_nodes: number;
+  cluster: string;
+  job_id: number;
+  name: string;
+  nodes: string;
+  partition: string;
+  qos: string;
+  state: {
+    current: string[];
+    reason: string;
+  };
+  submit_line: string;
+  user: string;
+  working_directory: string;
+  time: {
+    elapsed: number;
+    eligible: number;
+    end: number;
+    start: number;
+    submission: number;
+  };
+  tres: {
+    allocated: TresResource[];
+    requested: TresResource[];
+  };
+}
+
+interface TresResource {
+  type: string;
+  name: string;
+  id: number;
+  count: number;
+}
+
+export interface JobDetailsResponse {
+  jobs: JobDetails[];
+}

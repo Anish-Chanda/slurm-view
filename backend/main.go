@@ -33,6 +33,7 @@ func main() {
 	})
 	r.HandleFunc("/clusters", handlers.GetClusters(slurmRestdIP, slurmRestdPort, slurmUser, slurmToken)).Methods("GET")
 	r.HandleFunc("/jobs", handlers.GetJobs(slurmRestdIP, slurmRestdPort, slurmUser, slurmToken)).Methods("GET")
+	r.HandleFunc("/job/{job_id}", handlers.GetJob(slurmRestdIP, slurmRestdPort, slurmUser, slurmToken)).Methods("GET")
 
 	c := cors.New(cors.Options{
 		AllowedOrigins: []string{"http://localhost:3000"},

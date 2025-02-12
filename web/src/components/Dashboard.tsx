@@ -17,8 +17,10 @@ import {
 } from "../components/ui/Table";
 import { Skeleton } from "../components/ui/Skeleton";
 import { Cluster, Job } from "@/types/api";
+import { useNavigate } from "react-router-dom";
 
 export default function ClusterDashboard() {
+  const navigate = useNavigate(); 
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [selectedCluster, setSelectedCluster] = useState("");
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -50,7 +52,7 @@ export default function ClusterDashboard() {
         setLoadingJobs(false);
       });
 
-      console.log("Jobs: ", jobs);
+    console.log("Jobs: ", jobs);
   }, [selectedCluster]);
 
   return (
@@ -101,7 +103,10 @@ export default function ClusterDashboard() {
                 </TableRow>
               ) : (
                 jobs.map((job) => (
-                  <TableRow key={job.job_id}>
+                  <TableRow key={job.job_id}
+                  className="cursor-pointer hover:bg-muted"
+                  onClick={()=>navigate(`/job/${job.job_id}`)}
+                  >
                     <TableCell>{job.job_id}</TableCell>
                     <TableCell>{job.state}</TableCell>
                     <TableCell>
