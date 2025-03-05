@@ -26,3 +26,5 @@ go.work.sum
 
 # go build
 server
+
+ood/node_modules/

@@ -1,13 +1,20 @@
-version: '3.8'
+version: "3.8"
 
 services:
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    ports:
-      - "8080:8080"
-    restart: always
+    network_mode: "host"
+    # ports:
+    #   - "8080:8080" 
+    env_file:
+      - .env
+    environment:
+      - SLURM_USER_NAME=${SLURM_USER_NAME}
+      - SLURM_USER_TOKEN=${SLURM_USER_TOKEN}
+      - SLURM_RESTD_IP=${SLURM_RESTD_IP}
+      - SLURM_RESTD_PORT=${SLURM_RESTD_PORT}
 
   frontend:
     build:
@@ -17,4 +24,3 @@ services:
       - "3000:3000"
     depends_on:
       - backend
-    restart: always
