@@ -1,24 +1,8 @@
-import { execSync } from 'child_process';
+import { executeCommand } from "../helpers/executeCmd.js";
 
-export function getSlurmJobs() {
-  let squeueOutput;
-  try {
-    squeueOutput = execSync('squeue --json --states=R,PD', { maxBuffer: 1024 * 1024 * 10 });
-  } catch (err) {
-    console.error('Error retrieving squeue data:', err.message);
-    return `<p>Error retrieving job data: ${err.message}</p>`;
-  }
-
-  let squeueData;
-  try {
-    squeueData = JSON.parse(squeueOutput);
-  } catch (err) {
-    console.error('Invalid JSON from squeue:', err.message);
-    return `<p>Error parsing job data: ${err.message}</p>`;
-  }
-
-  const jobs = squeueData.jobs;
-
+// This function is used to generate an HTML table from the job data.
+export function genJobsTable(jobs) {
+  //html table
   let html = `
     <table class="w-full border-collapse">
       <thead>
@@ -35,6 +19,7 @@ export function getSlurmJobs() {
       <tbody>
   `;
 
+  // table rows
   if (jobs && Array.isArray(jobs)) {
     for (const job of jobs) {
       html += `
@@ -51,10 +36,31 @@ export function getSlurmJobs() {
     }
   }
 
+  //closing tags
   html += `
       </tbody>
     </table>
   `;
 
   return html;
+}
+
+export function parseJobsData(data) {
+  try {
+    const parsedData = JSON.parse(data)
+    return parsedData.jobs;
+  } catch (e) {
+    throw new Error(`Failed to parse job data: ${e.message}`);
+  }
+}
+
+export function getSlurmJobs() {
+  try {
+    const output = executeCommand("squeue --json --states=R,PD");
+    const jobs = parseJobsData(output);
+    return genJobsTable(jobs);
+  } catch (err) {
+    console.error('Error in getSlurmJobs:', err.message);
+    return `<p>Error retrieving job data: ${err.message}</p>`;
+  }
 }

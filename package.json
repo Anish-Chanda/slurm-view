@@ -4,7 +4,7 @@
   "description": "testing",
   "main": "app.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "jest",
     "start": "node app.js"
   },
   "author": "Anish Chanda",
@@ -13,5 +13,11 @@
   "dependencies": {
     "express": "^4.21.2",
     "express-handlebars": "^8.0.1"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.26.10",
+    "@babel/preset-env": "^7.26.9",
+    "babel-jest": "^29.7.0",
+    "jest": "^29.7.0"
   }
 }
