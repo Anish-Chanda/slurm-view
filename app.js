@@ -15,12 +15,12 @@ const router = express.Router();
 app.use(process.env.PASSENGER_BASE_URI || '/', router);
 
 router.get('/api/jobs', async (req, res) => {
-  const jobsTable = await getSlurmJobs();
+  const jobsTable = getSlurmJobs(req.query);
   res.send(jobsTable);
 });
 
 router.get('/', async (req, res) => {
-  const jobsTable = await getSlurmJobs();
+  const jobsTable = getSlurmJobs(req.query);
   res.render('home', {
     title: "Slurm View",
     jobsTable: jobsTable

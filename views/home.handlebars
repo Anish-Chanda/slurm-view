@@ -1,6 +1,104 @@
 <h1 class="text-center text-gray-800 mb-6 text-2xl">Slurm Job Queue</h1>
 
+<!-- Filter Form -->
+<div class="mb-4">
+  <form id="filter-form" class="flex space-x-2">
+    <select id="filter-field" class="border rounded p-2">
+      <option value="jobid">JobID</option>
+      <option value="partition">Partition</option>
+      <option value="name">Name</option>
+      <option value="user">User</option>
+      <option value="state">State</option>
+    </select>
+    <input type="text" id="filter-value" placeholder="Filter value" class="border rounded p-2" />
+    <button type="submit" class="bg-blue-500 text-white rounded p-2">Add Filter</button>
+    <button type="button" id="save-filter-btn" class="bg-green-500 text-white rounded p-2">Save</button>
+  </form>
+</div>
+
+<!-- Active Filters Badges -->
+<div id="active-filters" class="mb-4 flex flex-wrap gap-2"></div>
+
 <!-- Jobs Table Container -->
 <div id="jobs-table">
   {{{jobsTable}}}
 </div>
+
+<script>
+  // Get current query parameters as an object
+  function getQueryParams() {
+    const params = {};
+    const searchParams = new URLSearchParams(window.location.search);
+    for (const [key, value] of searchParams.entries()) {
+      params[key] = value;
+    }
+    return params;
+  }
+
+  // Update the URL query parameters without reloading the page
+  function updateURL(params) {
+    const url = new URL(window.location);
+    url.search = new URLSearchParams(params).toString();
+    window.history.pushState({}, '', url);
+  }
+
+  // Render the active filters as badges
+  function renderFilters(params) {
+    const container = document.getElementById('active-filters');
+    container.innerHTML = '';
+    for (const key in params) {
+      const badge = document.createElement('span');
+      badge.className = "bg-gray-300 text-gray-700 rounded-full px-3 py-1 text-sm flex items-center";
+      badge.innerHTML = `${key}: ${params[key]} <button data-key="${key}" class="ml-2 text-red-500 font-bold">x</button>`;
+      container.appendChild(badge);
+    }
+  }
+
+  // Fetch and update the jobs table based on active filters
+  function fetchJobs(params) {
+    const queryString = new URLSearchParams(params).toString();
+    console.log("fetching jobs with query string: ", queryString)
+    fetch('/api/jobs?' + queryString)
+      .then(response => response.text())
+      .then(html => {
+        console.log("fetched jobs")
+        document.getElementById('jobs-table').innerHTML = html;
+      })
+      .catch(err => console.error('Error fetching jobs:', err));
+  }
+
+  // Initialize active filters from the URL
+  let activeFilters = getQueryParams();
+  renderFilters(activeFilters);
+
+  // When the form is submitted, add the new filter
+  document.getElementById('filter-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    const fieldSelect = document.getElementById('filter-field');
+    const filterField = fieldSelect.value;
+    const filterValue = document.getElementById('filter-value').value.trim();
+    if (filterValue) {
+      activeFilters[filterField] = filterValue;
+      renderFilters(activeFilters);
+      updateURL(activeFilters);
+    }
+    document.getElementById('filter-value').value = '';
+  });
+
+  // Remove a filter when its badge "x" is clicked
+  document.getElementById('active-filters').addEventListener('click', function (e) {
+    if (e.target.tagName.toLowerCase() === 'button') {
+      const key = e.target.getAttribute('data-key');
+      delete activeFilters[key];
+      renderFilters(activeFilters);
+      updateURL(activeFilters);
+      fetchJobs(activeFilters);
+    }
+  });
+
+  // When the Save button is hit, update the jobs table view
+  document.getElementById('save-filter-btn').addEventListener('click', function () {
+    console.log("clicked save")
+    fetchJobs(activeFilters);
+  });
+</script>
