@@ -1,4 +1,4 @@
-import { genJobsTable, parseJobsData, getSlurmJobs } from "../../handlers/fetchJobs.js"
+import { genJobsTable, parseJobsData, getSlurmJobs, matchesFilter } from "../../handlers/fetchJobs.js"
 import { executeCommand } from "../../helpers/executeCmd.js";
 
 
@@ -66,6 +66,42 @@ describe("parseJobsData", () => {
     });
 });
 
+describe("matchesFilter", () => {
+    const testJob = {
+      job_id: "123",
+      partition: "debug",
+      name: "test Job",
+      user_name: "testuser",
+      job_state: "pending"
+    };
+  
+    it("should match for jobid", () => {
+      expect(matchesFilter(testJob, "jobid", "123")).toBe(true);
+      expect(matchesFilter(testJob, "jobid", "999")).toBe(false);
+    });
+  
+    it("should match for partition", () => {
+      expect(matchesFilter(testJob, "partition", "debug")).toBe(true);
+      expect(matchesFilter(testJob, "partition", "prod")).toBe(false);
+    });
+  
+    it("should match for name", () => {
+      expect(matchesFilter(testJob, "name", "test Job")).toBe(true);
+      expect(matchesFilter(testJob, "name", "idk")).toBe(false);
+    });
+  
+    it("should match for user", () => {
+      expect(matchesFilter(testJob, "user", "testuser")).toBe(true);
+      expect(matchesFilter(testJob, "user", "admin")).toBe(false);
+    });
+  
+    it("should match for state", () => {
+      expect(matchesFilter(testJob, "state", "pending")).toBe(true);
+      expect(matchesFilter(testJob, "state", "running")).toBe(false);
+    });
+
+  });
+
 describe("getSlurmJobs", () => {
     afterEach(() => {
         jest.clearAllMocks();
@@ -105,5 +141,5 @@ describe("getSlurmJobs", () => {
         });
         const result = getSlurmJobs();
         expect(result).toContain("Error retrieving job data: command failed");
-    });
+    });    
 });
