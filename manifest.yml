@@ -1,0 +1,3 @@
+name: Slurm View
+description: Display Cluster Usage and Job Statistics
+icon: fa://chart-pie
