@@ -1,7 +1,7 @@
-import express from 'express';
-import { getSlurmJobs } from './handlers/fetchJobs.js';
-import { engine } from 'express-handlebars';
-import { getCPUsByState } from './handlers/fetchStats.js';
+const express = require('express');
+const { getSlurmJobs } = require('./handlers/fetchJobs.js');
+const { engine } = require('express-handlebars');
+const { getCPUsByState } = require('./handlers/fetchStats.js');
 
 
 const app = express();
@@ -39,4 +39,6 @@ router.get('/', async (req, res) => {
   })
 });
 
-export default app;
+app.listen(port, () => {
+  console.log(`App listening on port ${port}`);
+});

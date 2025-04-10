@@ -1,7 +1,7 @@
-import { executeCommand } from "../helpers/executeCmd.js";
+const { executeCommand } = require("../helpers/executeCmd.js");
 
 // Fetches the number of CPUs by state
-export function getCPUsByState() {
+function getCPUsByState() {
     try {
         const cmdOutput = executeCommand("sinfo -o '%C' --noheader") // returns cpu utilization in Allocated/Idle/Other/Total
         const [allocated, idle, other, total] = cmdOutput.split('/').map(Number);
@@ -10,4 +10,8 @@ export function getCPUsByState() {
         console.error('Error in getCPUsByState:', err.message);
         return `<p>Error retrieving utilization statistics: ${err.message}</p>`;
     }
+}
+
+module.exports = {
+    getCPUsByState
 }

@@ -1,7 +1,7 @@
-import { executeCommand } from "../helpers/executeCmd.js";
+const { executeCommand } = require("../helpers/executeCmd.js");
 
 // This function is used to generate an HTML table from the job data.
-export function genJobsTable(jobs) {
+function genJobsTable(jobs) {
   //html table
   let html = `
     <table class="w-full border-collapse">
@@ -45,7 +45,7 @@ export function genJobsTable(jobs) {
   return html;
 }
 
-export function parseJobsData(data) {
+function parseJobsData(data) {
   try {
     const parsedData = JSON.parse(data)
     return parsedData.jobs;
@@ -54,7 +54,7 @@ export function parseJobsData(data) {
   }
 }
 
-export function matchesFilter(job, field, filterVal) {
+function matchesFilter(job, field, filterVal) {
   let value;
   if (field === 'jobid') {
     value = job.job_id;
@@ -74,7 +74,7 @@ export function matchesFilter(job, field, filterVal) {
   return value && String(value).toLowerCase().includes(filterVal.toLowerCase());
 }
 
-export function getSlurmJobs(filters = {}) {
+function getSlurmJobs(filters = {}) {
   try {
     const output = executeCommand("squeue --json --states=R,PD");
     let jobs = parseJobsData(output);
@@ -93,3 +93,10 @@ export function getSlurmJobs(filters = {}) {
     return `<p>Error retrieving job data: ${err.message}</p>`;
   }
 }
+
+module.exports = {
+  genJobsTable,
+  parseJobsData,
+  matchesFilter,
+  getSlurmJobs,
+};

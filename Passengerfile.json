@@ -1,4 +1,0 @@
-{
-  "app-type": "node",
-  "startup-file": "entry.cjs"
-}
