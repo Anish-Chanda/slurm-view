@@ -35,7 +35,8 @@ router.get('/', async (req, res) => {
   res.render('home', {
     title: "Slurm View",
     jobsTable,
-    cpuStats
+    cpuStats,
+    passengerBaseUri: process.env.PASSENGER_BASE_URI
   })
 });
 

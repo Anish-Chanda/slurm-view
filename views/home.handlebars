@@ -137,7 +137,8 @@
   function fetchJobs(params) {
     const queryString = new URLSearchParams(params).toString();
     console.log("fetching jobs with query string: ", queryString)
-    fetch('/api/jobs?' + queryString)
+    const baseUrl = "{{passengerBaseUri}}".replace(/\/$/, '');
+    fetch(baseUrl + '/api/jobs?' + queryString)
       .then(response => response.text())
       .then(html => {
         console.log("fetched jobs")
