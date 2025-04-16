@@ -1,7 +1,7 @@
 const express = require('express');
 const { getSlurmJobs } = require('./handlers/fetchJobs.js');
 const { engine } = require('express-handlebars');
-const { getCPUsByState } = require('./handlers/fetchStats.js');
+const { getCPUsByState, getMemByState } = require('./handlers/fetchStats.js');
 
 
 const app = express();
@@ -31,11 +31,14 @@ router.get('/api/jobs', async (req, res) => {
 
 router.get('/', async (req, res) => {
   const jobsTable = getSlurmJobs(req.query);
+  // TODO: use promise all instead
   const cpuStats = getCPUsByState();
+  const memStats = getMemByState();
   res.render('home', {
     title: "Slurm View",
     jobsTable,
     cpuStats,
+    memStats,
     passengerBaseUri: process.env.PASSENGER_BASE_URI
   })
 });

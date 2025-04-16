@@ -1,6 +1,14 @@
-<h2 class="text-2xl">CPU Utilization</h2>
+<div class="flex w-full space-x-4 mb-20">
+  <div class="w-1/2">
+    <h2 class="text-2xl mb-4">CPU Utilization</h2>
+    <div id="sunburst-chart-cpu" class="mb-6 max-h-64 max-w-80"></div>
+  </div>
+  <div class="w-1/2">
+    <h2 class="text-2xl mb-4">Memory Utilization</h2>
+    <div id="sunburst-chart-mem" class="mb-6 max-h-64 max-w-80"></div>
+  </div>
+</div>
 
-<div id="sunburst-chart" class="mb-6 w-1/3"></div>
 
 <h2 class="text-center text-gray-800 mb-6 text-2xl">Slurm Job Queue</h2>
 
@@ -30,7 +38,82 @@
 
 <script>
   // ----- D3 js Sunburts chart logic -----
- var data = {
+ // Helper function to draw a sunburst chart in a given container.
+  function drawSunburstChart(data, containerId, titleText, totalSuffix) {
+    const width = 500;
+    const radius = width / 2;
+    // Prepare a color scale based on the number of children.
+    const color = d3.scaleOrdinal(d3.quantize(d3.interpolateRainbow, data.children.length + 1));
+    
+    // Partition layout: convert data into a hierarchy with computed angles.
+    const partition = d => d3.partition()
+      .size([2 * Math.PI, radius])
+      (d3.hierarchy(data)
+        .sum(d => d.value)
+        .sort((a, b) => b.value - a.value));
+
+    const arc = d3.arc()
+      .startAngle(d => d.x0)
+      .endAngle(d => d.x1)
+      .padAngle(d => Math.min((d.x1 - d.x0) / 2, 0.005))
+      .padRadius(radius / 2)
+      .innerRadius(d => d.y0)
+      .outerRadius(d => d.y1 - 1);
+
+    const root = partition(data);
+
+    // Create the SVG container.
+    const svg = d3.create("svg")
+      .attr("viewBox", [-radius, -radius, width, width])
+      .style("font", "10px sans-serif");
+
+    const total = root.value;
+    // Add central label.
+    svg.append("text")
+      .attr("text-anchor", "middle")
+      .attr("dy", "0.35em")
+      .style("font-size", "16px")
+      .style("font-weight", "bold")
+      .text(titleText + " Total: " + total + (totalSuffix ? " " + totalSuffix : ""));
+
+    // Draw arcs.
+    svg.append("g")
+      .attr("fill-opacity", 0.6)
+      .selectAll("path")
+      .data(root.descendants().filter(d => d.depth))
+      .join("path")
+      .attr("fill", d => {
+          let current = d;
+          while (current.depth > 1) current = current.parent;
+          return color(current.data.name);
+      })
+      .attr("d", arc)
+      .append("title")
+      .text(d => `${d.ancestors().map(d => d.data.name).reverse().join("/")}\n${d3.format(",d")(d.value)}`);
+
+    // Add labels to arcs if space permits.
+    svg.append("g")
+      .attr("pointer-events", "none")
+      .attr("text-anchor", "middle")
+      .attr("font-size", 10)
+      .attr("font-family", "sans-serif")
+      .selectAll("text")
+      .data(root.descendants().filter(d => d.depth && ((d.y0 + d.y1) / 2 * (d.x1 - d.x0)) > 10))
+      .join("text")
+      .attr("transform", d => {
+          const x = (d.x0 + d.x1) / 2 * 180 / Math.PI;
+          const y = (d.y0 + d.y1) / 2;
+          return `rotate(${x - 90}) translate(${y},0) rotate(${x < 180 ? 0 : 180})`;
+      })
+      .attr("dy", "0.35em")
+      .text(d => d.data.name);
+
+    // Append the SVG into the target container.
+    document.getElementById(containerId).appendChild(svg.node());
+  }
+
+  // Data for CPU sunburst chart (provided by your CPU stats function).
+  var cpuData = {
     name: "CPU Utilization",
     children: [
       { name: "Allocated", value: {{cpuStats.allocated}} },
@@ -39,69 +122,21 @@
     ]
   };
 
-  var width = 500;
-  const color = d3.scaleOrdinal(d3.quantize(d3.interpolateRainbow, data.children.length + 1));
-  const radius = width / 2;
+  // Data for Memory sunburst chart (provided by your memory stats function).
+  // Note: Your memStats object includes "allocated", "idle", "down", "other", and "total"
+  var memData = {
+    name: "Memory Utilization",
+    children: [
+      { name: "Allocated", value: {{memStats.allocated}} },
+      { name: "Idle", value: {{memStats.idle}} },
+      { name: "Down", value: {{memStats.down}} },
+      { name: "Other", value: {{memStats.other}} }
+    ]
+  };
 
-  // Prepare the layout.
-  const partition = data => d3.partition()
-    .size([2 * Math.PI, radius])
-    (d3.hierarchy(data)
-      .sum(d => d.value)
-      .sort((a, b) => b.value - a.value));
-
-  const arc = d3.arc()
-    .startAngle(d => d.x0)
-    .endAngle(d => d.x1)
-    .padAngle(d => Math.min((d.x1 - d.x0) / 2, 0.005))
-    .padRadius(radius / 2)
-    .innerRadius(d => d.y0)
-    .outerRadius(d => d.y1 - 1);
-
-  const root = partition(data);
-
-  // Create the SVG container.
-  const svg = d3.create("svg").attr("viewBox", [-radius, -radius, width, width]) // from -250 to +250 in both x & y
-  .style("font", "10px sans-serif");
-
-  const total = root.value;
-  svg.append("text")
-  .attr("text-anchor", "middle")
-  .attr("dy", "0.35em")
-  .style("font-size", "16px")
-  .style("font-weight", "bold")
-  .text("Total: " + total);
-
-  // Add an arc for each element, with a title for tooltips.
-  const format = d3.format(",d");
-  svg.append("g")
-    .attr("fill-opacity", 0.6)
-    .selectAll("path")
-    .data(root.descendants().filter(d => d.depth))
-    .join("path")
-    .attr("fill", d => { while (d.depth > 1) d = d.parent; return color(d.data.name); })
-    .attr("d", arc)
-    .append("title")
-    .text(d => `${d.ancestors().map(d => d.data.name).reverse().join("/")}\n${format(d.value)}`);
-
-  // Add a label for each element.
-  svg.append("g")
-    .attr("pointer-events", "none")
-    .attr("text-anchor", "middle")
-    .attr("font-size", 10)
-    .attr("font-family", "sans-serif")
-    .selectAll("text")
-    .data(root.descendants().filter(d => d.depth && (d.y0 + d.y1) / 2 * (d.x1 - d.x0) > 10))
-    .join("text")
-    .attr("transform", function (d) {
-      const x = (d.x0 + d.x1) / 2 * 180 / Math.PI;
-      const y = (d.y0 + d.y1) / 2;
-      return `rotate(${x - 90}) translate(${y},0) rotate(${x < 180 ? 0 : 180})`;
-    })
-    .attr("dy", "0.35em")
-    .text(d => d.data.name);
-
-  document.getElementById("sunburst-chart").appendChild(svg.node());
+  // Render both charts.
+  drawSunburstChart(cpuData, "sunburst-chart-cpu", "CPU");
+  drawSunburstChart(memData, "sunburst-chart-mem", "Memory", "GB");
 
   // ----- jobs filtering logic -----
   // Get current query parameters as an object
