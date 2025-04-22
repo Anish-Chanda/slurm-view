@@ -63,11 +63,48 @@
           {{/each}}
         </tbody>
       </table>
+
+      <!-- Add pagination controls for server-rendered view -->
+      {{#if pagination}}
+        <div class="flex justify-between items-center mt-4">
+          <div>
+            <span class="text-gray-600">
+              Showing {{add (multiply (subtract pagination.page 1) pagination.pageSize) 1}} to {{min (multiply pagination.page pagination.pageSize) pagination.totalItems}} of {{pagination.totalItems}} jobs
+            </span>
+          </div>
+          <div class="flex space-x-2">
+            <!-- Previous page button -->
+            {{#if (gt pagination.page 1)}}
+              <a href="?page={{subtract pagination.page 1}}{{#each ../activeFilters}}&{{@key}}={{this}}{{/each}}" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded">Previous</a>
+            {{else}}
+              <button class="bg-gray-100 text-gray-400 font-medium py-2 px-4 rounded cursor-not-allowed" disabled>Previous</button>
+            {{/if}}
+            
+            <!-- Page number buttons -->
+            {{#each (paginationRange pagination.page pagination.totalPages)}}
+              {{#if (eq this ../pagination.page)}}
+                <button class="bg-blue-500 text-white font-medium py-2 px-4 rounded" disabled>{{this}}</button>
+              {{else}}
+                <a href="?page={{this}}{{#each ../../activeFilters}}&{{@key}}={{this}}{{/each}}" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded">{{this}}</a>
+              {{/if}}
+            {{/each}}
+            
+            <!-- Next page button -->
+            {{#if (lt pagination.page pagination.totalPages)}}
+              <a href="?page={{add pagination.page 1}}{{#each ../activeFilters}}&{{@key}}={{this}}{{/each}}" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded">Next</a>
+            {{else}}
+              <button class="bg-gray-100 text-gray-400 font-medium py-2 px-4 rounded cursor-not-allowed" disabled>Next</button>
+            {{/if}}
+          </div>
+        </div>
+      {{/if}}
     {{else}}
       <p class="text-gray-500">No jobs match the current filters.</p>
     {{/if}}
   {{/if}}
 </div>
+
+
 
 <script>
   // ----- D3 js Sunburts chart logic -----
@@ -177,7 +214,12 @@
     const params = {};
     const searchParams = new URLSearchParams(window.location.search);
     for (const [key, value] of searchParams.entries()) {
-      params[key] = value;
+      // Convert page and pageSize to numbers
+      if (key === 'page' || key === 'pageSize') {
+        params[key] = parseInt(value);
+      } else {
+        params[key] = value;
+      }
     }
     return params;
   }
@@ -193,7 +235,13 @@
   function renderFilters(params) {
     const container = document.getElementById('active-filters');
     container.innerHTML = '';
+
+    //avoid these
+    const reservedParams = ['page', 'pageSize']
+
     for (const key in params) {
+      if(reservedParams.includes(key)) continue;
+
       const badge = document.createElement('span');
       badge.className = "bg-gray-300 text-gray-700 rounded-full px-3 py-1 text-sm flex items-center";
       badge.innerHTML = `${key}: ${params[key]} <button data-key="${key}" class="ml-2 text-red-500 font-bold">x</button>`;
@@ -203,10 +251,12 @@
 
   // Fetch and update the jobs table based on active filters
 // Update the fetchJobs function to properly handle JSON response
-function fetchJobs(params) {
-  const queryString = new URLSearchParams(params).toString();
+function fetchJobs(params, page = 1, pageSize = {{defaultPageSize}}) {
+  const queryParams = { ...params, page, pageSize };
+  const queryString = new URLSearchParams(queryParams).toString();
   console.log("fetching jobs with query string: ", queryString)
   const baseUrl = "{{passengerBaseUri}}".replace(/\/$/, '');
+
   fetch(baseUrl + '/api/jobs?' + queryString)
     .then(response => response.json())
     .then(data => {
@@ -221,6 +271,7 @@ function fetchJobs(params) {
       }
       
       const jobs = data.jobs;
+      const pagination = data.pagination;
       
       if (!jobs || jobs.length === 0) {
         container.innerHTML = '<p class="text-gray-500">No jobs match the current filters.</p>';
@@ -261,8 +312,59 @@ function fetchJobs(params) {
           </tbody>
         </table>
       `;
+
+      // Add pagination controls
+      html += `
+        <div class="flex justify-between items-center mt-4">
+          <div>
+            <span class="text-gray-600">Showing ${(pagination.page - 1) * pagination.pageSize + 1} to ${Math.min(pagination.page * pagination.pageSize, pagination.totalItems)} of ${pagination.totalItems} jobs</span>
+          </div>
+          <div class="flex space-x-2">
+      `;
+      
+      // Previous page button
+      if (pagination.page > 1) {
+        html += `<button class="pagination-btn bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded" data-page="${pagination.page - 1}">Previous</button>`;
+      } else {
+        html += `<button class="bg-gray-100 text-gray-400 font-medium py-2 px-4 rounded cursor-not-allowed" disabled>Previous</button>`;
+      }
+
+      // Page number buttons (show up to 5 pages)
+      const startPage = Math.max(1, pagination.page - 2);
+      const endPage = Math.min(pagination.totalPages, pagination.page + 2);
+      
+      for (let i = startPage; i <= endPage; i++) {
+        if (i === pagination.page) {
+          html += `<button class="bg-blue-500 text-white font-medium py-2 px-4 rounded" disabled>${i}</button>`;
+        } else {
+          html += `<button class="pagination-btn bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded" data-page="${i}">${i}</button>`;
+        }
+      }
+      
+      // Next page button
+      if (pagination.page < pagination.totalPages) {
+        html += `<button class="pagination-btn bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded" data-page="${pagination.page + 1}">Next</button>`;
+      } else {
+        html += `<button class="bg-gray-100 text-gray-400 font-medium py-2 px-4 rounded cursor-not-allowed" disabled>Next</button>`;
+      }
+      
+      html += `
+          </div>
+        </div>
+      `;
       
       container.innerHTML = html;
+
+      // Add event listeners for pagination buttons
+      document.querySelectorAll('.pagination-btn').forEach(button => {
+        button.addEventListener('click', function() {
+          const page = parseInt(this.getAttribute('data-page'));
+          // Update URL with new page parameter
+          activeFilters.page = page;
+          updateURL(activeFilters);
+          fetchJobs(params, page, pagination.pageSize);
+        });
+      });
     })
     .catch(err => {
       console.error('Error fetching jobs:', err);
