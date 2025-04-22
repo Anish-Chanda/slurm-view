@@ -1,5 +1,6 @@
 const { DEFAULT_PAGE_SIZE } = require("../constants.js");
 const { executeCommand } = require("../helpers/executeCmd.js");
+const { formatTimeLimit } = require("../helpers/formatTimeLimit.js");
 
 function parseJobsData(data) {
   try {
@@ -8,6 +9,20 @@ function parseJobsData(data) {
   } catch (e) {
     throw new Error(`Failed to parse job data: ${e.message}`);
   }
+}
+
+function formatJobsData(jobs) {
+  return jobs.map(job => {
+    return {
+      job_id: job.job_id || 'N/A',
+      partition: job.partition || 'N/A',
+      name: job.name || 'N/A',
+      user_name: job.user_name || 'N/A',
+      job_state: job.job_state || 'N/A',
+      time_limit: formatTimeLimit(job.time_limit?.number),
+      nodes: job.node_count?.number || 'N/A'
+    }
+  })
 }
 
 function matchesFilter(job, field, filterVal) {
@@ -54,6 +69,9 @@ function getSlurmJobs(filters = {}, pagination = {}) {
     //calculate start and end
     const startIdx = (page - 1) * pageSize;
     const endIdx = startIdx + pageSize;
+
+    //format the jobs to remove unnecessary fields
+    jobs = formatJobsData(jobs);
 
     return {
       success: true,
