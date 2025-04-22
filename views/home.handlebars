@@ -57,8 +57,8 @@
               <td class="px-4 py-3 text-left border border-gray-200">{{this.name}}</td>
               <td class="px-4 py-3 text-left border border-gray-200">{{this.user_name}}</td>
               <td class="px-4 py-3 text-left border border-gray-200">{{this.job_state}}</td>
-              <td class="px-4 py-3 text-left border border-gray-200">{{#if this.time_limit}}{{this.time_limit.number}}{{else}}N/A{{/if}}</td>
-              <td class="px-4 py-3 text-left border border-gray-200">{{#if this.node_count}}{{this.node_count.number}}{{else}}N/A{{/if}}</td>
+              <td class="px-4 py-3 text-left border border-gray-200">{{this.time_limit}}</td>
+              <td class="px-4 py-3 text-left border border-gray-200">{{#if this.nodes}}{{this.nodes}}{{else}}N/A{{/if}}</td>
             </tr>
           {{/each}}
         </tbody>
@@ -315,8 +315,8 @@ function fetchJobs(params, page = 1, pageSize = {{defaultPageSize}}) {
             <td class="px-4 py-3 text-left border border-gray-200">${job.name || 'N/A'}</td>
             <td class="px-4 py-3 text-left border border-gray-200">${job.user_name || 'N/A'}</td>
             <td class="px-4 py-3 text-left border border-gray-200">${job.job_state || 'N/A'}</td>
-            <td class="px-4 py-3 text-left border border-gray-200">${job.time_limit ? job.time_limit.number : 'N/A'}</td>
-            <td class="px-4 py-3 text-left border border-gray-200">${job.node_count ? job.node_count.number : 'N/A'}</td>
+            <td class="px-4 py-3 text-left border border-gray-200">${job.time_limit}</td>
+            <td class="px-4 py-3 text-left border border-gray-200">${job.nodes || 'N/A'}</td>
           </tr>
         `;
       }
@@ -348,14 +348,7 @@ function fetchJobs(params, page = 1, pageSize = {{defaultPageSize}}) {
         <div class="flex space-x-2">
     `;
 
-      // Add pagination controls
-      html += `
-        <div class="flex justify-between items-center mt-4">
-          <div>
-            <span class="text-gray-600">Showing ${(pagination.page - 1) * pagination.pageSize + 1} to ${Math.min(pagination.page * pagination.pageSize, pagination.totalItems)} of ${pagination.totalItems} jobs</span>
-          </div>
-          <div class="flex space-x-2">
-      `;
+
       
       // Previous page button
       if (pagination.page > 1) {
