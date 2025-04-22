@@ -64,6 +64,19 @@
         </tbody>
       </table>
 
+      <!-- Add page size selector with dropdown -->
+      <div class="flex justify-between items-center mt-4 mb-2">
+        <div class="flex items-center">
+          <label for="page-size-select" class="mr-2 text-gray-600">Jobs per page:</label>
+          <select id="page-size-select" class="border rounded p-1 text-sm">
+            <option value="10" {{#if (eq pagination.pageSize 10)}}selected{{/if}}>10</option>
+            <option value="20" {{#if (eq pagination.pageSize 20)}}selected{{/if}}>20</option>
+            <option value="50" {{#if (eq pagination.pageSize 50)}}selected{{/if}}>50</option>
+            <option value="100" {{#if (eq pagination.pageSize 100)}}selected{{/if}}>100</option>
+          </select>
+        </div>
+      </div>
+
       <!-- Add pagination controls for server-rendered view -->
       {{#if pagination}}
         <div class="flex justify-between items-center mt-4">
@@ -313,6 +326,28 @@ function fetchJobs(params, page = 1, pageSize = {{defaultPageSize}}) {
         </table>
       `;
 
+      html += `
+      <!-- Page size selector -->
+      <div class="flex justify-between items-center mt-4 mb-2">
+        <div class="flex items-center">
+          <label for="page-size-select" class="mr-2 text-gray-600">Jobs per page:</label>
+          <select id="page-size-select" class="border rounded p-1 text-sm">
+            <option value="10" ${pagination.pageSize === 10 ? 'selected' : ''}>10</option>
+            <option value="20" ${pagination.pageSize === 20 ? 'selected' : ''}>20</option>
+            <option value="50" ${pagination.pageSize === 50 ? 'selected' : ''}>50</option>
+            <option value="100" ${pagination.pageSize === 100 ? 'selected' : ''}>100</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Pagination navigation -->
+      <div class="flex justify-between items-center mt-2">
+        <div>
+          <span class="text-gray-600">Showing ${(pagination.page - 1) * pagination.pageSize + 1} to ${Math.min(pagination.page * pagination.pageSize, pagination.totalItems)} of ${pagination.totalItems} jobs</span>
+        </div>
+        <div class="flex space-x-2">
+    `;
+
       // Add pagination controls
       html += `
         <div class="flex justify-between items-center mt-4">
@@ -355,16 +390,7 @@ function fetchJobs(params, page = 1, pageSize = {{defaultPageSize}}) {
       
       container.innerHTML = html;
 
-      // Add event listeners for pagination buttons
-      document.querySelectorAll('.pagination-btn').forEach(button => {
-        button.addEventListener('click', function() {
-          const page = parseInt(this.getAttribute('data-page'));
-          // Update URL with new page parameter
-          activeFilters.page = page;
-          updateURL(activeFilters);
-          fetchJobs(params, page, pagination.pageSize);
-        });
-      });
+      attachEventListeners();
     })
     .catch(err => {
       console.error('Error fetching jobs:', err);
@@ -374,7 +400,9 @@ function fetchJobs(params, page = 1, pageSize = {{defaultPageSize}}) {
   // Initialize active filters from the URL
   let activeFilters = getQueryParams();
   renderFilters(activeFilters);
+  attachEventListeners();
 
+  // the following event listeners are attached to DOM that doesnt undergo re-rendering
   // When the form is submitted, add the new filter
   document.getElementById('filter-form').addEventListener('submit', function (e) {
     e.preventDefault();
@@ -405,4 +433,31 @@ function fetchJobs(params, page = 1, pageSize = {{defaultPageSize}}) {
     console.log("clicked save")
     fetchJobs(activeFilters);
   });
+
+// Create a function to attach event listeners after DOM updates
+function attachEventListeners() {
+  // Add event listeners for pagination buttons
+  document.querySelectorAll('.pagination-btn').forEach(button => {
+    button.addEventListener('click', function() {
+      const page = parseInt(this.getAttribute('data-page'));
+      // Update URL with new page parameter
+      activeFilters.page = page;
+      updateURL(activeFilters);
+      fetchJobs(activeFilters, page, activeFilters.pageSize || {{defaultPageSize}});
+    });
+  });
+
+  // Add event listener for page size selector
+  const pageSizeSelector = document.getElementById('page-size-select');
+  if (pageSizeSelector) {
+    pageSizeSelector.addEventListener('change', function() {
+      const newPageSize = parseInt(this.value);
+      // Reset to page 1 when changing page size to avoid empty pages
+      activeFilters.pageSize = newPageSize;
+      activeFilters.page = 1;
+      updateURL(activeFilters);
+      fetchJobs(activeFilters, 1, newPageSize);
+    });
+  }
+}
 </script>
