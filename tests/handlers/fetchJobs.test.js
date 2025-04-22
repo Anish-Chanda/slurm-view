@@ -128,3 +128,97 @@ describe("getSlurmJobs", () => {
         expect(result.error).toBe("command failed");
     });
 });
+
+describe("getSlurmJobs with pagination", () => {
+    afterEach(() => {
+        jest.clearAllMocks();
+    });
+
+    it("should paginate results correctly", () => {
+        // Create test data with multiple jobs
+        const jobs = Array(25).fill().map((_, i) => ({
+            job_id: `job-${i + 1}`,
+            partition: "debug",
+            name: `Test Job ${i + 1}`,
+            user_name: "user1",
+            job_state: "R"
+        }));
+
+        const validOutput = JSON.stringify({ jobs });
+        executeCommand.mockImplementation(() => validOutput);
+
+        // Test first page (default page size of 20)
+        const result1 = getSlurmJobs({}, { page: 1 });
+        expect(result1.success).toBe(true);
+        expect(result1.jobs.length).toBe(20);
+        expect(result1.jobs[0].job_id).toBe("job-1");
+        expect(result1.pagination).toEqual({
+            page: 1,
+            pageSize: 20,
+            totalItems: 25,
+            totalPages: 2
+        });
+
+        // Test second page
+        const result2 = getSlurmJobs({}, { page: 2 });
+        expect(result2.success).toBe(true);
+        expect(result2.jobs.length).toBe(5); // Only 5 jobs on second page
+        expect(result2.jobs[0].job_id).toBe("job-21");
+        expect(result2.pagination.page).toBe(2);
+    });
+
+    it("should handle custom page size", () => {
+        const jobs = Array(25).fill().map((_, i) => ({
+            job_id: `job-${i + 1}`,
+            name: `Test Job ${i + 1}`
+        }));
+
+        const validOutput = JSON.stringify({ jobs });
+        executeCommand.mockImplementation(() => validOutput);
+
+        const result = getSlurmJobs({}, { page: 2, pageSize: 10 });
+        expect(result.success).toBe(true);
+        expect(result.jobs.length).toBe(10);
+        expect(result.jobs[0].job_id).toBe("job-11");
+        expect(result.pagination).toEqual({
+            page: 2,
+            pageSize: 10,
+            totalItems: 25,
+            totalPages: 3
+        });
+    });
+
+    it("should apply filters before pagination", () => {
+        const jobs = [
+            { job_id: "1", user_name: "user1" },
+            { job_id: "2", user_name: "user2" },
+            { job_id: "3", user_name: "user1" },
+            { job_id: "4", user_name: "user2" },
+            { job_id: "5", user_name: "user1" }
+        ];
+
+        const validOutput = JSON.stringify({ jobs });
+        executeCommand.mockImplementation(() => validOutput);
+
+        const result = getSlurmJobs({ user: "user1" }, { page: 1, pageSize: 2 });
+        expect(result.success).toBe(true);
+        expect(result.jobs.length).toBe(2);
+        expect(result.pagination.totalItems).toBe(3); // Only 3 jobs match the filter
+        expect(result.pagination.totalPages).toBe(2);
+    });
+
+    it("should return empty array for out of range pages", () => {
+        const jobs = Array(5).fill().map((_, i) => ({
+            job_id: `job-${i + 1}`
+        }));
+
+        const validOutput = JSON.stringify({ jobs });
+        executeCommand.mockImplementation(() => validOutput);
+
+        const result = getSlurmJobs({}, { page: 10, pageSize: 10 });
+        expect(result.success).toBe(true);
+        expect(result.jobs.length).toBe(0); // No jobs on this page
+        expect(result.pagination.totalItems).toBe(5);
+        expect(result.pagination.totalPages).toBe(1);
+    });
+});
