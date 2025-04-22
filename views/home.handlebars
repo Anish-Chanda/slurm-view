@@ -32,8 +32,41 @@
 <div id="active-filters" class="mb-4 flex flex-wrap gap-2"></div>
 
 <!-- Jobs Table Container -->
-<div id="jobs-table">
-  {{{jobsTable}}}
+<div id="jobs-table" class="overflow-x-auto">
+  {{#if hasError}}
+    <p class="text-red-500">Error retrieving job data: {{errorMessage}}</p>
+  {{else}}
+    {{#if jobs.length}}
+      <table class="w-full border-collapse">
+        <thead>
+          <tr class="bg-gray-100">
+            <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">JobID</th>
+            <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Partition</th>
+            <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Name</th>
+            <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">User</th>
+            <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">State</th>
+            <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Time Limit</th>
+            <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Nodes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{#each jobs}}
+            <tr class="even:bg-gray-50 hover:bg-gray-100">
+              <td class="px-4 py-3 text-left border border-gray-200">{{this.job_id}}</td>
+              <td class="px-4 py-3 text-left border border-gray-200">{{this.partition}}</td>
+              <td class="px-4 py-3 text-left border border-gray-200">{{this.name}}</td>
+              <td class="px-4 py-3 text-left border border-gray-200">{{this.user_name}}</td>
+              <td class="px-4 py-3 text-left border border-gray-200">{{this.job_state}}</td>
+              <td class="px-4 py-3 text-left border border-gray-200">{{#if this.time_limit}}{{this.time_limit.number}}{{else}}N/A{{/if}}</td>
+              <td class="px-4 py-3 text-left border border-gray-200">{{#if this.node_count}}{{this.node_count.number}}{{else}}N/A{{/if}}</td>
+            </tr>
+          {{/each}}
+        </tbody>
+      </table>
+    {{else}}
+      <p class="text-gray-500">No jobs match the current filters.</p>
+    {{/if}}
+  {{/if}}
 </div>
 
 <script>
@@ -169,19 +202,73 @@
   }
 
   // Fetch and update the jobs table based on active filters
-  function fetchJobs(params) {
-    const queryString = new URLSearchParams(params).toString();
-    console.log("fetching jobs with query string: ", queryString)
-    const baseUrl = "{{passengerBaseUri}}".replace(/\/$/, '');
-    fetch(baseUrl + '/api/jobs?' + queryString)
-      .then(response => response.text())
-      .then(html => {
-        console.log("fetched jobs")
-        document.getElementById('jobs-table').innerHTML = html;
-      })
-      .catch(err => console.error('Error fetching jobs:', err));
-  }
-
+// Update the fetchJobs function to properly handle JSON response
+function fetchJobs(params) {
+  const queryString = new URLSearchParams(params).toString();
+  console.log("fetching jobs with query string: ", queryString)
+  const baseUrl = "{{passengerBaseUri}}".replace(/\/$/, '');
+  fetch(baseUrl + '/api/jobs?' + queryString)
+    .then(response => response.json())
+    .then(data => {
+      console.log("fetched jobs data:", data);
+      
+      // Render the table with the received job data
+      const container = document.getElementById('jobs-table');
+      
+      if (!data.success) {
+        container.innerHTML = `<p class="text-red-500">Error retrieving job data: ${data.error}</p>`;
+        return;
+      }
+      
+      const jobs = data.jobs;
+      
+      if (!jobs || jobs.length === 0) {
+        container.innerHTML = '<p class="text-gray-500">No jobs match the current filters.</p>';
+        return;
+      }
+      
+      let html = `
+        <table class="w-full border-collapse">
+          <thead>
+            <tr class="bg-gray-100">
+              <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">JobID</th>
+              <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Partition</th>
+              <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Name</th>
+              <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">User</th>
+              <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">State</th>
+              <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Time Limit</th>
+              <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Nodes</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+      
+      for (const job of jobs) {
+        html += `
+          <tr class="even:bg-gray-50 hover:bg-gray-100">
+            <td class="px-4 py-3 text-left border border-gray-200">${job.job_id || 'N/A'}</td>
+            <td class="px-4 py-3 text-left border border-gray-200">${job.partition || 'N/A'}</td>
+            <td class="px-4 py-3 text-left border border-gray-200">${job.name || 'N/A'}</td>
+            <td class="px-4 py-3 text-left border border-gray-200">${job.user_name || 'N/A'}</td>
+            <td class="px-4 py-3 text-left border border-gray-200">${job.job_state || 'N/A'}</td>
+            <td class="px-4 py-3 text-left border border-gray-200">${job.time_limit ? job.time_limit.number : 'N/A'}</td>
+            <td class="px-4 py-3 text-left border border-gray-200">${job.node_count ? job.node_count.number : 'N/A'}</td>
+          </tr>
+        `;
+      }
+      
+      html += `
+          </tbody>
+        </table>
+      `;
+      
+      container.innerHTML = html;
+    })
+    .catch(err => {
+      console.error('Error fetching jobs:', err);
+      document.getElementById('jobs-table').innerHTML = `<p class="text-red-500">Error fetching job data: ${err.message}</p>`;
+    });
+}
   // Initialize active filters from the URL
   let activeFilters = getQueryParams();
   renderFilters(activeFilters);

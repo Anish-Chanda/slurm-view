@@ -16,8 +16,8 @@ const router = express.Router();
 app.use(process.env.PASSENGER_BASE_URI || '/', router);
 
 router.get('/api/jobs', async (req, res) => {
-  const jobsTable = getSlurmJobs(req.query);
-  res.send(jobsTable);
+  const result = getSlurmJobs(req.query);
+  res.json(result)
 });
 
 // router.get('/api/stats/cpu-s', (req, res) => {
@@ -30,13 +30,15 @@ router.get('/api/jobs', async (req, res) => {
 // });
 
 router.get('/', async (req, res) => {
-  const jobsTable = getSlurmJobs(req.query);
+  const jobs = getSlurmJobs(req.query);
   // TODO: use promise all instead
   const cpuStats = getCPUsByState();
   const memStats = getMemByState();
   res.render('home', {
     title: "Slurm View",
-    jobsTable,
+    hasError: !jobs.success,
+    errorMessage: jobs.error,
+    jobs: jobs.success ? jobs.jobs : [],
     cpuStats,
     memStats,
     passengerBaseUri: process.env.PASSENGER_BASE_URI
