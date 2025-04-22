@@ -1,8 +1,9 @@
+const { DEFAULT_PAGE_SIZE } = require("../constants.js");
 const { executeCommand } = require("../helpers/executeCmd.js");
 
 function parseJobsData(data) {
   try {
-    const parsedData = JSON.parse(data)
+    const parsedData = JSON.parse(data);
     return parsedData.jobs;
   } catch (e) {
     throw new Error(`Failed to parse job data: ${e.message}`);
@@ -11,40 +12,56 @@ function parseJobsData(data) {
 
 function matchesFilter(job, field, filterVal) {
   let value;
-  if (field === 'jobid') {
+  if (field === "jobid") {
     value = job.job_id;
-  } else if (field === 'partition') {
+  } else if (field === "partition") {
     value = job.partition;
-  } else if (field === 'name') {
+  } else if (field === "name") {
     value = job.name;
-  } else if (field === 'user') {
+  } else if (field === "user") {
     value = job.user_name;
-  } else if (field === 'state') {
+  } else if (field === "state") {
     const state = job.job_state;
     if (Array.isArray(state)) {
-      return state.join(',').toLowerCase().includes(filterVal.toLowerCase());
+      return state.join(",").toLowerCase().includes(filterVal.toLowerCase());
     }
     value = state;
   }
   return value && String(value).toLowerCase().includes(filterVal.toLowerCase());
 }
 
-function getSlurmJobs(filters = {}) {
+function getSlurmJobs(filters = {}, pagination = {}) {
   try {
     const output = executeCommand("squeue --json --states=R,PD");
     let jobs = parseJobsData(output);
+    console.log(`Showing ${jobs.length} jobs`)
 
+    //Apply filters
     for (const key in filters) {
-      console.log('key:', key, 'val:', filters[key])
+      console.log("key:", key, "val:", filters[key]);
       const filterVal = filters[key];
       if (filterVal) {
-        jobs = jobs.filter(job => matchesFilter(job, key, filterVal));
+        jobs = jobs.filter((job) => matchesFilter(job, key, filterVal));
       }
     }
 
-    return { success: true, jobs: jobs }
+    // Pagination
+    const page = pagination.page || 1;
+    const pageSize = pagination.pageSize || DEFAULT_PAGE_SIZE;
+    const totalItems = jobs.length;
+    const totalPages = Math.ceil(totalItems / pageSize);
+
+    //calculate start and end
+    const startIdx = (page - 1) * pageSize;
+    const endIdx = startIdx + pageSize;
+
+    return {
+      success: true,
+      jobs: jobs.slice(startIdx, endIdx),
+      pagination: { page, pageSize, totalItems, totalPages },
+    };
   } catch (err) {
-    console.error('Error in getSlurmJobs:', err.message);
+    console.error("Error in getSlurmJobs:", err.message);
     return { success: false, error: err.message };
   }
 }
