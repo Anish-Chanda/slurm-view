@@ -1,42 +1,105 @@
-const { formatTimeLimit } = require('../../helpers/formatTimeLimit');
+const { formatTime } = require('../../helpers/formatTime.js');
+const { formatTimeLeft } = require('../../helpers/formatTimeLeft.js');
 
-describe('formatTimeLimit helper', () => {
+
+describe('formatTime helper', () => {
   test('should return "N/A" for null or undefined input', () => {
-    expect(formatTimeLimit(null)).toBe('N/A');
-    expect(formatTimeLimit(undefined)).toBe('N/A');
+    expect(formatTime(null)).toBe('N/A');
+    expect(formatTime(undefined)).toBe('N/A');
   });
 
   test('should format seconds correctly', () => {
-    expect(formatTimeLimit(30)).toBe('30s');
+    expect(formatTime(30)).toBe('30s');
   });
 
   test('should format minutes and seconds correctly', () => {
-    expect(formatTimeLimit(90)).toBe('1m 30s');
-    expect(formatTimeLimit(120)).toBe('2m 0s');
+    expect(formatTime(90)).toBe('1m 30s');
+    expect(formatTime(120)).toBe('2m 0s');
   });
 
   test('should format hours, minutes and seconds correctly', () => {
-    expect(formatTimeLimit(3600)).toBe('1h 0m 0s');
-    expect(formatTimeLimit(3725)).toBe('1h 2m 5s');
+    expect(formatTime(3600)).toBe('1h 0m 0s');
+    expect(formatTime(3725)).toBe('1h 2m 5s');
   });
 
   test('should format days, hours, minutes and seconds correctly', () => {
-    expect(formatTimeLimit(86400)).toBe('1d 0h 0m 0s');
-    expect(formatTimeLimit(90061)).toBe('1d 1h 1m 1s');
-    expect(formatTimeLimit(172800)).toBe('2d 0h 0m 0s');
+    expect(formatTime(86400)).toBe('1d 0h 0m 0s');
+    expect(formatTime(90061)).toBe('1d 1h 1m 1s');
+    expect(formatTime(172800)).toBe('2d 0h 0m 0s');
   });
 
   test('should handle large values', () => {
-    expect(formatTimeLimit(604800)).toBe('7d 0h 0m 0s'); // 1 week
-    expect(formatTimeLimit(2592000)).toBe('30d 0h 0m 0s'); // ~1 month
+    expect(formatTime(604800)).toBe('7d 0h 0m 0s'); // 1 week
+    expect(formatTime(2592000)).toBe('30d 0h 0m 0s'); // ~1 month
   });
 
   test('should handle string inputs by parsing them as integers', () => {
-    expect(formatTimeLimit('3600')).toBe('1h 0m 0s');
+    expect(formatTime('3600')).toBe('1h 0m 0s');
   });
 
   test('should handle edge cases', () => {
-    expect(formatTimeLimit(0)).toBe('0s');
-    expect(formatTimeLimit('not a number')).toBe('N/A'); // Assuming your function returns N/A for NaN
+    expect(formatTime(0)).toBe('0s');
+    expect(formatTime('not a number')).toBe('N/A'); // Assuming your function returns N/A for NaN
+  });
+});
+
+describe('formatTimeLeft helper', () => {
+  // Mock Date.now() to return a fixed timestamp for consistent testing
+  const originalDateNow = Date.now;
+  const mockNow = 1743000000; // Fixed timestamp for testing
+
+  beforeEach(() => {
+    Date.now = jest.fn(() => mockNow * 1000); // Convert to milliseconds
+  });
+
+  afterEach(() => {
+    Date.now = originalDateNow; // Restore original Date.now
+  });
+
+  test('should return "N/A" for null or undefined inputs', () => {
+    expect(formatTimeLeft(null, 1742900000, 'RUNNING')).toBe('N/A');
+    expect(formatTimeLeft(3600, null, 'RUNNING')).toBe('N/A');
+    expect(formatTimeLeft(null, null, 'RUNNING')).toBe('N/A');
+  });
+
+  test('should return "Not started" for non-running jobs', () => {
+    expect(formatTimeLeft(3600, 1742900000, 'PENDING')).toBe('Not started');
+    expect(formatTimeLeft(3600, 1742900000, 'PD')).toBe('Not started');
+    expect(formatTimeLeft(3600, 1742900000, 'COMPLETING')).toBe('Not started');
+  });
+
+  test('should handle case-insensitive job states', () => {
+    expect(formatTimeLeft(3600, 1742900000, 'running')).not.toBe('Not started');
+    expect(formatTimeLeft(3600, 1742900000, 'r')).not.toBe('Not started');
+  });
+
+  test('should calculate the remaining time correctly for running jobs', () => {
+    // Given:
+    // timeLimit = 10800 seconds (3 hours)
+    // startTime = 30 minutes ago from our mock time
+    // nowSec = 1743000000 (our mock time)
+    // endtime = nowSec + timeLimit = 1743000000 + 10800 = 1743010800
+    // startTime = 1743000000 - 1800 = 1742998200
+    // remaining = endtime - startTime = 1743010800 - 1742998200 = 12600 (3.5 hours)
+    
+    expect(formatTimeLeft(10800, 1742998200, 'RUNNING')).toBe('3h 30m 0s');
+  });
+
+  test('should handle jobs with just-started time', () => {
+    // Job started now, full time limit remains
+    expect(formatTimeLeft(3600, mockNow, 'RUNNING')).toBe('1h 0m 0s');
+  });
+
+  test('should format the time correctly when the job has a remaining time', () => {
+    // Calculations:
+    // startTime = 1742900000 (earlier than mockNow)
+    // timeLimit = 86400 (1 day)
+    // nowSec = 1743000000
+    // endtime = nowSec + timeLimit = 1743000000 + 86400 = 1743086400
+    // remaining = endtime - startTime = 1743086400 - 1742900000 = 186400 seconds
+    // (which is about 2 days, 3 hours, 46 minutes, 40 seconds)
+    
+    // Note: The exact formatted string depends on how formatTime works
+    expect(formatTimeLeft(86400, 1742900000, 'RUNNING')).toBe('2d 3h 46m 40s');
   });
 });

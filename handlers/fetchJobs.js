@@ -1,6 +1,7 @@
 const { DEFAULT_PAGE_SIZE } = require("../constants.js");
 const { executeCommand } = require("../helpers/executeCmd.js");
-const { formatTimeLimit } = require("../helpers/formatTimeLimit.js");
+const { formatTimeLeft } = require("../helpers/formatTimeLeft.js");
+const { formatTime } = require("../helpers/formatTime.js");
 
 function parseJobsData(data) {
   try {
@@ -13,13 +14,18 @@ function parseJobsData(data) {
 
 function formatJobsData(jobs) {
   return jobs.map(job => {
+
+    //extract job state
+    const jobState = Array.isArray(job.job_state) ? job.job_state[0] : job.job_state;
+
     return {
       job_id: job.job_id || 'N/A',
       partition: job.partition || 'N/A',
       name: job.name || 'N/A',
       user_name: job.user_name || 'N/A',
-      job_state: job.job_state || 'N/A',
-      time_limit: formatTimeLimit(job.time_limit?.number),
+      job_state: jobState || 'N/A',
+      time_limit: formatTime(job.time_limit?.number),
+      time_left: formatTimeLeft(job.time_limit?.number, job.start_time?.number, jobState),
       nodes: job.node_count?.number || 'N/A'
     }
   })

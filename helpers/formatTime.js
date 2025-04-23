@@ -1,7 +1,8 @@
-function formatTimeLimit(timeLimit) {
+function formatTime(time) {
   // Try to parse an integer number of seconds
-  const totalSeconds = parseInt(timeLimit, 10);
+  const totalSeconds = parseInt(time);
   if (isNaN(totalSeconds)) {
+    console.log("formatTime arg is nan")
     return "N/A";
   }
 
@@ -27,5 +28,5 @@ function formatTimeLimit(timeLimit) {
 }
 
 module.exports = {
-  formatTimeLimit
+  formatTime
 }

@@ -50,6 +50,7 @@
             <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">User</th>
             <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">State</th>
             <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Time Limit</th>
+            <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Time Left</th>
             <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Nodes</th>
           </tr>
         </thead>
@@ -62,6 +63,7 @@
               <td class="px-4 py-3 text-left border border-gray-200">{{this.user_name}}</td>
               <td class="px-4 py-3 text-left border border-gray-200">{{this.job_state}}</td>
               <td class="px-4 py-3 text-left border border-gray-200">{{this.time_limit}}</td>
+              <td class="px-4 py-3 text-left border border-gray-200">{{this.time_left}}</td>
               <td class="px-4 py-3 text-left border border-gray-200">{{#if this.nodes}}{{this.nodes}}{{else}}N/A{{/if}}</td>
             </tr>
           {{/each}}
@@ -308,6 +310,7 @@ function fetchJobs(params, page = 1, pageSize = {{defaultPageSize}}) {
               <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">User</th>
               <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">State</th>
               <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Time Limit</th>
+              <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Time Left</th>
               <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Nodes</th>
             </tr>
           </thead>
@@ -323,6 +326,7 @@ function fetchJobs(params, page = 1, pageSize = {{defaultPageSize}}) {
             <td class="px-4 py-3 text-left border border-gray-200">${job.user_name || 'N/A'}</td>
             <td class="px-4 py-3 text-left border border-gray-200">${job.job_state || 'N/A'}</td>
             <td class="px-4 py-3 text-left border border-gray-200">${job.time_limit}</td>
+            <td class="px-4 py-3 text-left border border-gray-200">${job.time_left}</td>
             <td class="px-4 py-3 text-left border border-gray-200">${job.nodes || 'N/A'}</td>
           </tr>
         `;
