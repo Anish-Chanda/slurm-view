@@ -1,7 +1,7 @@
 const express = require('express');
 const { getSlurmJobs } = require('./handlers/fetchJobs.js');
 const { engine } = require('express-handlebars');
-const { getCPUsByState, getMemByState } = require('./handlers/fetchStats.js');
+const { getCPUsByState, getMemByState, getGPUByState } = require('./handlers/fetchStats.js');
 const { DEFAULT_PAGE_SIZE } = require('./constants.js');
 
 
@@ -33,13 +33,18 @@ const hbs = engine({
       const range = [];
       const startPage = Math.max(1, currentPage - delta);
       const endPage = Math.min(totalPages, currentPage + delta);
-      
+
       for (let i = startPage; i <= endPage; i++) {
         range.push(i);
       }
-      
+
       return range;
-    }
+    },
+
+    json: function (data) {
+      return JSON.stringify(data);
+    },
+
   }
 })
 
@@ -83,6 +88,7 @@ router.get('/', async (req, res) => {
   // TODO: use promise all instead
   const cpuStats = getCPUsByState();
   const memStats = getMemByState();
+  const gpuStats = getGPUByState();
 
 
   res.render('home', {
@@ -93,6 +99,7 @@ router.get('/', async (req, res) => {
     pagination: jobs.pagination,
     cpuStats,
     memStats,
+    gpuStats,
     passengerBaseUri: process.env.PASSENGER_BASE_URI,
     defaultPageSize: DEFAULT_PAGE_SIZE
   })
