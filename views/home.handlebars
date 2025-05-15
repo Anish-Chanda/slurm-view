@@ -163,7 +163,7 @@
       .attr("dy", "0.35em")
       .style("font-size", "16px")
       .style("font-weight", "bold")
-      .text(titleText + " Total: " + total + (totalSuffix ? " " + totalSuffix : ""));
+      .text(titleText + " Total: " + Math.round(total) + (totalSuffix ? " " + totalSuffix : ""));
 
     // Draw arcs.
     svg.append("g")
