@@ -53,7 +53,7 @@ function matchesFilter(job, field, filterVal) {
 
 function getSlurmJobs(filters = {}, pagination = {}) {
   try {
-    const output = executeCommand("squeue --json --states=R,PD"); //TODO: if jobs are being fetched directly we would only be able to filter in running and pending jobs now
+    const output = executeCommand("squeue --json --states=R,PD,CD"); //TODO: if jobs are being fetched directly we would only be able to filter in running and pending jobs now
     let jobs = parseJobsData(output);
     console.log(`[Jobs Handler] Fetched ${jobs.length} jobs from Slurm`);
 
