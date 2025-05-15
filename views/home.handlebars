@@ -1,18 +1,53 @@
-<div class="flex w-full space-x-4 mb-20">
-  <div class="w-1/2">
-    <h2 class="text-2xl mb-4">CPU Utilization</h2>
-    <div id="sunburst-chart-cpu" class="mb-6 max-h-64 max-w-80"></div>
+{{!Stats section}}
+<div class="mb-12">
+  <div class="flex justify-between items-center mb-6">
+    <h2 class="text-2xl font-semibold">Resource Utilization</h2>
+    <div class="flex items-center space-x-2">
+      <label for="partition-select" class="text-sm">Partition:</label>
+      <select id="partition-select" class="border rounded p-2 w-[180px]">
+        {{#each partitions}}
+          <option value="{{this.id}}">{{this.name}}</option>
+        {{/each}}
+      </select>
+    </div>
   </div>
-  <div class="w-1/2">
-    <h2 class="text-2xl mb-4">Memory Utilization</h2>
-    <div id="sunburst-chart-mem" class="mb-6 max-h-64 max-w-80"></div>
+
+  <div id="partition-badge" class="mb-4 hidden">
+    <span class="bg-gray-200 text-gray-700 rounded-full px-3 py-1 text-sm inline-flex items-center">
+      Showing stats for: <span id="selected-partition-name" class="font-semibold ml-1"></span>
+    </span>
   </div>
-  <div class="w-1/3">
-    <h2 class="text-2xl mb-4">GPU Utilization</h2>
-    <div id="sunburst-chart-gpu" class="mb-6 max-h-64 max-w-80"></div>
+
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <div class="bg-white rounded-lg shadow border flex flex-col">
+      <div class="pb-2 border-b p-4">
+        <h3 class="text-lg font-medium">CPU Utilization</h3>
+      </div>
+      <div class="flex-1 flex items-center justify-center p-4">
+        <div id="sunburst-chart-cpu" class="h-full mx-auto"></div>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-lg shadow border flex flex-col">
+      <div class="pb-2 border-b p-4">
+        <h3 class="text-lg font-medium">Memory Utilization</h3>
+      </div>
+      <div class="flex-1 flex items-center justify-center p-4">
+        <div id="sunburst-chart-mem" class="h-full mx-auto"></div>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-lg shadow border flex flex-col">
+      <div class="pb-2 border-b p-4">
+        <h3 class="text-lg font-medium">GPU Utilization</h3>
+      </div>
+      <div class="flex-1 flex items-center justify-center p-4">
+        <div id="sunburst-chart-gpu" class="h-full mx-auto"></div>
+      </div>
+    </div>
   </div>
 </div>
-
+<!-- Filter Form and rest of the existing code -->
 
 <h2 class="text-center text-gray-800 mb-6 text-2xl">Slurm Job Queue</h2>
 
@@ -129,6 +164,7 @@
   // ----- D3 js Sunburts chart logic -----
  // Helper function to draw a sunburst chart in a given container.
   function drawSunburstChart(data, containerId, titleText, totalSuffix) {
+    document.getElementById(containerId).innerHTML = '';
     const width = 500;
     const radius = width / 2;
     // Prepare a color scale based on the number of children.
@@ -153,7 +189,7 @@
 
     // Create the SVG container.
     const svg = d3.create("svg")
-      .attr("viewBox", [-radius, -radius, width, width])
+      .attr("viewBox", [-radius, -radius, width, width]).style("height", "400px")
       .style("font", "10px sans-serif");
 
     const total = root.value;
@@ -228,6 +264,65 @@
   drawSunburstChart(cpuData, "sunburst-chart-cpu", "CPU");
   drawSunburstChart(memData, "sunburst-chart-mem", "Memory", "GB");
   drawSunburstChart({{{json gpuStats}}}, "sunburst-chart-gpu", "GPU");
+
+  function updateChartsForPartition(partition) {
+    const baseUrl = "{{passengerBaseUri}}".replace(/\/$/, '');
+    const partitionBadge = document.getElementById('partition-badge');
+    const selectedPartitionName = document.getElementById('selected-partition-name');
+    
+    // Show/hide partition badge
+    if (partition === 'all') {
+      partitionBadge.classList.add('hidden');
+    } else {
+      // Find the partition name from the select element
+      const partitionSelect = document.getElementById('partition-select');
+      const selectedOption = partitionSelect.options[partitionSelect.selectedIndex];
+      selectedPartitionName.textContent = selectedOption.text;
+      partitionBadge.classList.remove('hidden');
+    }
+    
+    // Fetch stats for the selected partition
+    fetch(`${baseUrl}/api/stats?partition=${partition}`)
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          // Create updated chart data
+          const newCpuData = {
+            name: "CPU Utilization",
+            children: [
+              { name: "Allocated", value: data.cpuStats.allocated },
+              { name: "Idle", value: data.cpuStats.idle },
+              { name: "Other", value: data.cpuStats.other }
+            ]
+          };
+          
+          const newMemData = {
+            name: "Memory Utilization",
+            children: [
+              { name: "Allocated", value: data.memStats.allocated },
+              { name: "Idle", value: data.memStats.idle },
+              { name: "Down", value: data.memStats.down },
+              { name: "Other", value: data.memStats.other }
+            ]
+          };
+          
+          // Redraw charts with new data
+          drawSunburstChart(newCpuData, "sunburst-chart-cpu", "CPU");
+          drawSunburstChart(newMemData, "sunburst-chart-mem", "Memory", "GB");
+          drawSunburstChart(data.gpuStats, "sunburst-chart-gpu", "GPU");
+        } else {
+          console.error("Error fetching stats:", data.error);
+        }
+      })
+      .catch(err => {
+        console.error("Error updating stats:", err);
+      });
+  }
+
+  // Listen for partition selection changes
+  document.getElementById('partition-select').addEventListener('change', function() {
+    updateChartsForPartition(this.value);
+  });
 
 
   // ----- jobs filtering logic -----
