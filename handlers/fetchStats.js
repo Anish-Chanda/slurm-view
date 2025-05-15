@@ -50,7 +50,13 @@ function getMemByState(partition = null) {
         return distribution;
     } catch (error) {
         console.error('Error in getMemByState:', error.message);
-        return `<p>Error retrieving memory statistics: ${error.message}</p>`;
+        return {
+            allocated: 0,
+            idle: 0,
+            down: 0,
+            other: 0,
+            total: 0
+        };
     }
 }
 
