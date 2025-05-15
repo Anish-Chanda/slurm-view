@@ -122,7 +122,7 @@ describe("getMemByState", () => {
     // Spy on console.error
     jest.spyOn(console, "error").mockImplementation(() => { });
 
-    const result = getCPUsByState();
+    const result = getMemByState();
 
     expect(console.error).toHaveBeenCalled();
     // The function now returns a map with zero values when an error occurs
