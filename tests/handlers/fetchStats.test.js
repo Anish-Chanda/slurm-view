@@ -128,6 +128,7 @@ describe("getMemByState", () => {
     // The function now returns a map with zero values when an error occurs
     expect(result).toEqual({
       allocated: 0,
+      down: 0,
       idle: 0,
       other: 0,
       total: 0
