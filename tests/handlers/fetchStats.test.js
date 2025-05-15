@@ -15,7 +15,7 @@ describe("getCPUsByState", () => {
 
     const result = getCPUsByState();
 
-    expect(executeCommand).toHaveBeenCalledWith("sinfo -o '%C' --noheader");
+    expect(executeCommand).toHaveBeenCalledWith("sinfo  -o '%C' --noheader");
     expect(result).toEqual({
       allocated: 500,
       idle: 1500,
@@ -32,12 +32,32 @@ describe("getCPUsByState", () => {
     });
 
     // Spy on console.error
-    jest.spyOn(console, "error").mockImplementation(() => {});
+    jest.spyOn(console, "error").mockImplementation(() => { });
 
     const result = getCPUsByState();
 
     expect(console.error).toHaveBeenCalled();
-    expect(result).toContain(errorMessage);
+    // The function now returns a map with zero values when an error occurs
+    expect(result).toEqual({
+      allocated: 0,
+      idle: 0,
+      other: 0,
+      total: 0
+    });
+  });
+
+  it("should handle partition parameter when provided", () => {
+    executeCommand.mockReturnValue("100/200/30/330");
+
+    const result = getCPUsByState("partition");
+
+    expect(executeCommand).toHaveBeenCalledWith("sinfo -p partition -o '%C' --noheader");
+    expect(result).toEqual({
+      allocated: 100,
+      idle: 200,
+      other: 30,
+      total: 330,
+    });
   });
 });
 
@@ -55,7 +75,7 @@ describe("getMemByState", () => {
     const result = getMemByState();
 
     expect(executeCommand).toHaveBeenCalledWith(
-      "sinfo -N -o '%m %t' --noheader"
+      "sinfo  -N -o '%m %t' --noheader"
     );
     expect(result).toEqual({
       allocated: (32000 / 1024).toFixed(2),
@@ -100,12 +120,33 @@ describe("getMemByState", () => {
     });
 
     // Spy on console.error
-    jest.spyOn(console, "error").mockImplementation(() => {});
+    jest.spyOn(console, "error").mockImplementation(() => { });
 
     const result = getMemByState();
 
     expect(console.error).toHaveBeenCalled();
-    expect(result).toContain(errorMessage);
+    // The function now returns a map with zero values when an error occurs
+    expect(result).toEqual({
+      allocated: 0,
+      down: 0,
+      idle: 0,
+      other: 0,
+      total: 0
+    });
+  });
+
+  it("should handle partition parameter when provided", () => {
+    executeCommand.mockReturnValue("100/200/30/330");
+
+    const result = getCPUsByState("partition");
+
+    expect(executeCommand).toHaveBeenCalledWith("sinfo -p partition -o '%C' --noheader");
+    expect(result).toEqual({
+      allocated: 100,
+      idle: 200,
+      other: 30,
+      total: 330,
+    });
   });
 });
 
@@ -175,7 +216,7 @@ gpu:a40:0(IDX:N/A)
     });
 
     // Spy on console.error
-    jest.spyOn(console, "error").mockImplementation(() => {});
+    jest.spyOn(console, "error").mockImplementation(() => { });
 
     const result = getGPUByState();
 
@@ -195,5 +236,22 @@ gpu:a40:0(IDX:N/A)
     expect(result.children).toHaveLength(2);
     expect(result.children[0].children).toHaveLength(0);
     expect(result.children[1].children).toHaveLength(0);
+  });
+
+  it("should handle partition parameter when provided", () => {
+    executeCommand.mockImplementation((cmd) => {
+      if (cmd.includes("Gres")) {
+        return "gpu:a100:4(S:0-1)";
+      } else if (cmd.includes("GresUsed")) {
+        return "gpu:a100:2(IDX:1,3)";
+      }
+      return "";
+    });
+    
+    getGPUByState("partition");
+    
+    // Check that both commands were called with the partition flag
+    expect(executeCommand).toHaveBeenCalledWith("sinfo -p partition -h -O Gres | grep -v '(null)' | grep gpu");
+    expect(executeCommand).toHaveBeenCalledWith("sinfo -p partition -h -O GresUsed | grep -v '(null)' | grep gpu");
   });
 });
