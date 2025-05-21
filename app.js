@@ -6,6 +6,7 @@ const { DEFAULT_PAGE_SIZE } = require('./constants.js');
 const backgroundPolling = require('./service/backgroundPolling.js');
 const dataCache = require('./modules/dataCache.js');
 const jobsService = require('./service/jobsService.js');
+const { getPartitions } = require('./handlers/fetchPartitions.js');
 
 
 const app = express();
@@ -98,14 +99,28 @@ router.get('/api/jobs', async (req, res) => {
   res.json(result);
 });
 
-// router.get('/api/stats/cpu-s', (req, res) => {
-//   try {
-//     const stats = getCPUsByState();
-//     res.json(stats);
-//   } catch (err) {
-//     res.status(500).json({ error: err.message });
-//   }
-// });
+router.get('/api/stats/', (req, res) => {
+  try {
+    const partition = req.query.partition || 'all';
+    
+    // Get stats specific to partition if it's not 'all'
+    const cpuStats = getCPUsByState(partition !== 'all' ? partition : null);
+    const memStats = getMemByState(partition !== 'all' ? partition : null);
+    const gpuStats = getGPUByState(partition !== 'all' ? partition : null);
+    
+    res.json({
+      success: true,
+      cpuStats,
+      memStats,
+      gpuStats
+    });
+  } catch (err) {
+    res.status(500).json({ 
+      success: false,
+      error: err.message 
+    });
+  }
+});
 
 router.get('/', async (req, res) => {
   const { page, pageSize, ...filters } = req.query;
@@ -122,6 +137,9 @@ router.get('/', async (req, res) => {
   const cpuStats = getCPUsByState();
   const memStats = getMemByState();
   const gpuStats = getGPUByState();
+  //TODO: fetch partitions dynamically
+  const partitions = getPartitions()
+  
 
   res.render('home', {
     title: "Slurm View",
@@ -135,6 +153,7 @@ router.get('/', async (req, res) => {
     lastUpdated: {
       jobs: jobs.lastUpdated ? new Date(jobs.lastUpdated).toLocaleTimeString() : 'N/A'
     },
+    partitions,
     passengerBaseUri: process.env.PASSENGER_BASE_URI,
     defaultPageSize: DEFAULT_PAGE_SIZE
   });

@@ -1,20 +1,22 @@
 const { executeCommand } = require("../helpers/executeCmd.js");
 
 // Fetches the number of CPUs by state
-function getCPUsByState() {
+function getCPUsByState(partition = null) {
     try {
-        const cmdOutput = executeCommand("sinfo -o '%C' --noheader") // returns cpu utilization in Allocated/Idle/Other/Total
+        const partitionFlag = partition ? `-p ${partition}` : '';
+        const cmdOutput = executeCommand(`sinfo ${partitionFlag} -o '%C' --noheader`) // returns cpu utilization in Allocated/Idle/Other/Total
         const [allocated, idle, other, total] = cmdOutput.split('/').map(Number);
         return { allocated, idle, other, total };
     } catch (error) {
         console.error('Error in getCPUsByState:', error.message);
-        return `<p>Error retrieving utilization statistics: ${error.message}</p>`;
+        return { allocated: 0, idle: 0, other: 0, total: 0 };
     }
 }
 
-function getMemByState() {
+function getMemByState(partition = null) {
     try {
-        const cmdOutput = executeCommand("sinfo -N -o '%m %t' --noheader")
+        const partitionFlag = partition ? `-p ${partition}` : '';
+        const cmdOutput = executeCommand(`sinfo ${partitionFlag} -N -o '%m %t' --noheader`);
         const lines = cmdOutput.trim().split("\n");
         let distribution = {
             allocated: 0,
@@ -48,14 +50,21 @@ function getMemByState() {
         return distribution;
     } catch (error) {
         console.error('Error in getMemByState:', error.message);
-        return `<p>Error retrieving memory statistics: ${error.message}</p>`;
+        return {
+            allocated: 0,
+            idle: 0,
+            down: 0,
+            other: 0,
+            total: 0
+        };
     }
 }
 
-function getGPUByState() {
+function getGPUByState(partition = null) {
     try {
-        const availableGPUsOutput = executeCommand("sinfo -h -O Gres | grep -v '(null)' | grep gpu");
-        const usedGPUsOutput = executeCommand("sinfo -h -O GresUsed | grep -v '(null)' | grep gpu");
+        const partitionFlag = partition ? `-p ${partition}` : '';
+        const availableGPUsOutput = executeCommand(`sinfo ${partitionFlag} -h -O Gres | grep -v '(null)' | grep gpu`);
+        const usedGPUsOutput = executeCommand(`sinfo ${partitionFlag} -h -O GresUsed | grep -v '(null)' | grep gpu`);
 
         // Parse available GPUs
         const gpuTypes = {};
