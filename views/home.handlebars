@@ -125,6 +125,7 @@
             <span class="text-gray-600">
               Showing {{add (multiply (subtract pagination.page 1) pagination.pageSize) 1}} to {{min (multiply pagination.page pagination.pageSize) pagination.totalItems}} of {{pagination.totalItems}} jobs
             </span>
+            <span>Last updated: {{lastUpdated.jobs}}</span>
           </div>
           <div class="flex space-x-2">
             <!-- Previous page button -->
