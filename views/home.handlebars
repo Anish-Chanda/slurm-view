@@ -168,7 +168,33 @@
     const width = 500;
     const radius = width / 2;
     // Prepare a color scale based on the number of children.
-    const color = d3.scaleOrdinal(d3.quantize(d3.interpolateRainbow, data.children.length + 1));
+    let color;
+    if (containerId === "sunburst-chart-gpu") {
+      // For GPU chart - use semantic colors based on usage state
+      color = d => {
+        // First level: Used vs Available
+        if (d.depth === 1) {
+          return d.data.name === "Used" ? "#e63946" : "#2a9d8f"; // Red for used, Green for available
+        } 
+        // Second level: Different GPU types get different shades based on parent
+        else if (d.depth === 2) {
+          const parentName = d.parent.data.name;
+          if (parentName === "Used") {
+            // Different shades of red/orange for used GPUs
+            const usedColors = ["#e63946", "#f94144", "#f3722c", "#f8961e", "#f9844a"];
+            return usedColors[d.parent.children.indexOf(d) % usedColors.length];
+          } else {
+            // Different shades of green/blue for available GPUs
+            const availableColors = ["#2a9d8f", "#52b788", "#76c893", "#99d98c", "#b5e48c"];
+            return availableColors[d.parent.children.indexOf(d) % availableColors.length];
+          }
+        }
+        return "#888888"; // Fallback gray color
+      };
+    } else {
+      // For other charts (CPU, Memory) - use the original rainbow scheme
+      color = d3.scaleOrdinal(d3.quantize(d3.interpolateRainbow, data.children.length + 1));
+    }
     
     // Partition layout: convert data into a hierarchy with computed angles.
     const partition = d => d3.partition()
@@ -208,9 +234,13 @@
       .data(root.descendants().filter(d => d.depth))
       .join("path")
       .attr("fill", d => {
+          if (containerId === "sunburst-chart-gpu") {
+          return color(d);
+      } else {
           let current = d;
           while (current.depth > 1) current = current.parent;
           return color(current.data.name);
+      }
       })
       .attr("d", arc)
       .append("title")
