@@ -3,6 +3,9 @@ const { getSlurmJobs } = require('./handlers/fetchJobs.js');
 const { engine } = require('express-handlebars');
 const { getCPUsByState, getMemByState, getGPUByState } = require('./handlers/fetchStats.js');
 const { DEFAULT_PAGE_SIZE } = require('./constants.js');
+const backgroundPolling = require('./service/backgroundPolling.js');
+const dataCache = require('./modules/dataCache.js');
+const jobsService = require('./service/jobsService.js');
 const { getPartitions } = require('./handlers/fetchPartitions.js');
 
 
@@ -49,6 +52,33 @@ const hbs = engine({
   }
 })
 
+//start the background polling service
+console.log("[Main Worker] Starting background worker service...");
+backgroundPolling.start();
+
+// Graceful shutdown
+function gracefulShutdown() {
+  console.log('[Main Worker] Graceful shutdown initiated...');
+
+  // First stop the background polling
+  backgroundPolling.stop();
+
+  // Then close the server
+  server.close(() => {
+    console.log('Express server closed.');
+    process.exit(0);
+  });
+
+  // If server hasn't closed in 10 seconds, force shutdown
+  setTimeout(() => {
+    console.error('Could not close connections in time, forcefully shutting down');
+    process.exit(1);
+  }, 10000);
+}
+
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
+
 //handlebars config
 app.engine('handlebars', hbs);
 app.set('view engine', 'handlebars');
@@ -65,7 +95,7 @@ router.get('/api/jobs', async (req, res) => {
     pageSize: pageSize ? parseInt(pageSize) : DEFAULT_PAGE_SIZE
   }
 
-  const result = getSlurmJobs(filters, pagination);
+  const result = jobsService.getJobs(filters, pagination, true);
   res.json(result);
 });
 
@@ -94,20 +124,23 @@ router.get('/api/stats/', (req, res) => {
 
 router.get('/', async (req, res) => {
   const { page, pageSize, ...filters } = req.query;
+
   const pagination = {
     page: page ? parseInt(page) : 1,
     pageSize: pageSize ? parseInt(pageSize) : DEFAULT_PAGE_SIZE
   };
 
-  const jobs = getSlurmJobs(filters, pagination);
-  // TODO: use promise all instead
+  // Use the service with caching for the homepage
+  const jobs = jobsService.getJobs(filters, pagination, true);
+
+  // Get stats
   const cpuStats = getCPUsByState();
   const memStats = getMemByState();
   const gpuStats = getGPUByState();
-
   //TODO: fetch partitions dynamically
   const partitions = getPartitions()
   
+
   res.render('home', {
     title: "Slurm View",
     hasError: !jobs.success,
@@ -117,12 +150,15 @@ router.get('/', async (req, res) => {
     cpuStats,
     memStats,
     gpuStats,
+    lastUpdated: {
+      jobs: jobs.lastUpdated ? new Date(jobs.lastUpdated).toLocaleTimeString() : 'N/A'
+    },
     partitions,
     passengerBaseUri: process.env.PASSENGER_BASE_URI,
     defaultPageSize: DEFAULT_PAGE_SIZE
-  })
+  });
 });
 
-app.listen(port, () => {
-  console.log(`App listening on port ${port}`);
+const server = app.listen(port, () => {
+  console.log(`[Main Worker] App listening on port ${port}`);
 });
