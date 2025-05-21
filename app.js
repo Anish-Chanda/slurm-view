@@ -58,16 +58,16 @@ backgroundPolling.start();
 // Graceful shutdown
 function gracefulShutdown() {
   console.log('[Main Worker] Graceful shutdown initiated...');
-  
+
   // First stop the background polling
   backgroundPolling.stop();
-  
+
   // Then close the server
   server.close(() => {
     console.log('Express server closed.');
     process.exit(0);
   });
-  
+
   // If server hasn't closed in 10 seconds, force shutdown
   setTimeout(() => {
     console.error('Could not close connections in time, forcefully shutting down');
@@ -94,7 +94,7 @@ router.get('/api/jobs', async (req, res) => {
     pageSize: pageSize ? parseInt(pageSize) : DEFAULT_PAGE_SIZE
   }
 
-  const result = getSlurmJobs(filters, pagination);
+  const result = jobsService.getJobs(filters, pagination, true);
   res.json(result);
 });
 
@@ -109,20 +109,20 @@ router.get('/api/jobs', async (req, res) => {
 
 router.get('/', async (req, res) => {
   const { page, pageSize, ...filters } = req.query;
-  
+
   const pagination = {
     page: page ? parseInt(page) : 1,
     pageSize: pageSize ? parseInt(pageSize) : DEFAULT_PAGE_SIZE
   };
-  
+
   // Use the service with caching for the homepage
   const jobs = jobsService.getJobs(filters, pagination, true);
-  
+
   // Get stats
   const cpuStats = getCPUsByState();
   const memStats = getMemByState();
   const gpuStats = getGPUByState();
-  
+
   res.render('home', {
     title: "Slurm View",
     hasError: !jobs.success,

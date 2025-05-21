@@ -23,7 +23,7 @@ class JobsService {
     const cachedJobs = useCache ? dataCache.getData('jobs') : null;
 
     if (cachedJobs && !dataCache.isStale('jobs')) {
-      console.log('Using cached jobs data');
+      console.log('[Jobs Service] Using cached jobs data');
 
       // Apply filters to cached data
       let filteredJobs = [...cachedJobs.jobs]; // Clone to avoid modifying cache
