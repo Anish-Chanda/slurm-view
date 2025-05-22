@@ -8,7 +8,7 @@ jest.mock('../../handlers/fetchJobs', () => {
     const original = jest.requireActual('../../handlers/fetchJobs');
     return {
         ...original,
-        getSlurmJobs: jest.fn().mockReturnValue({
+        getSlurmJobs: jest.fn().mockResolvedValue({
             success: true,
             jobs: [],
             pagination: { page: 1, pageSize: 20, totalItems: 0, totalPages: 1 }
@@ -38,29 +38,29 @@ describe('JobsService', () => {
         });
     });
 
-    test('should use direct API when useCache is false', () => {
-        const result = jobsService.getJobs({}, {}, false);
+    test('should use direct API when useCache is false', async () => {
+        const result = await jobsService.getJobs({}, {}, false);
 
         expect(dataCache.getData).not.toHaveBeenCalled();
         expect(getSlurmJobs).toHaveBeenCalled();
         expect(result.fromCache).toBe(false);
     });
 
-    test('should use direct API when cache is not available', () => {
+    test('should use direct API when cache is not available', async () => {
         dataCache.getData.mockReturnValue(null);
 
-        const result = jobsService.getJobs();
+        const result = await jobsService.getJobs();
 
         expect(dataCache.getData).toHaveBeenCalledWith('jobs');
         expect(getSlurmJobs).toHaveBeenCalled();
         expect(result.fromCache).toBe(false);
     });
 
-    test('should use direct API when cache is stale', () => {
+    test('should use direct API when cache is stale', async () => {
         dataCache.getData.mockReturnValue({ jobs: [] });
         dataCache.isStale.mockReturnValue(true);
 
-        const result = jobsService.getJobs();
+        const result = await jobsService.getJobs();
 
         expect(dataCache.getData).toHaveBeenCalledWith('jobs');
         expect(dataCache.isStale).toHaveBeenCalledWith('jobs');
@@ -68,7 +68,7 @@ describe('JobsService', () => {
         expect(result.fromCache).toBe(false);
     });
 
-    test('should use cache when available and not stale', () => {
+    test('should use cache when available and not stale', async () => {
         const cachedData = {
             jobs: [
                 { job_id: '1', name: 'job1', user_name: 'user1' },
@@ -79,7 +79,7 @@ describe('JobsService', () => {
         dataCache.getData.mockReturnValue(cachedData);
         dataCache.isStale.mockReturnValue(false);
 
-        const result = jobsService.getJobs();
+        const result = await jobsService.getJobs();
 
         expect(dataCache.getData).toHaveBeenCalledWith('jobs');
         expect(dataCache.isStale).toHaveBeenCalledWith('jobs');
@@ -88,7 +88,7 @@ describe('JobsService', () => {
         expect(result.jobs.length).toBe(2);
     });
 
-    test('should apply filters to cached data', () => {
+    test('should apply filters to cached data', async () => {
         const cachedData = {
             jobs: [
                 { job_id: '1', name: 'job1', user_name: 'user1' },
@@ -99,14 +99,14 @@ describe('JobsService', () => {
         dataCache.getData.mockReturnValue(cachedData);
         dataCache.isStale.mockReturnValue(false);
 
-        const result = jobsService.getJobs({ user: 'user1' });
+        const result = await jobsService.getJobs({ user: 'user1' });
 
         expect(result.jobs.length).toBe(1);
         expect(result.jobs[0].job_id).toBe('1');
         expect(result.pagination.totalItems).toBe(1);
     });
 
-    test('should apply pagination to cached data', () => {
+    test('should apply pagination to cached data', async () => {
         const cachedData = {
             jobs: Array(30).fill().map((_, i) => ({
                 job_id: `${i + 1}`,
@@ -118,7 +118,7 @@ describe('JobsService', () => {
         dataCache.getData.mockReturnValue(cachedData);
         dataCache.isStale.mockReturnValue(false);
 
-        const result = jobsService.getJobs({}, { page: 2, pageSize: 10 });
+        const result = await jobsService.getJobs({}, { page: 2, pageSize: 10 });
 
         expect(result.jobs.length).toBe(10);
         expect(result.jobs[0].job_id).toBe('11');
@@ -130,7 +130,7 @@ describe('JobsService', () => {
         });
     });
 
-    test('should include lastUpdated timestamp from cache', () => {
+    test('should include lastUpdated timestamp from cache', async () => {
         const mockTimestamp = 1623456789000;
         const cachedData = { jobs: [] };
 
@@ -138,7 +138,7 @@ describe('JobsService', () => {
         dataCache.isStale.mockReturnValue(false);
         dataCache.getLastUpdated.mockReturnValue(mockTimestamp);
 
-        const result = jobsService.getJobs();
+        const result = await jobsService.getJobs();
 
         expect(result.lastUpdated).toBe(mockTimestamp);
     });

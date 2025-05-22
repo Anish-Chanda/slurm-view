@@ -1,10 +1,11 @@
 import { parseJobsData, getSlurmJobs, matchesFilter } from "../../handlers/fetchJobs.js"
-import { executeCommand } from "../../helpers/executeCmd.js";
+import { executeCommand, executeCommandStreaming } from "../../helpers/executeCmd.js";
 
 
 // Mock the executeCommand function
 jest.mock("../../helpers/executeCmd.js", () => ({
     executeCommand: jest.fn(),
+    executeCommandStreaming: jest.fn(),
 }));
 
 // Jest tests for fetchJobs handler: parseJobsData, matchesFilter, and getSlurmJobs
@@ -61,7 +62,7 @@ describe("getSlurmJobs", () => {
         jest.clearAllMocks();
     });
 
-    it("returns a success object with jobs array when executeCommand returns valid JSON", () => {
+    it("returns a success object with jobs array when executeCommand returns valid JSON", async () => {
         const validOutput = JSON.stringify({
             jobs: [
                 {
@@ -75,9 +76,9 @@ describe("getSlurmJobs", () => {
                 },
             ],
         });
-        executeCommand.mockImplementation(() => validOutput);
+        executeCommandStreaming.mockResolvedValue(validOutput);
 
-        const result = getSlurmJobs();
+        const result = await getSlurmJobs();
         expect(result.success).toBe(true);
         expect(Array.isArray(result.jobs)).toBe(true);
         expect(result.jobs.length).toBe(1);
@@ -85,7 +86,7 @@ describe("getSlurmJobs", () => {
         expect(result.jobs[0].name).toBe("Test Job");
     });
 
-    it("returns a filtered jobs array when filters are provided", () => {
+    it("returns a filtered jobs array when filters are provided", async () => {
         const validOutput = JSON.stringify({
             jobs: [
                 {
@@ -104,26 +105,26 @@ describe("getSlurmJobs", () => {
                 }
             ],
         });
-        executeCommand.mockImplementation(() => validOutput);
+        executeCommandStreaming.mockResolvedValue(validOutput);
 
-        const result = getSlurmJobs({ user: "user2" });
+        const result = await getSlurmJobs({ user: "user2" });
         expect(result.success).toBe(true);
         expect(result.jobs.length).toBe(1);
         expect(result.jobs[0].job_id).toBe("2");
     });
 
-    it("returns an error object when executeCommand returns invalid JSON", () => {
-        executeCommand.mockImplementation(() => "invalid json");
-        const result = getSlurmJobs();
+    it("returns an error object when executeCommand returns invalid JSON", async () => {
+        executeCommandStreaming.mockImplementation(() => "invalid json");
+        const result = await getSlurmJobs();
         expect(result.success).toBe(false);
         expect(result.error).toBeDefined();
     });
 
-    it("returns an error object when executeCommand throws an error", () => {
-        executeCommand.mockImplementation(() => {
+    it("returns an error object when executeCommand throws an error", async () => {
+        executeCommandStreaming.mockImplementation(() => {
             throw new Error("command failed");
         });
-        const result = getSlurmJobs();
+        const result = await getSlurmJobs();
         expect(result.success).toBe(false);
         expect(result.error).toBe("command failed");
     });
@@ -134,7 +135,7 @@ describe("getSlurmJobs with pagination", () => {
         jest.clearAllMocks();
     });
 
-    it("should paginate results correctly", () => {
+    it("should paginate results correctly", async () => {
         // Create test data with multiple jobs
         const jobs = Array(25).fill().map((_, i) => ({
             job_id: `job-${i + 1}`,
@@ -145,10 +146,10 @@ describe("getSlurmJobs with pagination", () => {
         }));
 
         const validOutput = JSON.stringify({ jobs });
-        executeCommand.mockImplementation(() => validOutput);
+        executeCommandStreaming.mockResolvedValue(validOutput);
 
         // Test first page (default page size of 20)
-        const result1 = getSlurmJobs({}, { page: 1 });
+        const result1 = await getSlurmJobs({}, { page: 1 });
         expect(result1.success).toBe(true);
         expect(result1.jobs.length).toBe(20);
         expect(result1.jobs[0].job_id).toBe("job-1");
@@ -160,23 +161,23 @@ describe("getSlurmJobs with pagination", () => {
         });
 
         // Test second page
-        const result2 = getSlurmJobs({}, { page: 2 });
+        const result2 = await getSlurmJobs({}, { page: 2 });
         expect(result2.success).toBe(true);
         expect(result2.jobs.length).toBe(5); // Only 5 jobs on second page
         expect(result2.jobs[0].job_id).toBe("job-21");
         expect(result2.pagination.page).toBe(2);
     });
 
-    it("should handle custom page size", () => {
+    it("should handle custom page size", async () => {
         const jobs = Array(25).fill().map((_, i) => ({
             job_id: `job-${i + 1}`,
             name: `Test Job ${i + 1}`
         }));
 
         const validOutput = JSON.stringify({ jobs });
-        executeCommand.mockImplementation(() => validOutput);
+        executeCommandStreaming.mockResolvedValue(validOutput);
 
-        const result = getSlurmJobs({}, { page: 2, pageSize: 10 });
+        const result = await getSlurmJobs({}, { page: 2, pageSize: 10 });
         expect(result.success).toBe(true);
         expect(result.jobs.length).toBe(10);
         expect(result.jobs[0].job_id).toBe("job-11");
@@ -188,7 +189,7 @@ describe("getSlurmJobs with pagination", () => {
         });
     });
 
-    it("should apply filters before pagination", () => {
+    it("should apply filters before pagination", async () => {
         const jobs = [
             { job_id: "1", user_name: "user1" },
             { job_id: "2", user_name: "user2" },
@@ -198,24 +199,24 @@ describe("getSlurmJobs with pagination", () => {
         ];
 
         const validOutput = JSON.stringify({ jobs });
-        executeCommand.mockImplementation(() => validOutput);
+        executeCommandStreaming.mockResolvedValue(validOutput);
 
-        const result = getSlurmJobs({ user: "user1" }, { page: 1, pageSize: 2 });
+        const result = await getSlurmJobs({ user: "user1" }, { page: 1, pageSize: 2 });
         expect(result.success).toBe(true);
         expect(result.jobs.length).toBe(2);
         expect(result.pagination.totalItems).toBe(3); // Only 3 jobs match the filter
         expect(result.pagination.totalPages).toBe(2);
     });
 
-    it("should return empty array for out of range pages", () => {
+    it("should return empty array for out of range pages", async () => {
         const jobs = Array(5).fill().map((_, i) => ({
             job_id: `job-${i + 1}`
         }));
 
         const validOutput = JSON.stringify({ jobs });
-        executeCommand.mockImplementation(() => validOutput);
+        executeCommandStreaming.mockResolvedValue(validOutput);
 
-        const result = getSlurmJobs({}, { page: 10, pageSize: 10 });
+        const result = await getSlurmJobs({}, { page: 10, pageSize: 10 });
         expect(result.success).toBe(true);
         expect(result.jobs.length).toBe(0); // No jobs on this page
         expect(result.pagination.totalItems).toBe(5);
