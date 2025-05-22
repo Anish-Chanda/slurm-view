@@ -15,33 +15,56 @@ function getCPUsByState(partition = null) {
 
 function getMemByState(partition = null) {
     try {
-        const partitionFlag = partition ? `-p ${partition}` : '';
-        const cmdOutput = executeCommand(`sinfo ${partitionFlag} -N -o '%m %t' --noheader`);
+        const cmdOutput = executeCommand(`scontrol show node -o`);
         const lines = cmdOutput.trim().split("\n");
+
         let distribution = {
             allocated: 0,
             idle: 0,
             down: 0,
-            // mix: 0,
             other: 0,
             total: 0
         }
 
         lines.forEach((line) => {
-            if (!line) return;
-            const [memStr, state] = line.trim().split(/\s+/);
-            const memory = Number(memStr);
-            if (state.includes("alloc")) {
-                distribution.allocated += memory;
-            } else if (state.includes("idle")) {
-                distribution.idle += memory;
-            } else if (state.includes("down")) {
-                distribution.down += memory;
-            } else {
-                distribution.other += memory;
+            if(!line.trim()) return;
+
+            //check if node belongs to current partition
+            if (partition) {
+                const partitionMatch = line.match(/Partitions=([^\s]+)/);
+                if (!partitionMatch || !partitionMatch[1].split(',').includes(partition)) {
+                    return; // Skip this node if it's not in the requested partition
+                }
             }
-            distribution.total += memory;
-        })
+
+            //extract mem info
+            const realMemMatch = line.match(/RealMemory=(\d+)/);
+            const allocMemMatch = line.match(/AllocMem=(\d+)/);
+            const freeMemMatch = line.match(/FreeMem=(\d+)/);
+            const stateMatch = line.match(/State=(\S+)/);
+            
+            if (realMemMatch && stateMatch) {
+                const nodeState = stateMatch[1].toUpperCase();
+                const realMem = parseInt(realMemMatch[1], 10);
+                const allocMem = allocMemMatch ? parseInt(allocMemMatch[1], 10) : 0;
+                const freeMem = freeMemMatch ? parseInt(freeMemMatch[1], 10) : 0;
+                
+                // Add to total memory
+                distribution.total += realMem;
+                
+                // Categorize memory based on node state
+                if (nodeState.includes("DOWN") || nodeState.includes("DRAIN")) {
+                    distribution.down += realMem;
+                } else {
+                    distribution.allocated += allocMem;
+                    distribution.idle += freeMem;
+                    
+                    // Calculate other memory (difference between total, allocated and free)
+                    const otherMem = Math.max(0, realMem - allocMem - freeMem);
+                    distribution.other += otherMem;
+                }
+            }
+        });
 
         //convert memory in MB to GB
         Object.keys(distribution).forEach(key => {
