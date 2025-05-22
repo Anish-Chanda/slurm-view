@@ -43,7 +43,7 @@ class BackgroundPolling {
         try {
             console.log('[Background Worker] Fetching job data...');
             // Get all jobs without pagination for the cache
-            const result = getSlurmJobs({}, { pageSize: Number.MAX_SAFE_INTEGER });
+            const result = await getSlurmJobs({}, { pageSize: Number.MAX_SAFE_INTEGER });
 
             if (result.success) {
                 dataCache.setData('jobs', result);

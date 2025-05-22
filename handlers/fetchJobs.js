@@ -1,5 +1,5 @@
 const { DEFAULT_PAGE_SIZE } = require("../constants.js");
-const { executeCommand } = require("../helpers/executeCmd.js");
+const { executeCommand, executeCommandStreaming } = require("../helpers/executeCmd.js");
 const { formatTimeLeft } = require("../helpers/formatTimeLeft.js");
 const { formatTime } = require("../helpers/formatTime.js");
 
@@ -51,9 +51,10 @@ function matchesFilter(job, field, filterVal) {
   return value && String(value).toLowerCase().includes(filterVal.toLowerCase());
 }
 
-function getSlurmJobs(filters = {}, pagination = {}) {
+async function getSlurmJobs(filters = {}, pagination = {}) {
   try {
-    const output = executeCommand("squeue --json --states=R,PD,CD"); //TODO: if jobs are being fetched directly we would only be able to filter in running and pending jobs now
+    //const output = executeCommand("squeue --json --states=R,PD,CD"); //TODO: if jobs are being fetched directly we would only be able to filter in running and pending jobs now
+    const output = await executeCommandStreaming("squeue --json --states=R,PD,CD");
     let jobs = parseJobsData(output);
     console.log(`[Jobs Handler] Fetched ${jobs.length} jobs from Slurm`);
 

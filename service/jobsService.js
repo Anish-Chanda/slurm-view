@@ -14,7 +14,7 @@ class JobsService {
    * @param {boolean} useCache - Whether to use cached data if available
    * @returns {Object} Jobs result with pagination metadata
    */
-  getJobs(filters = {}, pagination = {}, useCache = true) {
+  async getJobs(filters = {}, pagination = {}, useCache = true) {
     // Set default pagination values
     const page = pagination.page || 1;
     const pageSize = pagination.pageSize || DEFAULT_PAGE_SIZE;
@@ -58,7 +58,7 @@ class JobsService {
 
     // No cache or stale cache, fetch directly
     console.log('Fetching fresh jobs data');
-    const result = getSlurmJobs(filters, { page, pageSize });
+    const result = await getSlurmJobs(filters, { page, pageSize });
     result.fromCache = false;
 
     return result;

@@ -1,5 +1,4 @@
 const express = require('express');
-const { getSlurmJobs } = require('./handlers/fetchJobs.js');
 const { engine } = require('express-handlebars');
 const { getCPUsByState, getMemByState, getGPUByState } = require('./handlers/fetchStats.js');
 const { DEFAULT_PAGE_SIZE } = require('./constants.js');
@@ -95,7 +94,7 @@ router.get('/api/jobs', async (req, res) => {
     pageSize: pageSize ? parseInt(pageSize) : DEFAULT_PAGE_SIZE
   }
 
-  const result = jobsService.getJobs(filters, pagination, true);
+  const result = await jobsService.getJobs(filters, pagination, true);
   res.json(result);
 });
 
@@ -131,7 +130,7 @@ router.get('/', async (req, res) => {
   };
 
   // Use the service with caching for the homepage
-  const jobs = jobsService.getJobs(filters, pagination, true);
+  const jobs = await jobsService.getJobs(filters, pagination, true);
 
   // Get stats
   const cpuStats = getCPUsByState();
