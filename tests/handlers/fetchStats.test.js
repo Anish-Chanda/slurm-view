@@ -68,47 +68,86 @@ describe("getMemByState", () => {
 
   it("should calculate memory distribution correctly", () => {
     // Mock successful command output with multiple nodes
-    executeCommand.mockReturnValue(
-      "32000 alloc\n64000 idle\n16000 down\n8000 inval"
-    );
+    executeCommand.mockReturnValue(`
+NodeName=node1 State=IDLE RealMemory=50000 AllocMem=0 FreeMem=48000 Partitions=compute,debug
+NodeName=node2 State=ALLOCATED RealMemory=50000 AllocMem=40000 FreeMem=8000 Partitions=compute
+NodeName=node3 State=DOWN RealMemory=50000 AllocMem=0 FreeMem=0 Partitions=compute
+NodeName=node4 State=MIXED RealMemory=50000 AllocMem=25000 FreeMem=20000 Partitions=compute,gpu
+    `);
 
     const result = getMemByState();
 
     expect(executeCommand).toHaveBeenCalledWith(
-      "sinfo  -N -o '%m %t' --noheader"
+      "scontrol show node -o"
     );
+    // Calculate expected values
+    const totalMem = 200000;
+    const allocatedMem = 40000 + 25000; // node2 + node4
+    const idleMem = 48000 + 8000 + 20000; // node1 + node2 + node4
+    const downMem = 50000; // node3
+    const otherMem = 2000 + 2000 + 5000; // node1 + node2 + node4 (RealMemory - AllocMem - FreeMem)
+    
     expect(result).toEqual({
-      allocated: (32000 / 1024).toFixed(2),
-      idle: (64000 / 1024).toFixed(2),
-      down: (16000 / 1024).toFixed(2),
-      other: (8000 / 1024).toFixed(2),
-      total: (120000 / 1024).toFixed(2),
+      allocated: (allocatedMem / 1024).toFixed(2),
+      idle: (idleMem / 1024).toFixed(2),
+      down: (downMem / 1024).toFixed(2),
+      other: (otherMem / 1024).toFixed(2),
+      total: (totalMem / 1024).toFixed(2),
     });
   });
 
-  it("should handle empty lines in command output", () => {
-    // Output with empty lines
-    executeCommand.mockReturnValue("32000 alloc\n\n64000 idle\n");
+  it("should filter nodes by partition when specified", () => {
+    // Mock successful command output with multiple nodes
+    executeCommand.mockReturnValue(`
+NodeName=node1 State=IDLE RealMemory=50000 AllocMem=0 FreeMem=48000 Partitions=compute,debug
+NodeName=node2 State=ALLOCATED RealMemory=50000 AllocMem=40000 FreeMem=8000 Partitions=compute
+NodeName=node3 State=DOWN RealMemory=50000 AllocMem=0 FreeMem=0 Partitions=gpu
+NodeName=node4 State=MIXED RealMemory=50000 AllocMem=25000 FreeMem=20000 Partitions=gpu,debug
+    `);
 
-    const result = getMemByState();
+    const result = getMemByState("gpu");
 
-    expect(result.total).toBe((96000 / 1024).toFixed(2));
+    expect(executeCommand).toHaveBeenCalledWith("scontrol show node -o");
+    
+    // Only node3 and node4 should be included (gpu partition)
+    const totalMem = 100000; // node3 + node4
+    const allocatedMem = 25000; // node4
+    const idleMem = 20000; // node4
+    const downMem = 50000; // node3
+    const otherMem = 5000; // node4 (RealMemory - AllocMem - FreeMem)
+    
+    expect(result).toEqual({
+      allocated: (allocatedMem / 1024).toFixed(2),
+      idle: (idleMem / 1024).toFixed(2),
+      down: (downMem / 1024).toFixed(2),
+      other: (otherMem / 1024).toFixed(2),
+      total: (totalMem / 1024).toFixed(2),
+    });
   });
 
-  it("should handle mixed state nodes correctly", () => {
-    // Test nodes with mixed states
-    executeCommand.mockReturnValue(
-      "32000 alloc*\n64000 idle~\n16000 down#\n8000 other"
-    );
+   it("should handle empty lines and irregular formats in command output", () => {
+    // Output with empty lines and incomplete data
+    executeCommand.mockReturnValue(`
+NodeName=node1 State=IDLE RealMemory=50000 AllocMem=0 FreeMem=48000 Partitions=compute
+
+NodeName=node2 State=ALLOCATED Partitions=compute
+NodeName=node3 RealMemory=50000 AllocMem=0 FreeMem=48000 Partitions=compute
+    `);
 
     const result = getMemByState();
-
+    
+    // Only node1 has complete data, node2 missing memory, node3 missing state
+    const totalMem = 50000; // only node1
+    const allocatedMem = 0; // node1
+    const idleMem = 48000; // node1
+    const otherMem = 2000; // node1 (RealMemory - AllocMem - FreeMem)
+    
     expect(result).toEqual({
-      allocated: (32000 / 1024).toFixed(2),
-      idle: (64000 / 1024).toFixed(2),
-      down: (16000 / 1024).toFixed(2),
-      other: (8000 / 1024).toFixed(2),
-      total: (120000 / 1024).toFixed(2),
+      allocated: (allocatedMem / 1024).toFixed(2),
+      idle: (idleMem / 1024).toFixed(2),
+      down: "0.00",
+      other: (otherMem / 1024).toFixed(2),
+      total: (totalMem / 1024).toFixed(2),
     });
   });
 
