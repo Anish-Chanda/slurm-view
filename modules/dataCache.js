@@ -5,28 +5,10 @@ class DataCache {
                 data: null,
                 lastUpdated: 0
             },
-            cpuStats: {
-                data: null,
-                lastUpdated: 0
-            },
-            memStats: {
-                data: null,
-                lastUpdated: 0
-            },
-            gpuStats: {
-                data: null,
-                lastUpdated: 0
-            },
-            seffData: { //TODO: map job id to seff data
-                data: {},
-                lastUpdated: 0
-            }
         };
 
         this.updateIntervals = {
             jobs: 30000, // 30 seconds
-            stats: 60000, // 1 minute
-            completedJobs: 300000 // 5 minutes
         };
     }
 
@@ -55,8 +37,6 @@ class DataCache {
 
     getUpdateInterval(key) {
         if (key === 'jobs') return this.updateIntervals.jobs;
-        if (key === 'cpuStats' || key === 'memStats' || key === 'gpuStats') return this.updateIntervals.stats;
-        if (key === 'completedJobs') return this.updateIntervals.completedJobs;
         return 60000; // Default 1 minute
     }
 }

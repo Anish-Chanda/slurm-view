@@ -41,10 +41,6 @@ describe('DataCache', () => {
 
     test('should return correct update interval for different data types', () => {
         expect(dataCache.getUpdateInterval('jobs')).toBe(30000);
-        expect(dataCache.getUpdateInterval('cpuStats')).toBe(60000);
-        expect(dataCache.getUpdateInterval('memStats')).toBe(60000);
-        expect(dataCache.getUpdateInterval('gpuStats')).toBe(60000);
-        expect(dataCache.getUpdateInterval('completedJobs')).toBe(300000);
         expect(dataCache.getUpdateInterval('unknownKey')).toBe(60000); // Default
     });
 
