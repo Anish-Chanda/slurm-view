@@ -1,0 +1,90 @@
+{{!-- This partial contains the jobs table, pagination, and page size selector --}}
+<div id="jobs-table" class="overflow-x-auto">
+  {{#if hasError}}
+    <p class="text-red-500">Error retrieving job data: {{errorMessage}}</p>
+  {{else}}
+    {{#if jobs.length}}
+      <table class="w-full border-collapse">
+        <thead>
+          <tr class="bg-gray-100">
+            <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">JobID</th>
+            <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Partition</th>
+            <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Name</th>
+            <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">User</th>
+            <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">State</th>
+            <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Time Limit</th>
+            <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Time Left</th>
+            <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Nodes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{#each jobs}}
+            <tr class="even:bg-gray-50 hover:bg-gray-100">
+              <td class="px-4 py-3 text-left border border-gray-200">{{this.job_id}}</td>
+              <td class="px-4 py-3 text-left border border-gray-200">{{this.partition}}</td>
+              <td class="px-4 py-3 text-left border border-gray-200">{{this.name}}</td>
+              <td class="px-4 py-3 text-left border border-gray-200">{{this.user_name}}</td>
+              <td class="px-4 py-3 text-left border border-gray-200">{{this.job_state}}</td>
+              <td class="px-4 py-3 text-left border border-gray-200">{{this.time_limit}}</td>
+              <td class="px-4 py-3 text-left border border-gray-200">{{this.time_left}}</td>
+              <td class="px-4 py-3 text-left border border-gray-200">{{#if this.nodes}}{{this.nodes}}{{else}}N/A{{/if}}</td>
+            </tr>
+          {{/each}}
+        </tbody>
+      </table>
+
+      <!-- Page size selector with dropdown -->
+      <div class="flex justify-between items-center mt-4 mb-2">
+        <div class="flex items-center">
+          <label for="page-size-select" class="mr-2 text-gray-600">Jobs per page:</label>
+          <select id="page-size-select" class="border rounded p-1 text-sm">
+            <option value="10" {{#if (eq pagination.pageSize 10)}}selected{{/if}}>10</option>
+            <option value="20" {{#if (eq pagination.pageSize 20)}}selected{{/if}}>20</option>
+            <option value="50" {{#if (eq pagination.pageSize 50)}}selected{{/if}}>50</option>
+            <option value="100" {{#if (eq pagination.pageSize 100)}}selected{{/if}}>100</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Pagination controls for server-rendered view -->
+      {{#if pagination}}
+        <div class="flex justify-between items-center mt-4">
+          <div>
+            <span class="text-gray-600">
+              Showing {{add (multiply (subtract pagination.page 1) pagination.pageSize) 1}} to {{min (multiply pagination.page pagination.pageSize) pagination.totalItems}} of {{pagination.totalItems}} jobs
+            </span>
+            {{#if lastUpdated.jobs}}
+              <span>Last updated: {{lastUpdated.jobs}}</span>
+            {{/if}}
+          </div>
+          <div class="flex space-x-2">
+            <!-- Previous page button -->
+            {{#if (gt pagination.page 1)}}
+              <a href="?page={{subtract pagination.page 1}}{{#each ../activeFilters}}&{{@key}}={{this}}{{/each}}" class="pagination-link bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded">Previous</a>
+            {{else}}
+              <button class="bg-gray-100 text-gray-400 font-medium py-2 px-4 rounded cursor-not-allowed" disabled>Previous</button>
+            {{/if}}
+            
+            <!-- Page number buttons -->
+            {{#each (paginationRange pagination.page pagination.totalPages)}}
+              {{#if (eq this ../pagination.page)}}
+                <button class="bg-blue-500 text-white font-medium py-2 px-4 rounded" disabled>{{this}}</button>
+              {{else}}
+                <a href="?page={{this}}{{#each ../../activeFilters}}&{{@key}}={{this}}{{/each}}" class="pagination-link bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded">{{this}}</a>
+              {{/if}}
+            {{/each}}
+            
+            <!-- Next page button -->
+            {{#if (lt pagination.page pagination.totalPages)}}
+              <a href="?page={{add pagination.page 1}}{{#each ../activeFilters}}&{{@key}}={{this}}{{/each}}" class="pagination-link bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded">Next</a>
+            {{else}}
+              <button class="bg-gray-100 text-gray-400 font-medium py-2 px-4 rounded cursor-not-allowed" disabled>Next</button>
+            {{/if}}
+          </div>
+        </div>
+      {{/if}}
+    {{else}}
+      <p class="text-gray-500">No jobs match the current filters.</p>
+    {{/if}}
+  {{/if}}
+</div>

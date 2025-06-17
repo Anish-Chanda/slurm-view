@@ -71,93 +71,7 @@
 <div id="active-filters" class="mb-4 flex flex-wrap gap-2"></div>
 
 <!-- Jobs Table Container -->
-<div id="jobs-table" class="overflow-x-auto">
-  {{#if hasError}}
-    <p class="text-red-500">Error retrieving job data: {{errorMessage}}</p>
-  {{else}}
-    {{#if jobs.length}}
-      <table class="w-full border-collapse">
-        <thead>
-          <tr class="bg-gray-100">
-            <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">JobID</th>
-            <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Partition</th>
-            <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Name</th>
-            <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">User</th>
-            <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">State</th>
-            <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Time Limit</th>
-            <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Time Left</th>
-            <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Nodes</th>
-          </tr>
-        </thead>
-        <tbody>
-          {{#each jobs}}
-            <tr class="even:bg-gray-50 hover:bg-gray-100">
-              <td class="px-4 py-3 text-left border border-gray-200">{{this.job_id}}</td>
-              <td class="px-4 py-3 text-left border border-gray-200">{{this.partition}}</td>
-              <td class="px-4 py-3 text-left border border-gray-200">{{this.name}}</td>
-              <td class="px-4 py-3 text-left border border-gray-200">{{this.user_name}}</td>
-              <td class="px-4 py-3 text-left border border-gray-200">{{this.job_state}}</td>
-              <td class="px-4 py-3 text-left border border-gray-200">{{this.time_limit}}</td>
-              <td class="px-4 py-3 text-left border border-gray-200">{{this.time_left}}</td>
-              <td class="px-4 py-3 text-left border border-gray-200">{{#if this.nodes}}{{this.nodes}}{{else}}N/A{{/if}}</td>
-            </tr>
-          {{/each}}
-        </tbody>
-      </table>
-
-      <!-- Add page size selector with dropdown -->
-      <div class="flex justify-between items-center mt-4 mb-2">
-        <div class="flex items-center">
-          <label for="page-size-select" class="mr-2 text-gray-600">Jobs per page:</label>
-          <select id="page-size-select" class="border rounded p-1 text-sm">
-            <option value="10" {{#if (eq pagination.pageSize 10)}}selected{{/if}}>10</option>
-            <option value="20" {{#if (eq pagination.pageSize 20)}}selected{{/if}}>20</option>
-            <option value="50" {{#if (eq pagination.pageSize 50)}}selected{{/if}}>50</option>
-            <option value="100" {{#if (eq pagination.pageSize 100)}}selected{{/if}}>100</option>
-          </select>
-        </div>
-      </div>
-
-      <!-- Add pagination controls for server-rendered view -->
-      {{#if pagination}}
-        <div class="flex justify-between items-center mt-4">
-          <div>
-            <span class="text-gray-600">
-              Showing {{add (multiply (subtract pagination.page 1) pagination.pageSize) 1}} to {{min (multiply pagination.page pagination.pageSize) pagination.totalItems}} of {{pagination.totalItems}} jobs
-            </span>
-            <span>Last updated: {{lastUpdated.jobs}}</span>
-          </div>
-          <div class="flex space-x-2">
-            <!-- Previous page button -->
-            {{#if (gt pagination.page 1)}}
-              <a href="?page={{subtract pagination.page 1}}{{#each ../activeFilters}}&{{@key}}={{this}}{{/each}}" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded">Previous</a>
-            {{else}}
-              <button class="bg-gray-100 text-gray-400 font-medium py-2 px-4 rounded cursor-not-allowed" disabled>Previous</button>
-            {{/if}}
-            
-            <!-- Page number buttons -->
-            {{#each (paginationRange pagination.page pagination.totalPages)}}
-              {{#if (eq this ../pagination.page)}}
-                <button class="bg-blue-500 text-white font-medium py-2 px-4 rounded" disabled>{{this}}</button>
-              {{else}}
-                <a href="?page={{this}}{{#each ../../activeFilters}}&{{@key}}={{this}}{{/each}}" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded">{{this}}</a>
-              {{/if}}
-            {{/each}}
-            
-            <!-- Next page button -->
-            {{#if (lt pagination.page pagination.totalPages)}}
-              <a href="?page={{add pagination.page 1}}{{#each ../activeFilters}}&{{@key}}={{this}}{{/each}}" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded">Next</a>
-            {{else}}
-              <button class="bg-gray-100 text-gray-400 font-medium py-2 px-4 rounded cursor-not-allowed" disabled>Next</button>
-            {{/if}}
-          </div>
-        </div>
-      {{/if}}
-    {{else}}
-      <p class="text-gray-500">No jobs match the current filters.</p>
-    {{/if}}
-  {{/if}}
-</div>
+{{> jobsTable}}
 
 
 
@@ -397,143 +311,41 @@
     }
   }
 
-  // Fetch and update the jobs table based on active filters
-// Update the fetchJobs function to properly handle JSON response
-function fetchJobs(params, page = 1, pageSize = {{defaultPageSize}}) {
-  const queryParams = { ...params, page, pageSize };
-  const queryString = new URLSearchParams(queryParams).toString();
-  console.log("fetching jobs with query string: ", queryString)
-  const baseUrl = "{{passengerBaseUri}}".replace(/\/$/, '');
+  function fetchJobs(params) {
+    const queryString = new URLSearchParams(params).toString();
+    console.log("Fetching jobs table with query string: ", queryString);
+    const baseUrl = "{{passengerBaseUri}}".replace(/\/$/, '');
+    const container = document.getElementById('jobs-table');
 
-  fetch(baseUrl + '/api/jobs?' + queryString)
-    .then(response => response.json())
-    .then(data => {
-      console.log("fetched jobs data:", data);
-      
-      // Render the table with the received job data
-      const container = document.getElementById('jobs-table');
-      
-      if (!data.success) {
-        container.innerHTML = `<p class="text-red-500">Error retrieving job data: ${data.error}</p>`;
-        return;
-      }
-      
-      const jobs = data.jobs;
-      const pagination = data.pagination;
-      
-      if (!jobs || jobs.length === 0) {
-        container.innerHTML = '<p class="text-gray-500">No jobs match the current filters.</p>';
-        return;
-      }
-      
-      let html = `
-        <table class="w-full border-collapse">
-          <thead>
-            <tr class="bg-gray-100">
-              <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">JobID</th>
-              <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Partition</th>
-              <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Name</th>
-              <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">User</th>
-              <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">State</th>
-              <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Time Limit</th>
-              <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Time Left</th>
-              <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Nodes</th>
-            </tr>
-          </thead>
-          <tbody>
-      `;
-      
-      for (const job of jobs) {
-        html += `
-          <tr class="even:bg-gray-50 hover:bg-gray-100">
-            <td class="px-4 py-3 text-left border border-gray-200">${job.job_id || 'N/A'}</td>
-            <td class="px-4 py-3 text-left border border-gray-200">${job.partition || 'N/A'}</td>
-            <td class="px-4 py-3 text-left border border-gray-200">${job.name || 'N/A'}</td>
-            <td class="px-4 py-3 text-left border border-gray-200">${job.user_name || 'N/A'}</td>
-            <td class="px-4 py-3 text-left border border-gray-200">${job.job_state || 'N/A'}</td>
-            <td class="px-4 py-3 text-left border border-gray-200">${job.time_limit}</td>
-            <td class="px-4 py-3 text-left border border-gray-200">${job.time_left}</td>
-            <td class="px-4 py-3 text-left border border-gray-200">${job.nodes || 'N/A'}</td>
-          </tr>
-        `;
-      }
-      
-      html += `
-          </tbody>
-        </table>
-      `;
-
-      html += `
-      <!-- Page size selector -->
-      <div class="flex justify-between items-center mt-4 mb-2">
-        <div class="flex items-center">
-          <label for="page-size-select" class="mr-2 text-gray-600">Jobs per page:</label>
-          <select id="page-size-select" class="border rounded p-1 text-sm">
-            <option value="10" ${pagination.pageSize === 10 ? 'selected' : ''}>10</option>
-            <option value="20" ${pagination.pageSize === 20 ? 'selected' : ''}>20</option>
-            <option value="50" ${pagination.pageSize === 50 ? 'selected' : ''}>50</option>
-            <option value="100" ${pagination.pageSize === 100 ? 'selected' : ''}>100</option>
-          </select>
-        </div>
-      </div>
-
-      <!-- Pagination navigation -->
-      <div class="flex justify-between items-center mt-2">
-        <div>
-          <span class="text-gray-600">Showing ${(pagination.page - 1) * pagination.pageSize + 1} to ${Math.min(pagination.page * pagination.pageSize, pagination.totalItems)} of ${pagination.totalItems} jobs</span>
-        </div>
-        <div class="flex space-x-2">
-    `;
-
-
-      
-      // Previous page button
-      if (pagination.page > 1) {
-        html += `<button class="pagination-btn bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded" data-page="${pagination.page - 1}">Previous</button>`;
-      } else {
-        html += `<button class="bg-gray-100 text-gray-400 font-medium py-2 px-4 rounded cursor-not-allowed" disabled>Previous</button>`;
-      }
-
-      // Page number buttons (show up to 5 pages)
-      const startPage = Math.max(1, pagination.page - 2);
-      const endPage = Math.min(pagination.totalPages, pagination.page + 2);
-      
-      for (let i = startPage; i <= endPage; i++) {
-        if (i === pagination.page) {
-          html += `<button class="bg-blue-500 text-white font-medium py-2 px-4 rounded" disabled>${i}</button>`;
-        } else {
-          html += `<button class="pagination-btn bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded" data-page="${i}">${i}</button>`;
+    // Fetch the rendered HTML from partials endpoint and then replace the html in browser heree
+    fetch(`${baseUrl}/partials/jobs-table?${queryString}`)
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
         }
-      }
-      
-      // Next page button
-      if (pagination.page < pagination.totalPages) {
-        html += `<button class="pagination-btn bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded" data-page="${pagination.page + 1}">Next</button>`;
-      } else {
-        html += `<button class="bg-gray-100 text-gray-400 font-medium py-2 px-4 rounded cursor-not-allowed" disabled>Next</button>`;
-      }
-      
-      html += `
-          </div>
-        </div>
-      `;
-      
-      container.innerHTML = html;
+        return response.text(); // expected HTML here
+      })
+      .then(html => {
+        container.outerHTML = html; // replace the container itself
 
-      attachEventListeners();
-    })
-    .catch(err => {
-      console.error('Error fetching jobs:', err);
-      document.getElementById('jobs-table').innerHTML = `<p class="text-red-500">Error fetching job data: ${err.message}</p>`;
-    });
-}
+        // re-attach event listeners
+        const newContainer = document.getElementById('jobs-table');
+        if (newContainer) {
+          attachClientSidePagination(newContainer);
+          attachPageSizeSelector(newContainer);
+        }
+      })
+      .catch(err => {
+        console.error('Error fetching jobs table:', err);
+        container.innerHTML = `<p class="text-red-500">Error fetching job data: ${err.message}</p>`;
+      });
+  }
+
   // Initialize active filters from the URL
   let activeFilters = getQueryParams();
   renderFilters(activeFilters);
-  attachEventListeners();
 
-  // the following event listeners are attached to DOM that doesnt undergo re-rendering
-  // When the form is submitted, add the new filter
+  // Attach listeners to static elements on the page
   document.getElementById('filter-form').addEventListener('submit', function (e) {
     e.preventDefault();
     const fieldSelect = document.getElementById('filter-field');
@@ -541,53 +353,64 @@ function fetchJobs(params, page = 1, pageSize = {{defaultPageSize}}) {
     const filterValue = document.getElementById('filter-value').value.trim();
     if (filterValue) {
       activeFilters[filterField] = filterValue;
+      // Reset to page 1 for a new filter
+      activeFilters.page = 1;
       renderFilters(activeFilters);
       updateURL(activeFilters);
     }
     document.getElementById('filter-value').value = '';
   });
 
-  // Remove a filter when its badge "x" is clicked
   document.getElementById('active-filters').addEventListener('click', function (e) {
     if (e.target.tagName.toLowerCase() === 'button') {
       const key = e.target.getAttribute('data-key');
       delete activeFilters[key];
+      // Reset to page 1 when a filter is removed
+      activeFilters.page = 1;
       renderFilters(activeFilters);
       updateURL(activeFilters);
-      fetchJobs(activeFilters);
+      fetchJobs(activeFilters); // Fetch immediately on removal
     }
   });
 
-  // When the Save button is hit, update the jobs table view
   document.getElementById('save-filter-btn').addEventListener('click', function () {
-    console.log("clicked save")
+    console.log("Clicked save, fetching with filters:", activeFilters);
     fetchJobs(activeFilters);
   });
-
-// Create a function to attach event listeners after DOM updates
-function attachEventListeners() {
-  // Add event listeners for pagination buttons
-  document.querySelectorAll('.pagination-btn').forEach(button => {
-    button.addEventListener('click', function() {
-      const page = parseInt(this.getAttribute('data-page'));
-      // Update URL with new page parameter
-      activeFilters.page = page;
-      updateURL(activeFilters);
-      fetchJobs(activeFilters, page, activeFilters.pageSize || {{defaultPageSize}});
-    });
-  });
-
-  // Add event listener for page size selector
-  const pageSizeSelector = document.getElementById('page-size-select');
-  if (pageSizeSelector) {
-    pageSizeSelector.addEventListener('change', function() {
-      const newPageSize = parseInt(this.value);
-      // Reset to page 1 when changing page size to avoid empty pages
-      activeFilters.pageSize = newPageSize;
-      activeFilters.page = 1;
-      updateURL(activeFilters);
-      fetchJobs(activeFilters, 1, newPageSize);
+  
+  function attachClientSidePagination(container) {
+    // Change the server-rendered links to client-side fetches
+    container.querySelectorAll('a.pagination-link').forEach(link => {
+      link.addEventListener('click', function(e) {
+        e.preventDefault(); // Prevent full page reload
+        const url = new URL(this.href);
+        const page = url.searchParams.get('page');
+        if (page) {
+          activeFilters.page = parseInt(page);
+          updateURL(activeFilters);
+          fetchJobs(activeFilters);
+        }
+      });
     });
   }
-}
+
+  function attachPageSizeSelector(container) {
+    const pageSizeSelector = container.querySelector('#page-size-select');
+    if (pageSizeSelector) {
+      pageSizeSelector.addEventListener('change', function() {
+        const newPageSize = parseInt(this.value);
+        activeFilters.pageSize = newPageSize;
+        activeFilters.page = 1; // Reset to page 1
+        updateURL(activeFilters);
+        fetchJobs(activeFilters);
+      });
+    }
+  }
+  
+  // Initial attachment of listeners for the server-rendered table
+  const initialJobsTable = document.getElementById('jobs-table');
+  if(initialJobsTable) {
+    attachClientSidePagination(initialJobsTable);
+    attachPageSizeSelector(initialJobsTable);
+  }
 </script>

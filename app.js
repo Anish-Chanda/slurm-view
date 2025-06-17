@@ -86,6 +86,31 @@ app.set('views', './views');
 const router = express.Router();
 app.use(process.env.PASSENGER_BASE_URI || '/', router);
 
+router.get('/partials/jobs-table', async (req, res) => {
+  const { page, pageSize, ...filters } = req.query;
+
+  const pagination = {
+    page: page ? parseInt(page) : 1,
+    pageSize: pageSize ? parseInt(pageSize) : DEFAULT_PAGE_SIZE
+  };
+
+  const jobsData = await jobsService.getJobs(filters, pagination, true);
+
+  // Note: We render the partial directly, not the full 'home' layout
+  res.render('partials/jobsTable', {
+    layout: false, // Important: prevent the main layout from being applied
+    hasError: !jobsData.success,
+    errorMessage: jobsData.error,
+    jobs: jobsData.success ? jobsData.jobs : [],
+    pagination: jobsData.pagination,
+    lastUpdated: {
+      jobs: jobsData.lastUpdated ? new Date(jobsData.lastUpdated).toLocaleTimeString() : 'N/A'
+    },
+    activeFilters: filters, // Pass filters for pagination links
+    defaultPageSize: DEFAULT_PAGE_SIZE
+  });
+});
+
 router.get('/api/jobs', async (req, res) => {
   const { page, pageSize, ...filters } = req.query;
 
