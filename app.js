@@ -98,14 +98,15 @@ router.get('/api/jobs', async (req, res) => {
   res.json(result);
 });
 
-router.get('/api/stats/', (req, res) => {
+router.get('/api/stats/', async (req, res) => {
   try {
-    const partition = req.query.partition || 'all';
+    const partition = req.query.partition;
     
-    // Get stats specific to partition if it's not 'all'
-    const cpuStats = getCPUsByState(partition !== 'all' ? partition : null);
-    const memStats = getMemByState(partition !== 'all' ? partition : null);
-    const gpuStats = getGPUByState(partition !== 'all' ? partition : null);
+    // treat 'all' as null
+    const partitionParam = partition === 'all' || !partition ? null : partition;
+    const cpuStats = getCPUsByState(partitionParam);
+    const memStats = getMemByState(partitionParam);
+    const gpuStats = await getGPUByState(partitionParam);
     
     res.json({
       success: true,
@@ -135,7 +136,7 @@ router.get('/', async (req, res) => {
   // Get stats
   const cpuStats = getCPUsByState();
   const memStats = getMemByState();
-  const gpuStats = getGPUByState();
+  const gpuStats = await getGPUByState();
   //TODO: fetch partitions dynamically
   const partitions = getPartitions()
   
