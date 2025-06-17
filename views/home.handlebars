@@ -413,4 +413,23 @@
     attachClientSidePagination(initialJobsTable);
     attachPageSizeSelector(initialJobsTable);
   }
+
+
+  function handleExpandClick(e) {
+  const button = e.target.closest('.expand-btn');
+  if (!button) return;
+
+  const mainRow = button.closest('.job-row');
+  const jobState = mainRow.dataset.jobState;
+  const jobId = button.dataset.jobId;
+  const detailsRow = document.getElementById(`details-row-${jobId}`);
+  const icon = button.querySelector('svg');
+
+  //expand
+  button.setAttribute('aria-expanded', button.getAttribute('aria-expanded') !== 'true');
+  detailsRow.classList.toggle('hidden');
+  icon.classList.toggle('rotate-90');
+}
+
+document.addEventListener('click', handleExpandClick);
 </script>

@@ -1,0 +1,26 @@
+<div class="p-6 bg-slate-50">
+    <div class="grid grid-cols-1 md:grid-cols-12 gap-x-8 gap-y-6">
+
+        {{!-- Column 1: Job & Execution Details (Takes up 5/12 of the width on md screens) --}}
+        <div class="md:col-span-5 flex flex-col space-y-4">
+            {{> detailItem icon="command" label="Command" value=command isMono=true}}
+            {{> detailItem icon="folder" label="Working Directory" value=working_directory}}
+            {{> detailItem icon="file" label="Standard Output" value=standard_output}}
+        </div>
+
+        {{!-- Column 2: Resource Details --}}
+        <div class="md:col-span-3 flex flex-col space-y-4">
+            {{> detailItem icon="cpu" label="Total CPUs" value=total_cpus}}
+            {{> detailItem icon="memory" label="Total Memory" value=total_memory}}
+            {{> detailItem icon="gpu" label="Total GPUs" value=total_gpus}}
+        </div>
+
+        {{!-- Column 3: Scheduling & Time Details --}}
+        <div class="md:col-span-4 flex flex-col space-y-4">
+            {{> detailItem icon="reason" label="State Reason" value=state_reason}}
+            {{> detailItem icon="account" label="Account" value=account}}
+            {{> detailItem icon="submit-time" label="Submit Time" value=submit_time}}
+            {{> detailItem icon="start-time" label="Start Time" value=start_time}}
+        </div>
+    </div>
+</div>
