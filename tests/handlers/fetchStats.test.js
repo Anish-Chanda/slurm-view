@@ -1,5 +1,5 @@
 const { getCPUsByState, getMemByState, getGPUByState } = require("../../handlers/fetchStats");
-const { executeCommand } = require("../../helpers/executeCmd");
+const { executeCommand, executeCommandStreaming } = require("../../helpers/executeCmd");
 
 // Mock the executeCommand dependency
 jest.mock("../../helpers/executeCmd");
@@ -194,29 +194,29 @@ describe("getGPUByState", () => {
     jest.clearAllMocks();
   });
 
-  it("should return correct structure with GPU data", () => {
-    // Mock GPU data
-    const mockAvailableGPUs = `
-gpu:a100:4(S:0-1)
-gpu:v100:2(S:0-1)
-gpu:a40:4(S:0)
+  it("should return correct structure with GPU data", async () => {
+    // Mock node data output
+    const mockNodeData = `
+NodeName=node1 Gres=gpu:a100:4 State=IDLE
+NodeName=node2 Gres=gpu:v100:2 State=MIXED
+NodeName=node3 Gres=gpu:a40:4 State=ALLOCATED
 `;
+    // Mock GPU used data
     const mockUsedGPUs = `
-gpu:a100:2(IDX:1,3)
-gpu:v100:1(IDX:1)
-gpu:a40:0(IDX:N/A)
+gpu:a100:2
+gpu:v100:1
+gpu:a40:0
 `;
 
-    executeCommand.mockImplementation((cmd) => {
-      if (cmd.includes("Gres ")) {
-        return mockAvailableGPUs;
-      } else if (cmd.includes("GresUsed")) {
-        return mockUsedGPUs;
-      }
-      return "";
-    });
+    executeCommandStreaming.mockResolvedValue(mockNodeData);
+    executeCommand.mockReturnValue(mockUsedGPUs);
 
-    const result = getGPUByState();
+    const result = await getGPUByState();
+
+    // Verify executeCommandStreaming was called with the right command
+    expect(executeCommandStreaming).toHaveBeenCalledWith('scontrol show node -o');
+    // Verify executeCommand was called with the right command
+    expect(executeCommand).toHaveBeenCalledWith('sinfo  -h -O GresUsed | grep -v \'(null)\' | grep gpu');
 
     // Check structure
     expect(result.name).toBe("GPU Utilization");
@@ -249,15 +249,13 @@ gpu:a40:0(IDX:N/A)
     expect(availableA40.value).toBe(4);
   });
 
-  it("should handle errors gracefully", () => {
-    executeCommand.mockImplementation(() => {
-      throw new Error("Command failed");
-    });
+  it("should handle errors gracefully", async () => {
+    executeCommandStreaming.mockRejectedValue(new Error("Command failed"));
 
     // Spy on console.error
-    jest.spyOn(console, "error").mockImplementation(() => { });
+    jest.spyOn(console, "error").mockImplementation(() => {});
 
-    const result = getGPUByState();
+    const result = await getGPUByState();
 
     expect(console.error).toHaveBeenCalled();
     expect(result.name).toBe("GPU Utilization");
@@ -265,10 +263,11 @@ gpu:a40:0(IDX:N/A)
     expect(result.children[0].name).toBe("Error");
   });
 
-  it("should handle empty GPU data", () => {
+  it("should handle empty GPU data", async () => {
+    executeCommandStreaming.mockResolvedValue("");
     executeCommand.mockReturnValue("");
 
-    const result = getGPUByState();
+    const result = await getGPUByState();
 
     expect(result.name).toBe("GPU Utilization");
     // Should have empty children arrays for Used and Available
@@ -277,20 +276,54 @@ gpu:a40:0(IDX:N/A)
     expect(result.children[1].children).toHaveLength(0);
   });
 
-  it("should handle partition parameter when provided", () => {
-    executeCommand.mockImplementation((cmd) => {
-      if (cmd.includes("Gres")) {
-        return "gpu:a100:4(S:0-1)";
-      } else if (cmd.includes("GresUsed")) {
-        return "gpu:a100:2(IDX:1,3)";
-      }
-      return "";
-    });
+  it("should handle partition parameter when provided", async () => {
+    executeCommandStreaming.mockResolvedValue(`
+NodeName=node1 Gres=gpu:a100:4 Partitions=compute,gpu State=IDLE
+NodeName=node2 Gres=gpu:v100:2 Partitions=compute State=MIXED
+NodeName=node3 Gres=gpu:a40:4 Partitions=gpu State=ALLOCATED
+`);
+    executeCommand.mockReturnValue("gpu:a100:2");
     
-    getGPUByState("partition");
+    await getGPUByState("gpu");
     
-    // Check that both commands were called with the partition flag
-    expect(executeCommand).toHaveBeenCalledWith("sinfo -p partition -h -O Gres | grep -v '(null)' | grep gpu");
-    expect(executeCommand).toHaveBeenCalledWith("sinfo -p partition -h -O GresUsed | grep -v '(null)' | grep gpu");
+    // Check that commands were called with the partition flag
+    expect(executeCommandStreaming).toHaveBeenCalledWith('scontrol show node -o');
+    expect(executeCommand).toHaveBeenCalledWith('sinfo -p gpu -h -O GresUsed | grep -v \'(null)\' | grep gpu');
+  });
+
+  it("should filter nodes by partition when specified", async () => {
+    executeCommandStreaming.mockResolvedValue(`
+NodeName=node1 Gres=gpu:a100:4 Partitions=compute,gpu State=IDLE
+NodeName=node2 Gres=gpu:v100:2 Partitions=compute State=MIXED
+NodeName=node3 Gres=gpu:a40:4 Partitions=gpu State=ALLOCATED
+`);
+    executeCommand.mockReturnValue("gpu:a100:1\ngpu:a40:2");
+    
+    const result = await getGPUByState("gpu");
+    
+    // Verify GPU counts are filtered to only include gpu partition
+    const usedGPUs = result.children[0].children;
+    const availableGPUs = result.children[1].children;
+    
+    // Check that we only have a100 and a40 GPUs (from node1 and node3)
+    expect(usedGPUs.find(gpu => gpu.name === "v100")).toBeUndefined();
+    
+    // Check proper counts for a100 
+    const usedA100 = usedGPUs.find(gpu => gpu.name === "a100");
+    expect(usedA100).toBeDefined();
+    expect(usedA100.value).toBe(1);
+    
+    const availableA100 = availableGPUs.find(gpu => gpu.name === "a100");
+    expect(availableA100).toBeDefined();
+    expect(availableA100.value).toBe(3); // 4 total - 1 used
+    
+    // Check proper counts for a40
+    const usedA40 = usedGPUs.find(gpu => gpu.name === "a40");
+    expect(usedA40).toBeDefined();
+    expect(usedA40.value).toBe(2);
+    
+    const availableA40 = availableGPUs.find(gpu => gpu.name === "a40");
+    expect(availableA40).toBeDefined();
+    expect(availableA40.value).toBe(2); // 4 total - 2 used
   });
 });
