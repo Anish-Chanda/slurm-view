@@ -1,0 +1,65 @@
+<hr class="my-4 border-slate-200">
+
+<div class="bg-slate-50/70 pt-4 pb-6 px-4 rounded-b-lg">
+    {{!-- Report Header }}
+    <div class="mb-4">
+        <h4 class="text-md font-semibold text-slate-700">Job Efficiency Report</h4>
+    </div>
+
+    {{!-- Efficiency Cards Grid }}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+        {{!-- CPU Efficiency Card --}}
+        <div class="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex flex-col justify-between">
+            <div class="flex items-start justify-between mb-2">
+                <h5 class="font-semibold text-slate-800">CPU Efficiency</h5>
+                <div class="p-1.5 bg-blue-100 rounded-full">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-blue-600"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M8.25 21v-1.5M21 15.75h-1.5M15.75 3h-1.5V1.5h1.5V3zM4.5 15.75H3M15.75 21v-1.5m-6-1.5V21m0-18v1.5M9 12.75h6m-6 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" /></svg>
+                </div>
+            </div>
+            <div>
+                <p class="text-2xl font-bold text-blue-600 mb-1">
+                    {{split (lookup details "CPU Efficiency") " " 0}}
+                </p>
+                <div class="w-full bg-slate-200 rounded-full h-2">
+                    <div class="bg-blue-500 h-2 rounded-full" style="width: {{split (lookup details "CPU Efficiency") " " 0}}"></div>
+                </div>
+                <p class="text-xs text-slate-500 mt-1">
+                    Utilized: {{lookup details "CPU Utilized"}}
+                </p>
+            </div>
+        </div>
+
+        {{!-- Memory Efficiency Card --}}
+        <div class="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex flex-col justify-between">
+            <div class="flex items-start justify-between mb-2">
+                <h5 class="font-semibold text-slate-800">Memory Efficiency</h5>
+                <div class="p-1.5 {{efficiencyColor (split (lookup details "Memory Efficiency") " " 0) 'bg-opacity'}} rounded-full">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 {{efficiencyColor (split (lookup details "Memory Efficiency") " " 0) 'text'}}"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 3.75h7.5a3.75 3.75 0 110 7.5h-7.5a3.75 3.75 0 110-7.5zM12 3v18" /></svg>
+                </div>
+            </div>
+            <div>
+                <p class="text-2xl font-bold {{efficiencyColor (split (lookup details "Memory Efficiency") " " 0) 'text'}} mb-1">
+                    {{split (lookup details "Memory Efficiency") " " 0}}
+                </p>
+                <div class="w-full bg-slate-200 rounded-full h-2">
+                    <div class="h-2 rounded-full {{efficiencyColor (split (lookup details "Memory Efficiency") " " 0) 'bg'}}" style="width: {{split (lookup details "Memory Efficiency") " " 0}}"></div>
+                </div>
+                <p class="text-xs text-slate-500 mt-1">
+                    Utilized: {{lookup details "Memory Utilized"}}
+                </p>
+            </div>
+        </div>
+    </div>
+    
+    {{!-- Other Details Section --}}
+    <div class="mt-5 pt-3 border-t border-slate-200">
+        <dl class="text-sm">
+            <div class="flex justify-between items-center">
+                <dt class="text-slate-800">Job Wall-clock Time</dt>
+                <dd class="text-slate-800 font-medium">{{lookup details "Job Wall-clock time"}}</dd>
+            </div>
+        </dl>
+        {{!-- we can add other stuff here if needed --}}
+    </div>
+</div>
