@@ -40,6 +40,8 @@ class BackgroundPolling {
             if (result.success) {
                 dataCache.setData('jobs', result);
                 console.log(`[Background Worker] Fetched ${result.jobs.length} jobs, next update in ${dataCache.updateIntervals.jobs / 1000} seconds`);
+            } else {
+                console.error('[Background Worker] Error fetching jobs:', result.error);
             }
         } catch (error) {
             console.error('Error updating jobs cache:', error);

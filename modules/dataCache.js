@@ -5,6 +5,8 @@ class DataCache {
                 data: null,
                 lastUpdated: 0
             },
+
+            seff: new Map()
         };
 
         this.updateIntervals = {
@@ -38,6 +40,20 @@ class DataCache {
     getUpdateInterval(key) {
         if (key === 'jobs') return this.updateIntervals.jobs;
         return 60000; // Default 1 minute
+    }
+
+
+    getSeffData(jobId) {
+        return this.cache.seff.get(jobId) || null
+    }
+
+    setSeffData(jobId, data) {
+        this.cache.seff.set(jobId, data);
+
+        setTimeout(() => {
+            this.cache.seff.delete(jobId);
+            console.log(`[DataCache] Expired seff cache for Job ${jobId}.`);
+        }, 30 * 60 * 1000); // 30-minute cache lifetime, same as slurm
     }
 }
 
