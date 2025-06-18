@@ -21,7 +21,6 @@ function parseSeffOutput(seffOutput) {
             }
         }
     });
-    console.log("[DEBUG] Parsed seff output:", details);
     return details;
 }
 
