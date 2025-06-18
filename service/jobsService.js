@@ -1,6 +1,7 @@
 const dataCache = require('../modules/dataCache');
 const { getSlurmJobs, matchesFilter } = require('../handlers/fetchJobs');
 const { DEFAULT_PAGE_SIZE } = require('../constants');
+const { getSeffDetails } = require('../handlers/fetchSeffDetails');
 
 /**
  * JobsService - Provides methods for fetching and filtering jobs data
@@ -62,6 +63,39 @@ class JobsService {
     result.fromCache = false;
 
     return result;
+  }
+
+
+  completedJobDetails(jobId) {
+    const cachedDetails = dataCache.getSeffData(jobId);
+    if (cachedDetails) {
+      console.log(`[Jobs Service] Serving seff for ${jobId} from cache.`);
+      return {
+        success: true,
+        details: cachedDetails,
+        fromCache: true,
+      }
+    }
+
+    // if not found in cache, then get data form seff handler and add to cache
+    try {
+      console.log(`[Jobs Service] No seff cache for ${jobId}. Fetching new details...`);
+
+      const seffDetails = getSeffDetails(jobId);
+      dataCache.setSeffData(jobId, seffDetails);
+      return {
+        success: true,
+        details: seffDetails,
+        fromCache: false,
+      };
+    } catch (error) {
+      console.error(`[Jobs Service] Error fetching seff details for ${jobId}:`, error.message);
+      return {
+        success: false,
+        error: true,
+        message: `Could not get efficiency report for Job ${jobId}.`
+      };
+    }
   }
 }
 

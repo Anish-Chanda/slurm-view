@@ -27,6 +27,15 @@ function formatTime(time) {
   }
 }
 
+function formatUnixTimestamp(time) {
+  if (!time || isNaN(time) || time === 0) {
+    return "N/A";
+  }
+
+  return new Date(time * 1000).toLocaleString();
+}
+
 module.exports = {
-  formatTime
+  formatTime,
+  formatUnixTimestamp
 }

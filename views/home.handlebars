@@ -413,4 +413,71 @@
     attachClientSidePagination(initialJobsTable);
     attachPageSizeSelector(initialJobsTable);
   }
+
+
+function handleExpandClick(e) {
+  const button = e.target.closest('.expand-btn');
+  if (!button) return;
+
+  const mainRow = button.closest('.job-row');
+  const jobState = mainRow.dataset.jobState;
+  const jobId = button.dataset.jobId;
+  const detailsRow = document.getElementById(`details-row-${jobId}`);
+  const icon = button.querySelector('svg');
+  const isExpanded = button.getAttribute('aria-expanded') === 'true';
+  
+
+  //expand
+  button.setAttribute('aria-expanded', button.getAttribute('aria-expanded') !== 'true');
+  detailsRow.classList.toggle('hidden');
+  icon.classList.toggle('rotate-90');
+
+  //if job state is completed the fetch and show seff data
+  if (jobState === 'COMPLETED' && !isExpanded) {
+    const reportContainer = detailsRow.querySelector('.seff-report-container');
+    if (reportContainer && !reportContainer.dataset.loaded) {
+      // Mark it as "loading has started" immediately
+      reportContainer.dataset.loaded = 'true'; 
+      fetchAndDisplaySeffReport(jobId, reportContainer);
+    }
+  }
+}
+
+function fetchAndDisplaySeffReport(jobId, container) {
+    // Show a loading state
+    container.innerHTML = `
+        <hr class="my-4 border-slate-200">
+        <div class="p-4 flex items-center justify-center text-sm text-slate-500">
+            <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-slate-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Loading Efficiency Report...
+        </div>
+    `;
+
+    // fetch partial from the server endpoint
+    const baseUrl = "{{passengerBaseUri}}".replace(/\/$/, '');
+    fetch(`${baseUrl}/partials/seff-report/${jobId}`)
+        .then(response => {
+            // The server will send a 200 OK for a success partial
+            // and a 404 Not Found for an error partial. We just need the text.
+            return response.text();
+        })
+        .then(html => {
+            // 3. Inject the final HTML (which could be the report or the error message).
+            container.innerHTML = html;
+        })
+        .catch(err => {
+            console.error('Failed to fetch seff report:', err);
+            container.innerHTML = `
+                <hr class="my-4 border-slate-200">
+                <div class="p-4 text-red-600">
+                    A network error occurred while fetching the report. Please check your connection.
+                </div>
+            `;
+        });
+}
+
+document.addEventListener('click', handleExpandClick);
 </script>

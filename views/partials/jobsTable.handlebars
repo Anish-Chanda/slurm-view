@@ -15,11 +15,12 @@
             <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Time Limit</th>
             <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Time Left</th>
             <th class="bg-red-600 text-white px-4 py-3 text-left border border-gray-200">Nodes</th>
+            <th class="bg-red-600 text-white w-12 px-2 py-3 border border-gray-200"><span class="sr-only">Expand</span></th>
           </tr>
         </thead>
         <tbody>
           {{#each jobs}}
-            <tr class="even:bg-gray-50 hover:bg-gray-100">
+            <tr class="job-row even:bg-gray-50 hover:bg-gray-100" data-job-state="{{this.job_state}}">
               <td class="px-4 py-3 text-left border border-gray-200">{{this.job_id}}</td>
               <td class="px-4 py-3 text-left border border-gray-200">{{this.partition}}</td>
               <td class="px-4 py-3 text-left border border-gray-200">{{this.name}}</td>
@@ -28,6 +29,23 @@
               <td class="px-4 py-3 text-left border border-gray-200">{{this.time_limit}}</td>
               <td class="px-4 py-3 text-left border border-gray-200">{{this.time_left}}</td>
               <td class="px-4 py-3 text-left border border-gray-200">{{#if this.nodes}}{{this.nodes}}{{else}}N/A{{/if}}</td>
+              <td class="px-2 py-3 text-center border border-gray-200">
+                    <button 
+                    class="expand-btn p-1 rounded-full hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500" 
+                    data-job-id="{{this.job_id}}"
+                    aria-expanded="false"
+                    aria-controls="details-row-{{this.job_id}}">
+                    {{!-- SVG for the arrow. We'll rotate this with CSS. --}}
+                    <svg class="w-5 h-5 text-gray-600 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                    </button>
+                </td>
+            </tr>
+            {{!-- Job Details Row --}}
+            <tr id="details-row-{{this.job_id}}" class="details-row hidden">
+              <td colspan="9" class="p-0 border-l border-r border-b border-gray-200">
+                {{> jobDetails this}}
+                <div class="seff-report-container"></div>
+              </td>
             </tr>
           {{/each}}
         </tbody>

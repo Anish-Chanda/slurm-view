@@ -48,6 +48,38 @@ const hbs = engine({
       return JSON.stringify(data);
     },
 
+    split: function (string, separator, index) {
+      if (typeof string !== 'string') {
+        return '';
+      }
+      const parts = string.split(separator);
+      // Return the part at the index, or an empty string if it doesn't exist
+      return parts[index] || '';
+    },
+
+    efficiencyColor: function (percentageString, prefix = 'text') {
+      if (typeof percentageString !== 'string') return `${prefix}-slate-500`;
+
+      const value = parseFloat(percentageString);
+      if (isNaN(value)) return `${prefix}-slate-500`;
+
+      if (prefix === 'bg-opacity') {
+        if (value > 75) return 'bg-green-100';
+        if (value > 40) return 'bg-yellow-100';
+        return 'bg-red-100';
+      }
+
+      if (prefix === 'bg') {
+        if (value > 75) return 'bg-green-500';
+        if (value > 40) return 'bg-yellow-500';
+        return 'bg-red-500';
+      }
+
+      // Default to 'text' prefix
+      if (value > 75) return 'text-green-600';
+      if (value > 40) return 'text-yellow-600';
+      return 'text-red-600';
+    },
   }
 })
 
@@ -111,6 +143,24 @@ router.get('/partials/jobs-table', async (req, res) => {
   });
 });
 
+router.get("/partials/seff-report/:jobid", (req, res) => {
+  const { jobid } = req.params;
+  const result = jobsService.completedJobDetails(jobid);
+
+  if (!result.success) {
+    // Render an error partial if seff fails
+    return res.status(404).render('partials/seffError', {
+      layout: false,
+      message: result.message || 'An unknown error occurred.'
+    });
+  }
+  // Render the seff details partial
+  res.render('partials/seffReport', {
+    layout: false,
+    details: result.details
+  });
+})
+
 router.get('/api/jobs', async (req, res) => {
   const { page, pageSize, ...filters } = req.query;
 
@@ -126,13 +176,13 @@ router.get('/api/jobs', async (req, res) => {
 router.get('/api/stats/', async (req, res) => {
   try {
     const partition = req.query.partition;
-    
+
     // treat 'all' as null
     const partitionParam = partition === 'all' || !partition ? null : partition;
     const cpuStats = getCPUsByState(partitionParam);
     const memStats = getMemByState(partitionParam);
     const gpuStats = await getGPUByState(partitionParam);
-    
+
     res.json({
       success: true,
       cpuStats,
@@ -140,9 +190,9 @@ router.get('/api/stats/', async (req, res) => {
       gpuStats
     });
   } catch (err) {
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: err.message 
+      error: err.message
     });
   }
 });
@@ -164,7 +214,7 @@ router.get('/', async (req, res) => {
   const gpuStats = await getGPUByState();
   //TODO: fetch partitions dynamically
   const partitions = getPartitions()
-  
+
 
   res.render('home', {
     title: "Slurm View",

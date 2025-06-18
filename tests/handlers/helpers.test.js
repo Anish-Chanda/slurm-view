@@ -1,5 +1,6 @@
-const { formatTime } = require('../../helpers/formatTime.js');
+const { formatTime, formatUnixTimestamp } = require('../../helpers/formatTime.js');
 const { formatTimeLeft } = require('../../helpers/formatTimeLeft.js');
+const { getTresvalue } = require('../../helpers/getTresValue.js');
 
 
 describe('formatTime helper', () => {
@@ -102,4 +103,71 @@ describe('formatTimeLeft helper', () => {
     // Note: The exact formatted string depends on how formatTime works
     expect(formatTimeLeft(86400, 1742900000, 'RUNNING')).toBe('2d 3h 46m 40s');
   });
+});
+
+
+describe('getTresvalue helper', () => {
+    const tresStr = "cpu=8,mem=30400M,node=1,billing=8,gres/gpu=8";
+
+    test('should extract a value from the string', () => {
+        expect(getTresvalue(tresStr, 'mem')).toBe('30400M');
+    });
+
+    test('should extract the first value', () => {
+        expect(getTresvalue(tresStr, 'cpu')).toBe('8');
+    });
+
+    test('should extract a key containing special characters', () => {
+        expect(getTresvalue(tresStr, 'gres/gpu')).toBe('8');
+    });
+
+    test('should return "N/A" if the key is not found', () => {
+        expect(getTresvalue(tresStr, 'disk')).toBe('N/A');
+    });
+
+    test('should return "N/A" for null, undefined, or empty input string', () => {
+        expect(getTresvalue(null, 'mem')).toBe('N/A');
+        expect(getTresvalue(undefined, 'cpu')).toBe('N/A');
+        expect(getTresvalue('', 'mem')).toBe('N/A');
+    });
+});
+
+describe('formatUnixTimestamp', () => {
+    test('should format a valid Unix timestamp to a locale string', () => {
+        // Use a fixed timestamp for consistent test results
+        const timestamp = 1723841981; // 2024-08-16 20:59:41 UTC
+        const expectedDate = new Date(timestamp * 1000);
+        
+        // This test will use the locale of the machine running the test.
+        // It's a pragmatic choice for many projects.
+        expect(formatUnixTimestamp(timestamp)).toBe(expectedDate.toLocaleString());
+    });
+    
+    // For more robust testing against different server timezones, you can do this:
+    test('should format a valid Unix timestamp predictably in UTC', () => {
+        const timestamp = 1723841981;
+        // Mocking toLocaleString to ensure UTC output for the test
+        const originalToLocaleString = Date.prototype.toLocaleString;
+        Date.prototype.toLocaleString = function() {
+            return this.toUTCString();
+        };
+
+        expect(formatUnixTimestamp(timestamp)).toBe('Fri, 16 Aug 2024 20:59:41 GMT');
+
+        // Restore the original function
+        Date.prototype.toLocaleString = originalToLocaleString;
+    });
+
+    test('should return "N/A" for a timestamp of 0', () => {
+        expect(formatUnixTimestamp(0)).toBe('N/A');
+    });
+
+    test('should return "N/A" for null or undefined input', () => {
+        expect(formatUnixTimestamp(null)).toBe('N/A');
+        expect(formatUnixTimestamp(undefined)).toBe('N/A');
+    });
+    
+    test('should return "N/A" for NaN input', () => {
+        expect(formatUnixTimestamp(NaN)).toBe('N/A');
+    });
 });

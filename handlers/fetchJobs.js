@@ -1,7 +1,8 @@
 const { DEFAULT_PAGE_SIZE } = require("../constants.js");
 const { executeCommand, executeCommandStreaming } = require("../helpers/executeCmd.js");
 const { formatTimeLeft } = require("../helpers/formatTimeLeft.js");
-const { formatTime } = require("../helpers/formatTime.js");
+const { formatTime, formatUnixTimestamp } = require("../helpers/formatTime.js");
+const { getTresvalue } = require("../helpers/getTresValue.js");
 
 function parseJobsData(data) {
   try {
@@ -26,7 +27,20 @@ function formatJobsData(jobs) {
       job_state: jobState || 'N/A',
       time_limit: formatTime(job.time_limit?.number),
       time_left: formatTimeLeft(job.time_limit?.number, job.start_time?.number, jobState),
-      nodes: job.node_count?.number || 'N/A'
+      nodes: job.node_count?.number || 'N/A',
+
+
+      // data for job details
+      working_directory: job.current_working_directory || 'N/A',
+      command: job.command || 'N/A',
+      standard_output: job.standard_output || 'N/A',
+      submit_time: formatUnixTimestamp(job.submit_time?.number),
+      start_time: formatUnixTimestamp(job.start_time?.number),
+      total_cpus: getTresvalue(job.tres_req_str, "cpu"),
+      total_memory:  getTresvalue(job.tres_req_str, "mem"),
+      total_gpus: getTresvalue(job.tres_req_str, "gres/gpu"),
+      state_reason: job.state_reason || 'None', 
+      account: job.account || 'N/A',
     }
   })
 }
@@ -53,7 +67,6 @@ function matchesFilter(job, field, filterVal) {
 
 async function getSlurmJobs(filters = {}, pagination = {}) {
   try {
-    //const output = executeCommand("squeue --json --states=R,PD,CD"); //TODO: if jobs are being fetched directly we would only be able to filter in running and pending jobs now
     const output = await executeCommandStreaming("squeue --json --states=R,PD,CD");
     let jobs = parseJobsData(output);
     console.log(`[Jobs Handler] Fetched ${jobs.length} jobs from Slurm`);
@@ -77,7 +90,7 @@ async function getSlurmJobs(filters = {}, pagination = {}) {
     const startIdx = (page - 1) * pageSize;
     const endIdx = startIdx + pageSize;
 
-    //format the jobs to remove unnecessary fields
+    //format the jobs to remove unnecessary fields to reduce obj size and mem usage
     jobs = formatJobsData(jobs);
 
     return {
