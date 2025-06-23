@@ -17,6 +17,14 @@ The primary goal is to offer a clean, modern, and responsive interface for users
 ### Screenshots
 ![slurm-view-ood-screenshot-1](https://github.com/user-attachments/assets/7c0df7c8-b245-4186-aec9-b4e65e9de47d)
 
+Job Details
+![slurm view details blurred](https://github.com/user-attachments/assets/f0372b92-3903-443c-8f01-5deb15eefc96)
+
+Job Efficiency Report
+![slurm view efficiency blurred](https://github.com/user-attachments/assets/451c2eb6-a585-4e64-b981-4bc711cd849a)
+
+
+
 ### Tech Stack
 - Backend: Node.js, Express.js
 - Frontend: Handlebars (Server-Side Rendering), D3.js (Charts), Tailwind CSS (Styling)
