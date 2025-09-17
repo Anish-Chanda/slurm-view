@@ -87,6 +87,14 @@
     if (containerId === "sunburst-chart-gpu") {
       // For GPU chart - use semantic colors based on usage state
       color = d => {
+        // Special case for zero GPUs - use allocated color to indicate "no available GPUs"
+        if (d.data.name === "No GPUs") {
+          return "#e63946"; // Red color for "no available GPUs"
+        }
+        // Special case for errors - use a distinct error color
+        if (d.data.name === "Error") {
+          return "#8b5cf6"; // Purple color for errors
+        }
         // First level: Used vs Available
         if (d.depth === 1) {
           return d.data.name === "Used" ? "#e63946" : "#2a9d8f"; // Red for used, Green for available
@@ -133,7 +141,12 @@
       .attr("viewBox", [-radius, -radius, width, width]).style("height", "400px")
       .style("font", "10px sans-serif");
 
-    const total = root.value;
+    // For GPU charts, use totalGPUs if available, otherwise use the sum of values
+    let total = root.value;
+    if (containerId === "sunburst-chart-gpu" && data.totalGPUs !== undefined) {
+      total = data.totalGPUs;
+    }
+    
     // Add central label.
     svg.append("text")
       .attr("text-anchor", "middle")

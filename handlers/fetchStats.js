@@ -120,7 +120,14 @@ async function getGPUByState(partition = null) {
         });
 
         // Get Used GPUs from sinfo
-        const usedGPUsOutput = executeCommand(`sinfo ${partitionFlag} -h -O GresUsed | grep -v '(null)' | grep gpu`);
+        let usedGPUsOutput = "";
+        try {
+            usedGPUsOutput = executeCommand(`sinfo ${partitionFlag} -h -O GresUsed | grep -v '(null)' | grep gpu`);
+        } catch (error) {
+            // Command can fail if no GPUs are in use or partition has no GPUs - this is expected
+            console.log(`No GPU usage found for partition ${partition || 'all'}: ${error.message}`);
+            usedGPUsOutput = "";
+        }
         const usedLines = usedGPUsOutput.trim() ? usedGPUsOutput.trim().split("\n") : []; // Handle empty output safely
 
         const gpuUsed = {};
@@ -144,11 +151,21 @@ async function getGPUByState(partition = null) {
             };
         });
 
+        // Calculate total GPU count
+        const totalGPUCount = Object.values(gpuTotals).reduce((sum, count) => sum + count, 0);
+
         // genreate response
         const gpuStats = {
             name: "GPU Utilization",
             children: [{ name: "Used", children: [] }, { name: "Available", children: [] }],
+            totalGPUs: totalGPUCount
         };
+
+        // Handle zero GPU case - add a special child to show "allocated" color
+        if (totalGPUCount === 0) {
+            gpuStats.children = [{ name: "No GPUs", value: 1, children: [] }];
+            return gpuStats;
+        }
 
         Object.keys(gpuTypes).forEach(gpuType => {
             const typeData = gpuTypes[gpuType];
@@ -172,6 +189,7 @@ async function getGPUByState(partition = null) {
         return {
             name: "GPU Utilization",
             children: [{ name: "Error", value: 1, message: error.message }],
+            totalGPUs: 0
         };
     }
 }
