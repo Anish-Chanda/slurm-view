@@ -223,6 +223,7 @@ gpu:a40:0
     expect(result.children).toHaveLength(2); // Used and Available categories
     expect(result.children[0].name).toBe("Used");
     expect(result.children[1].name).toBe("Available");
+    expect(result.totalGPUs).toBe(10); // 4 + 2 + 4 = 10 total GPUs
 
     // Check data
     const usedGPUs = result.children[0].children;
@@ -259,6 +260,7 @@ gpu:a40:0
 
     expect(console.error).toHaveBeenCalled();
     expect(result.name).toBe("GPU Utilization");
+    expect(result.totalGPUs).toBe(0);
     expect(result.children).toHaveLength(1);
     expect(result.children[0].name).toBe("Error");
   });
@@ -270,10 +272,11 @@ gpu:a40:0
     const result = await getGPUByState();
 
     expect(result.name).toBe("GPU Utilization");
-    // Should have empty children arrays for Used and Available
-    expect(result.children).toHaveLength(2);
-    expect(result.children[0].children).toHaveLength(0);
-    expect(result.children[1].children).toHaveLength(0);
+    expect(result.totalGPUs).toBe(0);
+    // Should have "No GPUs" child for zero GPU case
+    expect(result.children).toHaveLength(1);
+    expect(result.children[0].name).toBe("No GPUs");
+    expect(result.children[0].value).toBe(1);
   });
 
   it("should handle partition parameter when provided", async () => {
@@ -284,11 +287,14 @@ NodeName=node3 Gres=gpu:a40:4 Partitions=gpu State=ALLOCATED
 `);
     executeCommand.mockReturnValue("gpu:a100:2");
     
-    await getGPUByState("gpu");
+    const result = await getGPUByState("gpu");
     
     // Check that commands were called with the partition flag
     expect(executeCommandStreaming).toHaveBeenCalledWith('scontrol show node -o');
     expect(executeCommand).toHaveBeenCalledWith('sinfo -p gpu -h -O GresUsed | grep -v \'(null)\' | grep gpu');
+    
+    // Should include totalGPUs field
+    expect(result.totalGPUs).toBe(8); // 4 a100 + 4 a40 = 8 total GPUs in gpu partition
   });
 
   it("should filter nodes by partition when specified", async () => {
@@ -325,5 +331,53 @@ NodeName=node3 Gres=gpu:a40:4 Partitions=gpu State=ALLOCATED
     const availableA40 = availableGPUs.find(gpu => gpu.name === "a40");
     expect(availableA40).toBeDefined();
     expect(availableA40.value).toBe(2); // 4 total - 2 used
+  });
+
+  it("should handle partition with no GPUs correctly", async () => {
+    // Mock nodes in reserved partition without GPU resources
+    executeCommandStreaming.mockResolvedValue(`
+NodeName=node1 Gres=(null) Partitions=reserved State=IDLE
+NodeName=node2 Gres=(null) Partitions=reserved State=ALLOCATED
+NodeName=node3 Gres=gpu:a100:4 Partitions=compute State=IDLE
+`);
+    // No GPU output for reserved partition
+    executeCommand.mockReturnValue("");
+    
+    const result = await getGPUByState("reserved");
+    
+    // Should return structure with special handling for 0 GPUs
+    expect(result.name).toBe("GPU Utilization");
+    expect(result.totalGPUs).toBe(0);
+    expect(result.children).toHaveLength(1);
+    expect(result.children[0].name).toBe("No GPUs");
+    expect(result.children[0].value).toBe(1);
+    expect(result.children[0].children).toHaveLength(0);
+  });
+
+  it("should handle reserved partition scenario from issue", async () => {
+    // Specific test for the issue: reserved partition with no GPUs
+    executeCommandStreaming.mockResolvedValue(`
+NodeName=reserved-node1 Gres=(null) Partitions=reserved State=IDLE RealMemory=128000
+NodeName=reserved-node2 Gres=(null) Partitions=reserved State=ALLOCATED RealMemory=128000
+NodeName=compute-node1 Gres=gpu:a100:8 Partitions=compute State=IDLE RealMemory=256000
+`);
+    executeCommand.mockReturnValue(""); // No GPU usage in reserved partition
+    
+    const result = await getGPUByState("reserved");
+    
+    // Verify the result matches the expected fix:
+    // - GPU Total: 0
+    // - No ring (single "No GPUs" element instead of Used/Available)
+    // - Uses "allocated" color semantics (red) to indicate no available GPUs
+    expect(result.name).toBe("GPU Utilization");
+    expect(result.totalGPUs).toBe(0);
+    expect(result.children).toHaveLength(1);
+    expect(result.children[0].name).toBe("No GPUs");
+    expect(result.children[0].value).toBe(1); // This will render with "allocated" red color
+    expect(result.children[0].children).toHaveLength(0);
+    
+    // Verify commands were called with correct partition filter
+    expect(executeCommandStreaming).toHaveBeenCalledWith('scontrol show node -o');
+    expect(executeCommand).toHaveBeenCalledWith('sinfo -p reserved -h -O GresUsed | grep -v \'(null)\' | grep gpu');
   });
 });
