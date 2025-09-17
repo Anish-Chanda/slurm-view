@@ -61,6 +61,8 @@ function matchesFilter(job, field, filterVal) {
       return state.join(",").toLowerCase().includes(filterVal.toLowerCase());
     }
     value = state;
+  } else if (field === "statereason") {
+    value = job.state_reason;
   }
   return value && String(value).toLowerCase().includes(filterVal.toLowerCase());
 }
