@@ -27,7 +27,8 @@ describe("matchesFilter", () => {
         partition: "debug",
         name: "test Job",
         user_name: "testuser",
-        job_state: "pending"
+        job_state: "pending",
+        state_reason: "Resources"
     };
 
     it("should match for jobid", () => {
@@ -53,6 +54,34 @@ describe("matchesFilter", () => {
     it("should match for state", () => {
         expect(matchesFilter(testJob, "state", "pending")).toBe(true);
         expect(matchesFilter(testJob, "state", "running")).toBe(false);
+    });
+
+    it("should match for state reason", () => {
+        expect(matchesFilter(testJob, "statereason", "Resources")).toBe(true);
+        expect(matchesFilter(testJob, "statereason", "resources")).toBe(true); // case insensitive
+        expect(matchesFilter(testJob, "statereason", "Priority")).toBe(false);
+        expect(matchesFilter(testJob, "statereason", "None")).toBe(false);
+    });
+
+    it("should handle partial matches for state reason", () => {
+        const jobWithDetailedReason = {
+            ...testJob,
+            state_reason: "Resources not available"
+        };
+        expect(matchesFilter(jobWithDetailedReason, "statereason", "Resources")).toBe(true);
+        expect(matchesFilter(jobWithDetailedReason, "statereason", "available")).toBe(true);
+        expect(matchesFilter(jobWithDetailedReason, "statereason", "Priority")).toBe(false);
+    });
+
+    it("should handle jobs with None state reason", () => {
+        const runningJob = {
+            ...testJob,
+            job_state: "running",
+            state_reason: "None"
+        };
+        expect(matchesFilter(runningJob, "statereason", "None")).toBe(true);
+        expect(matchesFilter(runningJob, "statereason", "none")).toBe(true); // case insensitive
+        expect(matchesFilter(runningJob, "statereason", "Resources")).toBe(false);
     });
 });
 
@@ -94,14 +123,16 @@ describe("getSlurmJobs", () => {
                     partition: "debug",
                     name: "Test Job 1",
                     user_name: "user1",
-                    job_state: "R"
+                    job_state: "R",
+                    state_reason: "None"
                 },
                 {
                     job_id: "2",
                     partition: "prod",
                     name: "Test Job 2",
                     user_name: "user2",
-                    job_state: "PD"
+                    job_state: "PD",
+                    state_reason: "Resources"
                 }
             ],
         });
@@ -111,6 +142,96 @@ describe("getSlurmJobs", () => {
         expect(result.success).toBe(true);
         expect(result.jobs.length).toBe(1);
         expect(result.jobs[0].job_id).toBe("2");
+    });
+
+    it("should filter jobs by state reason correctly", async () => {
+        const validOutput = JSON.stringify({
+            jobs: [
+                {
+                    job_id: "1",
+                    partition: "debug",
+                    name: "Running Job",
+                    user_name: "user1",
+                    job_state: "RUNNING",
+                    time_limit: { number: 3600 },
+                    node_count: { number: 1 },
+                    current_working_directory: "/home/user1",
+                    command: "echo hello",
+                    standard_output: "/home/user1/output.log",
+                    submit_time: { number: 1640995200 },
+                    start_time: { number: 1640995300 },
+                    tres_req_str: "cpu=4,mem=8G,gres/gpu=1",
+                    state_reason: "None",
+                    account: "default"
+                },
+                {
+                    job_id: "2", 
+                    partition: "gpu",
+                    name: "Pending Job 1",
+                    user_name: "user2",
+                    job_state: "PENDING",
+                    time_limit: { number: 7200 },
+                    node_count: { number: 2 },
+                    current_working_directory: "/home/user2",
+                    command: "python train.py",
+                    standard_output: "/home/user2/train.log",
+                    submit_time: { number: 1640995400 },
+                    tres_req_str: "cpu=8,mem=16G,gres/gpu=2", 
+                    state_reason: "Resources",
+                    account: "research"
+                },
+                {
+                    job_id: "3",
+                    partition: "cpu",
+                    name: "Pending Job 2", 
+                    user_name: "user3",
+                    job_state: "PENDING",
+                    time_limit: { number: 1800 },
+                    node_count: { number: 1 },
+                    current_working_directory: "/home/user3",
+                    command: "matlab script.m",
+                    standard_output: "/home/user3/matlab.log",
+                    submit_time: { number: 1640995500 },
+                    tres_req_str: "cpu=2,mem=4G",
+                    state_reason: "Priority", 
+                    account: "teaching"
+                }
+            ],
+        });
+        executeCommandStreaming.mockResolvedValue(validOutput);
+
+        // Test filtering by state reason "Resources"
+        const resourcesResult = await getSlurmJobs({ statereason: "Resources" });
+        expect(resourcesResult.success).toBe(true);
+        expect(resourcesResult.jobs.length).toBe(1);
+        expect(resourcesResult.jobs[0].job_id).toBe("2");
+        expect(resourcesResult.jobs[0].state_reason).toBe("Resources");
+
+        // Test filtering by state reason "Priority"  
+        const priorityResult = await getSlurmJobs({ statereason: "Priority" });
+        expect(priorityResult.success).toBe(true);
+        expect(priorityResult.jobs.length).toBe(1);
+        expect(priorityResult.jobs[0].job_id).toBe("3");
+        expect(priorityResult.jobs[0].state_reason).toBe("Priority");
+
+        // Test filtering by state reason "None" (running jobs)
+        const noneResult = await getSlurmJobs({ statereason: "None" });
+        expect(noneResult.success).toBe(true); 
+        expect(noneResult.jobs.length).toBe(1);
+        expect(noneResult.jobs[0].job_id).toBe("1");
+        expect(noneResult.jobs[0].state_reason).toBe("None");
+
+        // Test case insensitive filtering
+        const caseInsensitiveResult = await getSlurmJobs({ statereason: "resources" });
+        expect(caseInsensitiveResult.success).toBe(true);
+        expect(caseInsensitiveResult.jobs.length).toBe(1);
+        expect(caseInsensitiveResult.jobs[0].job_id).toBe("2");
+
+        // Test partial match filtering
+        const partialResult = await getSlurmJobs({ statereason: "Res" });
+        expect(partialResult.success).toBe(true);
+        expect(partialResult.jobs.length).toBe(1);
+        expect(partialResult.jobs[0].job_id).toBe("2");
     });
 
     it("returns an error object when executeCommand returns invalid JSON", async () => {
