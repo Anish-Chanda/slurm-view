@@ -9,6 +9,7 @@ The primary goal is to offer a clean, modern, and responsive interface for users
 - Resource Utilization Dashboard: Interactive sunburst charts provide a clear visual breakdown of CPU, Memory, and GPU usage across the cluster.
 - Partition-Specific Stats: Easily filter the resource utilization and active jobs to see statistics for a specific Slurm partition.
 - Interactive Job Queue: View the live job queue (squeue) in a clean, sortable table with filters for jobId, partition, name, user and state.
+- **Quick Filters:** Apply multiple filters at once using the format `key1:value1 key2:value2` (e.g., `user:jdoe partition:gpu state:running`) for rapid job filtering without multiple clicks.
 - **Expandable Job Details:** Click on any job to instantly see detailed information like the command, working directory, and requested resources.
 - **Job Efficiency Reports:** For completed jobs, expand the details to see a visual report of CPU and Memory efficiency, powered by the `seff` command.
 - Efficient Backend: A background service periodically polls Slurm and caches the job data to ensure the UI is fast and responsive, minimizing direct load on the Slurm controller, especially in the case where the dashboard is accessed by many users.
