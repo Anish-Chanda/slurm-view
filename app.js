@@ -6,6 +6,7 @@ const backgroundPolling = require('./service/backgroundPolling.js');
 const dataCache = require('./modules/dataCache.js');
 const jobsService = require('./service/jobsService.js');
 const { getPartitions } = require('./handlers/fetchPartitions.js');
+const { validatePartitionName, validatePageNumber, validatePageSize, validateFilterValue } = require('./helpers/inputValidation');
 
 
 const app = express();
@@ -119,66 +120,127 @@ const router = express.Router();
 app.use(process.env.PASSENGER_BASE_URI || '/', router);
 
 router.get('/partials/jobs-table', async (req, res) => {
-  const { page, pageSize, ...filters } = req.query;
+  try {
+    const { page, pageSize, ...filters } = req.query;
 
-  const pagination = {
-    page: page ? parseInt(page) : 1,
-    pageSize: pageSize ? parseInt(pageSize) : DEFAULT_PAGE_SIZE
-  };
+    // Validate pagination parameters
+    const pagination = {
+      page: page ? validatePageNumber(page) : 1,
+      pageSize: pageSize ? validatePageSize(pageSize) : DEFAULT_PAGE_SIZE
+    };
 
-  const jobsData = await jobsService.getJobs(filters, pagination, true);
+    // Validate filter values
+    const validatedFilters = {};
+    for (const [key, value] of Object.entries(filters)) {
+      if (value) {
+        validatedFilters[key] = validateFilterValue(value.toString());
+      }
+    }
 
-  // Note: We render the partial directly, not the full 'home' layout
-  res.render('partials/jobsTable', {
-    layout: false, // Important: prevent the main layout from being applied
-    hasError: !jobsData.success,
-    errorMessage: jobsData.error,
-    jobs: jobsData.success ? jobsData.jobs : [],
-    pagination: jobsData.pagination,
-    lastUpdated: {
-      jobs: jobsData.lastUpdated ? new Date(jobsData.lastUpdated).toLocaleTimeString() : 'N/A'
-    },
-    activeFilters: filters, // Pass filters for pagination links
-    defaultPageSize: DEFAULT_PAGE_SIZE
-  });
+    const jobsData = await jobsService.getJobs(validatedFilters, pagination, true);
+
+    // Note: We render the partial directly, not the full 'home' layout
+    res.render('partials/jobsTable', {
+      layout: false, // Important: prevent the main layout from being applied
+      hasError: !jobsData.success,
+      errorMessage: jobsData.error,
+      jobs: jobsData.success ? jobsData.jobs : [],
+      pagination: jobsData.pagination,
+      lastUpdated: {
+        jobs: jobsData.lastUpdated ? new Date(jobsData.lastUpdated).toLocaleTimeString() : 'N/A'
+      },
+      activeFilters: validatedFilters, // Pass validated filters for pagination links
+      defaultPageSize: DEFAULT_PAGE_SIZE
+    });
+  } catch (error) {
+    console.error('[App] Error in /partials/jobs-table:', error.message);
+    res.status(400).render('partials/jobsTable', {
+      layout: false,
+      hasError: true,
+      errorMessage: 'Invalid request parameters.',
+      jobs: [],
+      pagination: { page: 1, pageSize: DEFAULT_PAGE_SIZE, totalItems: 0, totalPages: 0 },
+      lastUpdated: { jobs: 'N/A' },
+      activeFilters: {},
+      defaultPageSize: DEFAULT_PAGE_SIZE
+    });
+  }
 });
 
 router.get("/partials/seff-report/:jobid", (req, res) => {
   const { jobid } = req.params;
-  const result = jobsService.completedJobDetails(jobid);
+  
+  try {
+    const result = jobsService.completedJobDetails(jobid);
 
-  if (!result.success) {
-    // Render an error partial if seff fails
-    return res.status(404).render('partials/seffError', {
+    if (!result.success) {
+      // Render an error partial if seff fails
+      return res.status(404).render('partials/seffError', {
+        layout: false,
+        message: result.message || 'An unknown error occurred.'
+      });
+    }
+    // Render the seff details partial
+    res.render('partials/seffReport', {
       layout: false,
-      message: result.message || 'An unknown error occurred.'
+      details: result.details
+    });
+  } catch (error) {
+    // Handle validation errors or other exceptions
+    console.error(`[App] Error in seff-report for job ${jobid}:`, error.message);
+    return res.status(400).render('partials/seffError', {
+      layout: false,
+      message: error.message || 'Invalid job ID format.'
     });
   }
-  // Render the seff details partial
-  res.render('partials/seffReport', {
-    layout: false,
-    details: result.details
-  });
 })
 
 router.get('/api/jobs', async (req, res) => {
-  const { page, pageSize, ...filters } = req.query;
+  try {
+    const { page, pageSize, ...filters } = req.query;
 
-  const pagination = {
-    page: page ? parseInt(page) : 1,
-    pageSize: pageSize ? parseInt(pageSize) : DEFAULT_PAGE_SIZE
+    // Validate pagination parameters
+    const pagination = {
+      page: page ? validatePageNumber(page) : 1,
+      pageSize: pageSize ? validatePageSize(pageSize) : DEFAULT_PAGE_SIZE
+    };
+
+    // Validate filter values
+    const validatedFilters = {};
+    for (const [key, value] of Object.entries(filters)) {
+      if (value) {
+        validatedFilters[key] = validateFilterValue(value.toString());
+      }
+    }
+
+    const result = await jobsService.getJobs(validatedFilters, pagination, true);
+    res.json(result);
+  } catch (error) {
+    console.error('[App] Error in /api/jobs:', error.message);
+    res.status(400).json({
+      success: false,
+      error: error.message || 'Invalid request parameters'
+    });
   }
-
-  const result = await jobsService.getJobs(filters, pagination, true);
-  res.json(result);
 });
 
 router.get('/api/stats/', async (req, res) => {
   try {
     const partition = req.query.partition;
 
-    // treat 'all' as null
-    const partitionParam = partition === 'all' || !partition ? null : partition;
+    // treat 'all' as null and validate partition name if provided
+    let partitionParam = null;
+    if (partition && partition !== 'all') {
+      try {
+        partitionParam = validatePartitionName(partition);
+      } catch (validationError) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid partition name: ${validationError.message}`
+        });
+      }
+    }
+    
     const cpuStats = getCPUsByState(partitionParam);
     const memStats = getMemByState(partitionParam);
     const gpuStats = await getGPUByState(partitionParam);
@@ -198,15 +260,25 @@ router.get('/api/stats/', async (req, res) => {
 });
 
 router.get('/', async (req, res) => {
-  const { page, pageSize, ...filters } = req.query;
+  try {
+    const { page, pageSize, ...filters } = req.query;
 
-  const pagination = {
-    page: page ? parseInt(page) : 1,
-    pageSize: pageSize ? parseInt(pageSize) : DEFAULT_PAGE_SIZE
-  };
+    // Validate pagination parameters
+    const pagination = {
+      page: page ? validatePageNumber(page) : 1,
+      pageSize: pageSize ? validatePageSize(pageSize) : DEFAULT_PAGE_SIZE
+    };
 
-  // Use the service with caching for the homepage
-  const jobs = await jobsService.getJobs(filters, pagination, true);
+    // Validate filter values
+    const validatedFilters = {};
+    for (const [key, value] of Object.entries(filters)) {
+      if (value) {
+        validatedFilters[key] = validateFilterValue(value.toString());
+      }
+    }
+
+    // Use the service with caching for the homepage
+    const jobs = await jobsService.getJobs(validatedFilters, pagination, true);
 
   // Get stats
   const cpuStats = getCPUsByState();
@@ -216,22 +288,39 @@ router.get('/', async (req, res) => {
   const partitions = getPartitions()
 
 
-  res.render('home', {
-    title: "Slurm View",
-    hasError: !jobs.success,
-    errorMessage: jobs.error,
-    jobs: jobs.success ? jobs.jobs : [],
-    pagination: jobs.pagination,
-    cpuStats,
-    memStats,
-    gpuStats,
-    lastUpdated: {
-      jobs: jobs.lastUpdated ? new Date(jobs.lastUpdated).toLocaleTimeString() : 'N/A'
-    },
-    partitions,
-    passengerBaseUri: process.env.PASSENGER_BASE_URI,
-    defaultPageSize: DEFAULT_PAGE_SIZE
-  });
+    res.render('home', {
+      title: "Slurm View",
+      hasError: !jobs.success,
+      errorMessage: jobs.error,
+      jobs: jobs.success ? jobs.jobs : [],
+      pagination: jobs.pagination,
+      cpuStats,
+      memStats,
+      gpuStats,
+      lastUpdated: {
+        jobs: jobs.lastUpdated ? new Date(jobs.lastUpdated).toLocaleTimeString() : 'N/A'
+      },
+      partitions,
+      passengerBaseUri: process.env.PASSENGER_BASE_URI,
+      defaultPageSize: DEFAULT_PAGE_SIZE
+    });
+  } catch (error) {
+    console.error('[App] Error in home route:', error.message);
+    res.status(500).render('home', {
+      title: "Slurm View",
+      hasError: true,
+      errorMessage: 'An error occurred while processing your request.',
+      jobs: [],
+      pagination: { page: 1, pageSize: DEFAULT_PAGE_SIZE, totalItems: 0, totalPages: 0 },
+      cpuStats: { allocated: 0, idle: 0, other: 0, total: 0 },
+      memStats: { allocated: 0, idle: 0, down: 0, other: 0, total: 0 },
+      gpuStats: { name: "GPU Utilization", children: [], totalGPUs: 0 },
+      lastUpdated: { jobs: 'N/A' },
+      partitions: [],
+      passengerBaseUri: process.env.PASSENGER_BASE_URI,
+      defaultPageSize: DEFAULT_PAGE_SIZE
+    });
+  }
 });
 
 const server = app.listen(port, () => {

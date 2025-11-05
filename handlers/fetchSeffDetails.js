@@ -1,4 +1,5 @@
 const { executeCommand, executeCommandForgiving } = require("../helpers/executeCmd");
+const { validateJobId, createSafeCommand } = require("../helpers/inputValidation");
 
 function parseSeffOutput(seffOutput) {
     var details = {};
@@ -25,35 +26,35 @@ function parseSeffOutput(seffOutput) {
 }
 
 function getSeffDetails(jobId) {
-    if (!/^\d+(\.\d+)?$/.test(jobId)) { // Allow for array job IDs like 12345_1 and normal job ids only
-        throw new Error("Invalid JobID format for seff.");
-    }
+    // Validate and sanitize the job ID to prevent command injection
+    const validatedJobId = validateJobId(jobId);
 
     // try {
     // TODO: use exec cmd instead of forgiving onse seff is fixed
-    const { stdout, stderr, error } = executeCommandForgiving(`seff ${jobId}`);
+    const safeCommand = createSafeCommand('seff', [validatedJobId]);
+    const { stdout, stderr, error } = executeCommandForgiving(safeCommand);
     if (stdout && stdout.includes("CPU Efficiency")) {
         // We have valid output, even if the command crashed.
         if (error) {
-            console.warn(`[seff handler] The 'seff ${jobId}' command exited with an error but provided valid output. Ignoring error. Stderr: ${stderr}`);
+            console.warn(`[seff handler] The 'seff ${validatedJobId}' command exited with an error but provided valid output. Ignoring error. Stderr: ${stderr}`);
         }
         return parseSeffOutput(stdout);
     } else {
         // This is a true failure. We got no usable output.
-        console.error(`[seff handler] Failed to get valid output from 'seff ${jobId}'. Stderr: ${stderr}`);
+        console.error(`[seff handler] Failed to get valid output from 'seff ${validatedJobId}'. Stderr: ${stderr}`);
         throw {
             error: true,
-            message: `Could not get efficiency report for Job ${jobId}. The command failed to produce valid output.`
+            message: `Could not get efficiency report for Job ${validatedJobId}. The command failed to produce valid output.`
         };
     }
-    // const ouptut = executeCommand(`seff ${jobId}`);
+    // const ouptut = executeCommand(`seff ${validatedJobId}`);
     // const seffData = parseSeffOutput(ouptut);
     // return seffData;
     // } catch (e) {
-    //     console.log(`seff error for job ${jobId}: ${e.message}`);
+    //     console.log(`seff error for job ${validatedJobId}: ${e.message}`);
     //     throw {
     //         error: true,
-    //         message: `Could not get efficiency report for Job ${jobId}.`
+    //         message: `Could not get efficiency report for Job ${validatedJobId}.`
     //     };
     // }
 }

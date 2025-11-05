@@ -1,10 +1,19 @@
 const { executeCommand, executeCommandStreaming } = require("../helpers/executeCmd.js");
+const { validatePartitionName, createSafeCommand } = require("../helpers/inputValidation");
 
 // Fetches the number of CPUs by state
 function getCPUsByState(partition = null) {
     try {
-        const partitionFlag = partition ? `-p ${partition}` : '';
-        const cmdOutput = executeCommand(`sinfo ${partitionFlag} -o '%C' --noheader`) // returns cpu utilization in Allocated/Idle/Other/Total
+        let cmdArgs = ['-o', '%C', '--noheader'];
+        
+        // Validate and add partition parameter if provided
+        if (partition) {
+            const validatedPartition = validatePartitionName(partition);
+            cmdArgs.unshift('-p', validatedPartition);
+        }
+        
+        const safeCommand = createSafeCommand('sinfo', cmdArgs);
+        const cmdOutput = executeCommand(safeCommand); // returns cpu utilization in Allocated/Idle/Other/Total
         const [allocated, idle, other, total] = cmdOutput.split('/').map(Number);
         return { allocated, idle, other, total };
     } catch (error) {
@@ -15,7 +24,8 @@ function getCPUsByState(partition = null) {
 
 function getMemByState(partition = null) {
     try {
-        const cmdOutput = executeCommand(`scontrol show node -o`);
+        const safeCommand = createSafeCommand('scontrol', ['show', 'node', '-o']);
+        const cmdOutput = executeCommand(safeCommand);
         const lines = cmdOutput.trim().split("\n");
 
         let distribution = {
@@ -31,8 +41,10 @@ function getMemByState(partition = null) {
 
             //check if node belongs to current partition
             if (partition) {
+                // Validate partition name before using it in comparison
+                const validatedPartition = validatePartitionName(partition);
                 const partitionMatch = line.match(/Partitions=([^\s]+)/);
-                if (!partitionMatch || !partitionMatch[1].split(',').includes(partition)) {
+                if (!partitionMatch || !partitionMatch[1].split(',').includes(validatedPartition)) {
                     return; // Skip this node if it's not in the requested partition
                 }
             }
@@ -85,10 +97,9 @@ function getMemByState(partition = null) {
 
 async function getGPUByState(partition = null) {
     try {
-        const partitionFlag = partition ? `-p ${partition}` : '';
-
         // Get Total GPUs from scontrol
-        const scontrolOutput = await executeCommandStreaming('scontrol show node -o');
+        const scontrolSafeCommand = createSafeCommand('scontrol', ['show', 'node', '-o']);
+        const scontrolOutput = await executeCommandStreaming(scontrolSafeCommand);
         const nodeLines = scontrolOutput.trim().split("\n");
 
         const gpuTotals = {};
@@ -99,9 +110,11 @@ async function getGPUByState(partition = null) {
 
             // If a partition is specified, filter nodes by checking their Partitions list.
             if (partition) {
+                // Validate partition name before using it in comparison
+                const validatedPartition = validatePartitionName(partition);
                 const partitionMatch = line.match(/Partitions=([^\s]+)/);
                 // Skip this node if it doesn't belong to the requested partition.
-                if (!partitionMatch || !partitionMatch[1].split(',').includes(partition)) {
+                if (!partitionMatch || !partitionMatch[1].split(',').includes(validatedPartition)) {
                     return;
                 }
             }
@@ -122,7 +135,24 @@ async function getGPUByState(partition = null) {
         // Get Used GPUs from sinfo
         let usedGPUsOutput = "";
         try {
-            usedGPUsOutput = executeCommand(`sinfo ${partitionFlag} -h -O GresUsed | grep -v '(null)' | grep gpu`);
+            let sinfoArgs = ['-h', '-O', 'GresUsed'];
+            
+            // Validate and add partition parameter if provided
+            if (partition) {
+                const validatedPartition = validatePartitionName(partition);
+                sinfoArgs.unshift('-p', validatedPartition);
+            }
+            
+            const sinfoCommand = createSafeCommand('sinfo', sinfoArgs);
+            // Note: We can't easily make the grep commands safe with createSafeCommand since they're piped
+            // Instead, we'll get the raw output and filter in JavaScript
+            const rawOutput = executeCommand(sinfoCommand);
+            
+            // Filter the output in JavaScript instead of using shell pipes
+            usedGPUsOutput = rawOutput
+                .split('\n')
+                .filter(line => line.trim() && !line.includes('(null)') && line.includes('gpu'))
+                .join('\n');
         } catch (error) {
             // Command can fail if no GPUs are in use or partition has no GPUs - this is expected
             console.log(`No GPU usage found for partition ${partition || 'all'}: ${error.message}`);
