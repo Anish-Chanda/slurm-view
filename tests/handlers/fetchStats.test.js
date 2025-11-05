@@ -15,7 +15,7 @@ describe("getCPUsByState", () => {
 
     const result = getCPUsByState();
 
-    expect(executeCommand).toHaveBeenCalledWith("sinfo  -o '%C' --noheader");
+    expect(executeCommand).toHaveBeenCalledWith("sinfo '-o' '%C' '--noheader'");
     expect(result).toEqual({
       allocated: 500,
       idle: 1500,
@@ -51,7 +51,7 @@ describe("getCPUsByState", () => {
 
     const result = getCPUsByState("partition");
 
-    expect(executeCommand).toHaveBeenCalledWith("sinfo -p partition -o '%C' --noheader");
+    expect(executeCommand).toHaveBeenCalledWith("sinfo '-p' 'partition' '-o' '%C' '--noheader'");
     expect(result).toEqual({
       allocated: 100,
       idle: 200,
@@ -78,7 +78,7 @@ NodeName=node4 State=MIXED RealMemory=50000 AllocMem=25000 FreeMem=20000 Partiti
     const result = getMemByState();
 
     expect(executeCommand).toHaveBeenCalledWith(
-      "scontrol show node -o"
+      "scontrol 'show' 'node' '-o'"
     );
     // Calculate expected values
     const totalMem = 200000;
@@ -107,7 +107,7 @@ NodeName=node4 State=MIXED RealMemory=50000 AllocMem=25000 FreeMem=20000 Partiti
 
     const result = getMemByState("gpu");
 
-    expect(executeCommand).toHaveBeenCalledWith("scontrol show node -o");
+    expect(executeCommand).toHaveBeenCalledWith("scontrol 'show' 'node' '-o'");
     
     // Only node3 and node4 should be included (gpu partition)
     const totalMem = 100000; // node3 + node4
@@ -179,7 +179,7 @@ NodeName=node3 RealMemory=50000 AllocMem=0 FreeMem=48000 Partitions=compute
 
     const result = getCPUsByState("partition");
 
-    expect(executeCommand).toHaveBeenCalledWith("sinfo -p partition -o '%C' --noheader");
+    expect(executeCommand).toHaveBeenCalledWith("sinfo '-p' 'partition' '-o' '%C' '--noheader'");
     expect(result).toEqual({
       allocated: 100,
       idle: 200,
@@ -214,9 +214,9 @@ gpu:a40:0
     const result = await getGPUByState();
 
     // Verify executeCommandStreaming was called with the right command
-    expect(executeCommandStreaming).toHaveBeenCalledWith('scontrol show node -o');
-    // Verify executeCommand was called with the right command
-    expect(executeCommand).toHaveBeenCalledWith('sinfo  -h -O GresUsed | grep -v \'(null)\' | grep gpu');
+    expect(executeCommandStreaming).toHaveBeenCalledWith("scontrol 'show' 'node' '-o'");
+    // Verify executeCommand was called with the right command (no grep pipes, filtering done in JS)
+    expect(executeCommand).toHaveBeenCalledWith("sinfo '-h' '-O' 'GresUsed'");
 
     // Check structure
     expect(result.name).toBe("GPU Utilization");
@@ -290,8 +290,8 @@ NodeName=node3 Gres=gpu:a40:4 Partitions=gpu State=ALLOCATED
     const result = await getGPUByState("gpu");
     
     // Check that commands were called with the partition flag
-    expect(executeCommandStreaming).toHaveBeenCalledWith('scontrol show node -o');
-    expect(executeCommand).toHaveBeenCalledWith('sinfo -p gpu -h -O GresUsed | grep -v \'(null)\' | grep gpu');
+    expect(executeCommandStreaming).toHaveBeenCalledWith("scontrol 'show' 'node' '-o'");
+    expect(executeCommand).toHaveBeenCalledWith("sinfo '-p' 'gpu' '-h' '-O' 'GresUsed'");
     
     // Should include totalGPUs field
     expect(result.totalGPUs).toBe(8); // 4 a100 + 4 a40 = 8 total GPUs in gpu partition
@@ -377,7 +377,7 @@ NodeName=compute-node1 Gres=gpu:a100:8 Partitions=compute State=IDLE RealMemory=
     expect(result.children[0].children).toHaveLength(0);
     
     // Verify commands were called with correct partition filter
-    expect(executeCommandStreaming).toHaveBeenCalledWith('scontrol show node -o');
-    expect(executeCommand).toHaveBeenCalledWith('sinfo -p reserved -h -O GresUsed | grep -v \'(null)\' | grep gpu');
+    expect(executeCommandStreaming).toHaveBeenCalledWith("scontrol 'show' 'node' '-o'");
+    expect(executeCommand).toHaveBeenCalledWith("sinfo '-p' 'reserved' '-h' '-O' 'GresUsed'");
   });
 });
