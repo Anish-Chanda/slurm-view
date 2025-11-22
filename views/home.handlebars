@@ -79,12 +79,13 @@
 
 <script>
   // ----- D3 js Sunburts chart logic -----
- // Helper function to draw a sunburst chart in a given container.
+  // Helper function to draw a sunburst chart in a given container.
   function drawSunburstChart(data, containerId, titleText, totalSuffix) {
     document.getElementById(containerId).innerHTML = '';
     const width = 500;
     const radius = width / 2;
-    // Prepare a color scale based on the number of children.
+    
+    // Prepare a semantic color scale for all charts
     let color;
     if (containerId === "sunburst-chart-gpu") {
       // For GPU chart - use semantic colors based on usage state
@@ -117,11 +118,21 @@
         return "#888888"; // Fallback gray color
       };
     } else {
-      // For other charts (CPU, Memory) - use the original rainbow scheme
-      color = d3.scaleOrdinal(d3.quantize(d3.interpolateRainbow, data.children.length + 1));
-    }
-    
-    // Partition layout: convert data into a hierarchy with computed angles.
+      // For CPU and Memory charts - use consistent semantic colors
+      color = d => {
+        if (d.depth === 1) {
+          // Use consistent semantic colors for resource states
+          switch (d.data.name) {
+            case "Allocated": return "#e63946"; // Red for allocated/used
+            case "Idle": return "#2a9d8f"; // Green for idle/available  
+            case "Down": return "#6c757d"; // Gray for down/unavailable
+            case "Other": return "#ffc107"; // Yellow for other/mixed states
+            default: return "#888888"; // Fallback gray
+          }
+        }
+        return "#888888"; // Fallback for deeper levels
+      };
+    }    // Partition layout: convert data into a hierarchy with computed angles.
     const partition = d => d3.partition()
       .size([2 * Math.PI, radius])
       (d3.hierarchy(data)
@@ -164,13 +175,8 @@
       .data(root.descendants().filter(d => d.depth))
       .join("path")
       .attr("fill", d => {
-          if (containerId === "sunburst-chart-gpu") {
+          // All charts now use semantic color mapping
           return color(d);
-      } else {
-          let current = d;
-          while (current.depth > 1) current = current.parent;
-          return color(current.data.name);
-      }
       })
       .attr("d", arc)
       .append("title")
