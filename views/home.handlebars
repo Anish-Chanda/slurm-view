@@ -59,6 +59,7 @@
       <option value="partition">Partition</option>
       <option value="name">Name</option>
       <option value="user">User</option>
+      <option value="account">Account</option>
       <option value="state">State</option>
       <option value="statereason">State Reason</option>
     </select>
@@ -358,7 +359,7 @@
   // Quick filter parsing functions
   function parseQuickFilters(filterString) {
     const filters = {};
-    const validFilterTypes = ['jobid', 'partition', 'name', 'user', 'state'];
+    const validFilterTypes = ['jobid', 'partition', 'name', 'user', 'account', 'state'];
     
     // Split by spaces but handle quoted values
     const pairs = [];
@@ -408,8 +409,8 @@
   }
   
   function isQuickFilterFormat(filterString) {
-    // Check if the string contains at least one key:value pair
-    const quickFilterRegex = /\b(jobid|partition|name|user|state)\s*:\s*\S+/i;
+        // Check if the string contains at least one key:value pair
+    const quickFilterRegex = /\b(jobid|partition|name|user|account|state)\s*:\s*\S+/i;
     return quickFilterRegex.test(filterString);
   }
   

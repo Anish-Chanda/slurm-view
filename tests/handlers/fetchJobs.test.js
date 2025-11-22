@@ -27,6 +27,7 @@ describe("matchesFilter", () => {
         partition: "debug",
         name: "test Job",
         user_name: "testuser",
+        account: "testaccount",
         job_state: "pending",
         state_reason: "Resources"
     };
@@ -49,6 +50,12 @@ describe("matchesFilter", () => {
     it("should match for user", () => {
         expect(matchesFilter(testJob, "user", "testuser")).toBe(true);
         expect(matchesFilter(testJob, "user", "admin")).toBe(false);
+    });
+
+    it("should match for account", () => {
+        expect(matchesFilter(testJob, "account", "testaccount")).toBe(true);
+        expect(matchesFilter(testJob, "account", "testaccount")).toBe(true);
+        expect(matchesFilter(testJob, "account", "differentaccount")).toBe(false);
     });
 
     it("should match for state", () => {
@@ -152,6 +159,7 @@ describe("getSlurmJobs", () => {
                     partition: "debug",
                     name: "Running Job",
                     user_name: "user1",
+                    account: "default",
                     job_state: "RUNNING",
                     time_limit: { number: 3600 },
                     node_count: { number: 1 },
@@ -169,6 +177,7 @@ describe("getSlurmJobs", () => {
                     partition: "gpu",
                     name: "Pending Job 1",
                     user_name: "user2",
+                    account: "research",
                     job_state: "PENDING",
                     time_limit: { number: 7200 },
                     node_count: { number: 2 },
@@ -185,6 +194,7 @@ describe("getSlurmJobs", () => {
                     partition: "cpu",
                     name: "Pending Job 2", 
                     user_name: "user3",
+                    account: "teaching",
                     job_state: "PENDING",
                     time_limit: { number: 1800 },
                     node_count: { number: 1 },
@@ -232,6 +242,101 @@ describe("getSlurmJobs", () => {
         expect(partialResult.success).toBe(true);
         expect(partialResult.jobs.length).toBe(1);
         expect(partialResult.jobs[0].job_id).toBe("2");
+    });
+
+    it("should filter jobs by account correctly", async () => {
+        const validOutput = JSON.stringify({
+            jobs: [
+                {
+                    job_id: "1",
+                    partition: "debug",
+                    name: "Running Job",
+                    user_name: "user1",
+                    account: "default",
+                    job_state: "RUNNING",
+                    time_limit: { number: 3600 },
+                    node_count: { number: 1 },
+                    current_working_directory: "/home/user1",
+                    command: "echo hello",
+                    standard_output: "/home/user1/output.log",
+                    submit_time: { number: 1640995200 },
+                    start_time: { number: 1640995300 },
+                    tres_req_str: "cpu=4,mem=8G,gres/gpu=1",
+                    state_reason: "None"
+                },
+                {
+                    job_id: "2", 
+                    partition: "gpu",
+                    name: "Pending Job 1",
+                    user_name: "user2",
+                    account: "research",
+                    job_state: "PENDING",
+                    time_limit: { number: 7200 },
+                    node_count: { number: 2 },
+                    current_working_directory: "/home/user2",
+                    command: "python train.py",
+                    standard_output: "/home/user2/train.log",
+                    submit_time: { number: 1640995400 },
+                    tres_req_str: "cpu=8,mem=16G,gres/gpu=2", 
+                    state_reason: "Resources"
+                },
+                {
+                    job_id: "3",
+                    partition: "cpu",
+                    name: "Pending Job 2", 
+                    user_name: "user3",
+                    account: "teaching",
+                    job_state: "PENDING",
+                    time_limit: { number: 1800 },
+                    node_count: { number: 1 },
+                    current_working_directory: "/home/user3",
+                    command: "matlab script.m",
+                    standard_output: "/home/user3/matlab.log",
+                    submit_time: { number: 1640995500 },
+                    tres_req_str: "cpu=2,mem=4G",
+                    state_reason: "Priority"
+                }
+            ],
+        });
+        executeCommandStreaming.mockResolvedValue(validOutput);
+
+        // Test filtering by account "research"
+        const researchResult = await getSlurmJobs({ account: "research" });
+        expect(researchResult.success).toBe(true);
+        expect(researchResult.jobs.length).toBe(1);
+        expect(researchResult.jobs[0].job_id).toBe("2");
+        expect(researchResult.jobs[0].account).toBe("research");
+
+        // Test filtering by account "teaching"  
+        const teachingResult = await getSlurmJobs({ account: "teaching" });
+        expect(teachingResult.success).toBe(true);
+        expect(teachingResult.jobs.length).toBe(1);
+        expect(teachingResult.jobs[0].job_id).toBe("3");
+        expect(teachingResult.jobs[0].account).toBe("teaching");
+
+        // Test filtering by account "default"
+        const defaultResult = await getSlurmJobs({ account: "default" });
+        expect(defaultResult.success).toBe(true); 
+        expect(defaultResult.jobs.length).toBe(1);
+        expect(defaultResult.jobs[0].job_id).toBe("1");
+        expect(defaultResult.jobs[0].account).toBe("default");
+
+        // Test case insensitive filtering
+        const caseInsensitiveResult = await getSlurmJobs({ account: "RESEARCH" });
+        expect(caseInsensitiveResult.success).toBe(true);
+        expect(caseInsensitiveResult.jobs.length).toBe(1);
+        expect(caseInsensitiveResult.jobs[0].job_id).toBe("2");
+
+        // Test partial match filtering
+        const partialResult = await getSlurmJobs({ account: "teach" });
+        expect(partialResult.success).toBe(true);
+        expect(partialResult.jobs.length).toBe(1);
+        expect(partialResult.jobs[0].job_id).toBe("3");
+
+        // Test non-existent account
+        const nonExistentResult = await getSlurmJobs({ account: "nonexistent" });
+        expect(nonExistentResult.success).toBe(true);
+        expect(nonExistentResult.jobs.length).toBe(0);
     });
 
     it("returns an error object when executeCommand returns invalid JSON", async () => {

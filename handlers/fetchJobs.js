@@ -55,6 +55,8 @@ function matchesFilter(job, field, filterVal) {
     value = job.name;
   } else if (field === "user") {
     value = job.user_name;
+  } else if (field === "account") {
+    value = job.account;
   } else if (field === "state") {
     const state = job.job_state;
     if (Array.isArray(state)) {
