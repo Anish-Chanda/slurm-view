@@ -6,6 +6,7 @@ const backgroundPolling = require('./service/backgroundPolling.js');
 const dataCache = require('./modules/dataCache.js');
 const jobsService = require('./service/jobsService.js');
 const { getPartitions } = require('./handlers/fetchPartitions.js');
+const { getJobStates } = require('./handlers/fetchJobStates.js');
 const { validatePartitionName, validatePageNumber, validatePageSize, validateFilterValue } = require('./helpers/inputValidation');
 
 
@@ -46,7 +47,7 @@ const hbs = engine({
     },
 
     json: function (data) {
-      return JSON.stringify(data);
+      return JSON.stringify(data || []);
     },
 
     split: function (string, separator, index) {
@@ -284,8 +285,23 @@ router.get('/', async (req, res) => {
   const cpuStats = getCPUsByState();
   const memStats = getMemByState();
   const gpuStats = await getGPUByState();
-  //TODO: fetch partitions dynamically
-  const partitions = getPartitions()
+  // Get partitions and job states
+  let partitions = [];
+  let jobStates = [];
+  
+  try {
+    partitions = getPartitions();
+  } catch (error) {
+    console.error('[App] Failed to fetch partitions:', error.message);
+    partitions = [{ id: 'all', name: 'All Partitions' }];
+  }
+  
+  try {
+    jobStates = getJobStates();
+  } catch (error) {
+    console.error('[App] Failed to fetch job states:', error.message);
+    jobStates = [];
+  }
 
 
     res.render('home', {
@@ -301,6 +317,7 @@ router.get('/', async (req, res) => {
         jobs: jobs.lastUpdated ? new Date(jobs.lastUpdated).toLocaleTimeString() : 'N/A'
       },
       partitions,
+      jobStates,
       passengerBaseUri: process.env.PASSENGER_BASE_URI,
       defaultPageSize: DEFAULT_PAGE_SIZE
     });
@@ -316,7 +333,8 @@ router.get('/', async (req, res) => {
       memStats: { allocated: 0, idle: 0, down: 0, other: 0, total: 0 },
       gpuStats: { name: "GPU Utilization", children: [], totalGPUs: 0 },
       lastUpdated: { jobs: 'N/A' },
-      partitions: [],
+      partitions: [{ id: 'all', name: 'All Partitions' }],
+      jobStates: [],
       passengerBaseUri: process.env.PASSENGER_BASE_URI,
       defaultPageSize: DEFAULT_PAGE_SIZE
     });

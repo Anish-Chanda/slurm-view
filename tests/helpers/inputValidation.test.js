@@ -108,6 +108,21 @@ describe('Input Validation Tests', () => {
             const longFilter = 'a'.repeat(201);
             expect(() => validateFilterValue(longFilter)).toThrow('Filter value is too long');
         });
+
+        test('should accept all valid Slurm job states', () => {
+            const validStates = [
+                'PENDING', 'RUNNING', 'SUSPENDED', 'COMPLETED', 'CANCELLED', 'FAILED',
+                'TIMEOUT', 'NODE_FAIL', 'PREEMPTED', 'BOOT_FAIL', 'DEADLINE', 'OUT_OF_MEMORY',
+                'COMPLETING', 'CONFIGURING', 'RESIZING', 'RESV_DEL_HOLD', 'REQUEUED',
+                'REQUEUE_FED', 'REQUEUE_HOLD', 'REVOKED', 'SIGNALING', 'SPECIAL_EXIT',
+                'STAGE_OUT', 'STOPPED'
+            ];
+            
+            validStates.forEach(state => {
+                expect(validateFilterValue(state)).toBe(state);
+                expect(validateFilterValue(state.toLowerCase())).toBe(state.toLowerCase());
+            });
+        });
     });
 
     describe('createSafeCommand', () => {

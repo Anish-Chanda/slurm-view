@@ -14,7 +14,16 @@ function getCPUsByState(partition = null) {
         
         const safeCommand = createSafeCommand('sinfo', cmdArgs);
         const cmdOutput = executeCommand(safeCommand); // returns cpu utilization in Allocated/Idle/Other/Total
-        const [allocated, idle, other, total] = cmdOutput.split('/').map(Number);
+        const parts = cmdOutput.split('/').map(val => {
+            const num = Number(val);
+            return isNaN(num) ? 0 : num;
+        });
+        
+        const allocated = parts[0] || 0;
+        const idle = parts[1] || 0;
+        const other = parts[2] || 0;
+        const total = parts[3] || 0;
+        
         return { allocated, idle, other, total };
     } catch (error) {
         console.error('Error in getCPUsByState:', error.message);
@@ -80,7 +89,7 @@ function getMemByState(partition = null) {
 
         //convert memory in MB to GB
         Object.keys(distribution).forEach(key => {
-            distribution[key] = (distribution[key] / 1024).toFixed(2);
+            distribution[key] = parseFloat((distribution[key] / 1024).toFixed(2));
         });
         return distribution;
     } catch (error) {

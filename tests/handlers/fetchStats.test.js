@@ -88,11 +88,11 @@ NodeName=node4 State=MIXED RealMemory=50000 AllocMem=25000 FreeMem=20000 Partiti
     const otherMem = 2000 + 2000 + 5000; // node1 + node2 + node4 (RealMemory - AllocMem - FreeMem)
     
     expect(result).toEqual({
-      allocated: (allocatedMem / 1024).toFixed(2),
-      idle: (idleMem / 1024).toFixed(2),
-      down: (downMem / 1024).toFixed(2),
-      other: (otherMem / 1024).toFixed(2),
-      total: (totalMem / 1024).toFixed(2),
+      allocated: parseFloat((allocatedMem / 1024).toFixed(2)),
+      idle: parseFloat((idleMem / 1024).toFixed(2)),
+      down: parseFloat((downMem / 1024).toFixed(2)),
+      other: parseFloat((otherMem / 1024).toFixed(2)),
+      total: parseFloat((totalMem / 1024).toFixed(2)),
     });
   });
 
@@ -117,11 +117,11 @@ NodeName=node4 State=MIXED RealMemory=50000 AllocMem=25000 FreeMem=20000 Partiti
     const otherMem = 5000; // node4 (RealMemory - AllocMem - FreeMem)
     
     expect(result).toEqual({
-      allocated: (allocatedMem / 1024).toFixed(2),
-      idle: (idleMem / 1024).toFixed(2),
-      down: (downMem / 1024).toFixed(2),
-      other: (otherMem / 1024).toFixed(2),
-      total: (totalMem / 1024).toFixed(2),
+      allocated: parseFloat((allocatedMem / 1024).toFixed(2)),
+      idle: parseFloat((idleMem / 1024).toFixed(2)),
+      down: parseFloat((downMem / 1024).toFixed(2)),
+      other: parseFloat((otherMem / 1024).toFixed(2)),
+      total: parseFloat((totalMem / 1024).toFixed(2)),
     });
   });
 
@@ -143,11 +143,11 @@ NodeName=node3 RealMemory=50000 AllocMem=0 FreeMem=48000 Partitions=compute
     const otherMem = 2000; // node1 (RealMemory - AllocMem - FreeMem)
     
     expect(result).toEqual({
-      allocated: (allocatedMem / 1024).toFixed(2),
-      idle: (idleMem / 1024).toFixed(2),
-      down: "0.00",
-      other: (otherMem / 1024).toFixed(2),
-      total: (totalMem / 1024).toFixed(2),
+      allocated: parseFloat((allocatedMem / 1024).toFixed(2)),
+      idle: parseFloat((idleMem / 1024).toFixed(2)),
+      down: 0,
+      other: parseFloat((otherMem / 1024).toFixed(2)),
+      total: parseFloat((totalMem / 1024).toFixed(2)),
     });
   });
 
