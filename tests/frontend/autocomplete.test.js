@@ -72,6 +72,38 @@ describe('Frontend Autocomplete Logic', () => {
         });
     });
 
+    describe('State Reason Filter Detection', () => {
+        // Simulate the regex pattern from the frontend
+        const getStateReasonMatch = (beforeCursor) => {
+            return beforeCursor.match(/(?:^|\s)statereason:([^:\s]*)$/);
+        };
+
+        test('should detect state reason filter input correctly', () => {
+            const testCases = [
+                { input: 'statereason:', expected: true, expectedValue: '', description: 'Simple state reason filter' },
+                { input: 'user:john statereason:', expected: true, expectedValue: '', description: 'State reason after other filter' },
+                { input: 'statereason:Res', expected: true, expectedValue: 'Res', description: 'Partial state reason value' },
+                { input: 'partition:gpu statereason:', expected: true, expectedValue: '', description: 'State reason with other filters' },
+                { input: 'statereason:Resources', expected: true, expectedValue: 'Resources', description: 'Complete state reason value' },
+                { input: 'statereasondata:', expected: false, expectedValue: null, description: 'Similar but not state reason' },
+                { input: 'mystatereason:', expected: false, expectedValue: null, description: 'Substring match should not trigger' },
+                { input: '', expected: false, expectedValue: null, description: 'Empty input' },
+                { input: 'statereason', expected: false, expectedValue: null, description: 'Missing colon' }
+            ];
+
+            testCases.forEach(testCase => {
+                const match = getStateReasonMatch(testCase.input);
+                const isStateReasonFilter = !!match;
+                const filterValue = match ? match[1] : null;
+                
+                expect(isStateReasonFilter).toBe(testCase.expected, testCase.description);
+                if (testCase.expected) {
+                    expect(filterValue).toBe(testCase.expectedValue, `${testCase.description} - value extraction`);
+                }
+            });
+        });
+    });
+
     describe('Cursor Position Handling', () => {
         test('should handle cursor position correctly in filter detection', () => {
             // Simulate the actual frontend logic which extracts the current word
@@ -181,6 +213,34 @@ describe('Frontend Autocomplete Logic', () => {
             expect(filterSuggestions(mockStates, 'p')).toHaveLength(2); // pending, completed
             expect(filterSuggestions(mockStates, 'run')).toHaveLength(1); // running
             expect(filterSuggestions(mockStates, 'ed')).toHaveLength(2); // completed, failed
+        });
+    });
+
+    describe('Quick Filter Format Detection', () => {
+        // Simulate the regex pattern from the frontend
+        const isQuickFilterFormat = (filterString) => {
+            const quickFilterRegex = /\b(jobid|partition|name|user|account|state|statereason)\s*:\s*\S+/i;
+            return quickFilterRegex.test(filterString);
+        };
+
+        test('should detect quick filter format correctly', () => {
+            const testCases = [
+                { input: 'jobid:123', expected: true, description: 'JobID filter' },
+                { input: 'partition:gpu', expected: true, description: 'Partition filter' },
+                { input: 'state:running', expected: true, description: 'State filter' },
+                { input: 'statereason:Resources', expected: true, description: 'State Reason filter' },
+                { input: 'user:john', expected: true, description: 'User filter' },
+                { input: 'account:research', expected: true, description: 'Account filter' },
+                { input: 'name:job1', expected: true, description: 'Name filter' },
+                { input: 'invalid:value', expected: false, description: 'Invalid key' },
+                { input: 'statereason:', expected: false, description: 'Missing value' }, // Regex expects \S+
+                { input: 'statereason: Resources', expected: true, description: 'Space allowed after colon' },
+                { input: ' statereason:Resources ', expected: true, description: 'Surrounding spaces' }
+            ];
+
+            testCases.forEach(testCase => {
+                expect(isQuickFilterFormat(testCase.input)).toBe(testCase.expected, testCase.description);
+            });
         });
     });
 });

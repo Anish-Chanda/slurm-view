@@ -370,7 +370,7 @@
   // Quick filter parsing functions
   function parseQuickFilters(filterString) {
     const filters = {};
-    const validFilterTypes = ['jobid', 'partition', 'name', 'user', 'account', 'state'];
+    const validFilterTypes = ['jobid', 'partition', 'name', 'user', 'account', 'state', 'statereason'];
     
     // Split by spaces but handle quoted values
     const pairs = [];
@@ -421,7 +421,7 @@
   
   function isQuickFilterFormat(filterString) {
         // Check if the string contains at least one key:value pair
-    const quickFilterRegex = /\b(jobid|partition|name|user|account|state)\s*:\s*\S+/i;
+    const quickFilterRegex = /\b(jobid|partition|name|user|account|state|statereason)\s*:\s*\S+/i;
     return quickFilterRegex.test(filterString);
   }
   
@@ -554,6 +554,7 @@
   // ----- Autocomplete Logic -----
   const availablePartitions = {{{json partitions}}};
   const availableStates = {{{json jobStates}}};
+  const availableStateReasons = {{{json jobStateReasons}}};
 
   const filterInput = document.getElementById('filter-value');
   const autocompleteDropdown = document.getElementById('autocomplete-dropdown');
@@ -591,6 +592,33 @@
         s.id.toLowerCase().includes(filterVal) || 
         s.name.toLowerCase().includes(filterVal)
       );
+    } else if (currentWord.toLowerCase().startsWith('statereason:')) {
+      prefix = 'statereason:';
+      const filterVal = currentWord.substring(12).toLowerCase(); // remove "statereason:"
+      
+      // Filter state reasons
+      matches = availableStateReasons.filter(r => 
+        r.toLowerCase().includes(filterVal)
+      ).map(r => ({ id: r, name: r }));
+    } else {
+      // check if the currently selected dropdown field supports autocomplete
+      const selectedField = document.getElementById('filter-field').value;
+      
+      if (selectedField === 'partition') {
+        matches = availablePartitions.filter(p => 
+          p.id !== 'all' && 
+          p.id.toLowerCase().includes(currentWord.toLowerCase())
+        );
+      } else if (selectedField === 'state') {
+        matches = availableStates.filter(s => 
+          s.id.toLowerCase().includes(currentWord.toLowerCase()) || 
+          s.name.toLowerCase().includes(currentWord.toLowerCase())
+        );
+      } else if (selectedField === 'statereason') {
+        matches = availableStateReasons.filter(r => 
+          r.toLowerCase().includes(currentWord.toLowerCase())
+        ).map(r => ({ id: r, name: r }));
+      }
     }
       
     if (matches.length > 0) {

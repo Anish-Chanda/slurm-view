@@ -1,7 +1,7 @@
 const express = require('express');
 const { engine } = require('express-handlebars');
 const { getCPUsByState, getMemByState, getGPUByState } = require('./handlers/fetchStats.js');
-const { DEFAULT_PAGE_SIZE } = require('./constants.js');
+const { DEFAULT_PAGE_SIZE, JOB_STATE_REASONS } = require('./constants.js');
 const backgroundPolling = require('./service/backgroundPolling.js');
 const dataCache = require('./modules/dataCache.js');
 const jobsService = require('./service/jobsService.js');
@@ -318,6 +318,7 @@ router.get('/', async (req, res) => {
       },
       partitions,
       jobStates,
+      jobStateReasons: JOB_STATE_REASONS,
       passengerBaseUri: process.env.PASSENGER_BASE_URI,
       defaultPageSize: DEFAULT_PAGE_SIZE
     });
@@ -335,6 +336,7 @@ router.get('/', async (req, res) => {
       lastUpdated: { jobs: 'N/A' },
       partitions: [{ id: 'all', name: 'All Partitions' }],
       jobStates: [],
+      jobStateReasons: [],
       passengerBaseUri: process.env.PASSENGER_BASE_URI,
       defaultPageSize: DEFAULT_PAGE_SIZE
     });
