@@ -1,13 +1,8 @@
+const NodeCache = require('node-cache');
+
 class DataCache {
     constructor() {
-        this.cache = {
-            jobs: {
-                data: null,
-                lastUpdated: 0
-            },
-
-            seff: new Map()
-        };
+        this.cache = new NodeCache({ stdTTL: 30, checkperiod: 120 });
 
         this.updateIntervals = {
             jobs: 30000, // 30 seconds
@@ -15,22 +10,30 @@ class DataCache {
     }
 
     setData(key, data) {
-        if (this.cache[key]) {
-            this.cache[key].data = data;
-            this.cache[key].lastUpdated = Date.now();
-        }
+        if (key !== 'jobs') return;
+
+        const wrapper = {
+            data: data,
+            lastUpdated: Date.now()
+        };
+        
+        this.cache.set(key, wrapper, 30);
     }
 
     getData(key) {
-        return this.cache[key]?.data || null;
+        const wrapper = this.cache.get(key);
+        return wrapper ? wrapper.data : null;
     }
 
     getLastUpdated(key) {
-        return this.cache[key]?.lastUpdated || 0;
+        const wrapper = this.cache.get(key);
+        return wrapper ? wrapper.lastUpdated : 0;
     }
 
     isStale(key, threshold = null) {
         const lastUpdated = this.getLastUpdated(key);
+        if (lastUpdated === 0) return true;
+
         const now = Date.now();
         const interval = threshold || this.getUpdateInterval(key);
 
@@ -44,16 +47,11 @@ class DataCache {
 
 
     getSeffData(jobId) {
-        return this.cache.seff.get(jobId) || null
+        return this.cache.get(`seff:${jobId}`) || null;
     }
 
     setSeffData(jobId, data) {
-        this.cache.seff.set(jobId, data);
-
-        setTimeout(() => {
-            this.cache.seff.delete(jobId);
-            console.log(`[DataCache] Expired seff cache for Job ${jobId}.`);
-        }, 30 * 60 * 1000); // 30-minute cache lifetime, same as slurm
+        this.cache.set(`seff:${jobId}`, data, 1800); // 30 minutes
     }
 }
 

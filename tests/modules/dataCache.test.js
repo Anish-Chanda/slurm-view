@@ -3,10 +3,7 @@ const dataCache = require("../../modules/dataCache");
 describe('DataCache', () => {
     beforeEach(() => {
         // Reset the cache before each test
-        Object.keys(dataCache.cache).forEach(key => {
-            dataCache.cache[key].data = null;
-            dataCache.cache[key].lastUpdated = 0;
-        });
+        dataCache.cache.flushAll();
     });
 
     test('should store and retrieve data', () => {
@@ -28,15 +25,24 @@ describe('DataCache', () => {
     });
 
     test('should correctly identify stale data', () => {
-        // Set data and artificially make it old
+        // Mock Date.now
+        const realDateNow = Date.now;
+        const now = 1000000000000;
+        global.Date.now = jest.fn(() => now);
+
         dataCache.setData('jobs', { success: true });
-        dataCache.cache.jobs.lastUpdated = Date.now() - 60000; // 1 minute ago
+        
+        // Advance time by 20 seconds (within 30s TTL)
+        global.Date.now = jest.fn(() => now + 20000);
 
-        // Check with default interval (30s for jobs)
-        expect(dataCache.isStale('jobs')).toBe(true);
+        // Check with default interval (30s for jobs) -> Should be fresh
+        expect(dataCache.isStale('jobs')).toBe(false);
 
-        // Check with custom threshold (2 minutes)
-        expect(dataCache.isStale('jobs', 120000)).toBe(false);
+        // Check with custom threshold (10s) -> Should be stale
+        expect(dataCache.isStale('jobs', 10000)).toBe(true);
+
+        // Restore Date.now
+        global.Date.now = realDateNow;
     });
 
     test('should return correct update interval for different data types', () => {
@@ -55,5 +61,24 @@ describe('DataCache', () => {
     test('should not store data for invalid keys', () => {
         dataCache.setData('invalidKey', { foo: 'bar' });
         expect(dataCache.getData('invalidKey')).toBeNull();
+    });
+    
+    test('should store seff data with correct TTL', () => {
+        const jobId = 123;
+        const seffData = { some: 'data' };
+        dataCache.setSeffData(jobId, seffData);
+        
+        const retrieved = dataCache.getSeffData(jobId);
+        expect(retrieved).toEqual(seffData);
+        
+        // Verify TTL is set (approximately 1800s)
+        // node-cache getTtl returns timestamp.
+        const ttlTimestamp = dataCache.cache.getTtl(`seff:${jobId}`);
+        const now = Date.now();
+        const expectedExpiry = now + 1800 * 1000;
+        
+        // Allow some margin of error (e.g. 1000ms)
+        expect(ttlTimestamp).toBeGreaterThan(now);
+        expect(Math.abs(ttlTimestamp - expectedExpiry)).toBeLessThan(1000);
     });
 });
