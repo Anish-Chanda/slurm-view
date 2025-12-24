@@ -1,8 +1,16 @@
 const { executeCommand, executeCommandStreaming } = require("../helpers/executeCmd.js");
 const { validatePartitionName, createSafeCommand } = require("../helpers/inputValidation");
+const dataCache = require("../modules/dataCache.js");
 
 // Fetches the number of CPUs by state
 function getCPUsByState(partition = null) {
+    const key = `stats:cpu:${partition || 'all'}`;
+    const cached = dataCache.cache.get(key);
+    if (cached) {
+        console.log(`[Stats Handler] Using cached CPU stats for ${partition || 'all'}`);
+        return cached;
+    }
+
     try {
         let cmdArgs = ['-o', '%C', '--noheader'];
         
@@ -24,7 +32,9 @@ function getCPUsByState(partition = null) {
         const other = parts[2] || 0;
         const total = parts[3] || 0;
         
-        return { allocated, idle, other, total };
+        const result = { allocated, idle, other, total };
+        dataCache.cache.set(key, result, 5);
+        return result;
     } catch (error) {
         console.error('Error in getCPUsByState:', error.message);
         return { allocated: 0, idle: 0, other: 0, total: 0 };
@@ -32,6 +42,13 @@ function getCPUsByState(partition = null) {
 }
 
 function getMemByState(partition = null) {
+    const key = `stats:mem:${partition || 'all'}`;
+    const cached = dataCache.cache.get(key);
+    if (cached) {
+        console.log(`[Stats Handler] Using cached Memory stats for ${partition || 'all'}`);
+        return cached;
+    }
+
     try {
         const safeCommand = createSafeCommand('scontrol', ['show', 'node', '-o']);
         const cmdOutput = executeCommand(safeCommand);
@@ -91,6 +108,8 @@ function getMemByState(partition = null) {
         Object.keys(distribution).forEach(key => {
             distribution[key] = parseFloat((distribution[key] / 1024).toFixed(2));
         });
+        
+        dataCache.cache.set(key, distribution, 5);
         return distribution;
     } catch (error) {
         console.error('Error in getMemByState:', error.message);
@@ -105,6 +124,13 @@ function getMemByState(partition = null) {
 }
 
 async function getGPUByState(partition = null) {
+    const key = `stats:gpu:${partition || 'all'}`;
+    const cached = dataCache.cache.get(key);
+    if (cached) {
+        console.log(`[Stats Handler] Using cached GPU stats for ${partition || 'all'}`);
+        return cached;
+    }
+
     try {
         // Get Total GPUs from scontrol
         const scontrolSafeCommand = createSafeCommand('scontrol', ['show', 'node', '-o']);
@@ -203,6 +229,7 @@ async function getGPUByState(partition = null) {
         // Handle zero GPU case - add a special child to show "allocated" color
         if (totalGPUCount === 0) {
             gpuStats.children = [{ name: "No GPUs", value: 1, children: [] }];
+            dataCache.cache.set(key, gpuStats, 5);
             return gpuStats;
         }
 
@@ -220,6 +247,7 @@ async function getGPUByState(partition = null) {
             }
         });
 
+        dataCache.cache.set(key, gpuStats, 5);
         return gpuStats;
 
     } catch (error) {

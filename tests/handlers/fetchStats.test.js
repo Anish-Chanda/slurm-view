@@ -4,6 +4,16 @@ const { executeCommand, executeCommandStreaming } = require("../../helpers/execu
 // Mock the executeCommand dependency
 jest.mock("../../helpers/executeCmd");
 
+// Mock dataCache to prevent caching interference in tests
+jest.mock("../../modules/dataCache", () => ({
+    cache: {
+        get: jest.fn(),
+        set: jest.fn(),
+        getStats: jest.fn()
+    },
+    logStats: jest.fn()
+}));
+
 describe("getCPUsByState", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -22,6 +32,17 @@ describe("getCPUsByState", () => {
       other: 200,
       total: 2200,
     });
+  });
+
+  it("should return cached data if available", () => {
+    const cachedData = { allocated: 100, idle: 100, other: 0, total: 200 };
+    // Mock cache hit
+    require("../../modules/dataCache").cache.get.mockReturnValueOnce(cachedData);
+    
+    const result = getCPUsByState();
+    
+    expect(result).toEqual(cachedData);
+    expect(executeCommand).not.toHaveBeenCalled();
   });
 
   it("should handle errors properly", () => {

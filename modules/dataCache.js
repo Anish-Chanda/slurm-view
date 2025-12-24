@@ -7,6 +7,11 @@ class DataCache {
         this.updateIntervals = {
             jobs: 30000, // 30 seconds
         };
+
+        // Log cache stats every 60 seconds
+        setInterval(() => {
+            this.logStats();
+        }, 60000);
     }
 
     setData(key, data) {
@@ -52,6 +57,10 @@ class DataCache {
 
     setSeffData(jobId, data) {
         this.cache.set(`seff:${jobId}`, data, 1800); // 30 minutes
+    }
+
+    logStats() {
+        console.log('[DataCache Stats]', this.cache.getStats());
     }
 }
 
