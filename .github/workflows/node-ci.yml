@@ -2,9 +2,9 @@ name: Node.js CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ '**' ]
   pull_request:
-    branches: [ main ]
+    branches: [ '**' ]
   workflow_dispatch:
 
 jobs:
@@ -25,6 +25,14 @@ jobs:
 
     - name: Run tests
       run: npm test
+    
+    - name: Upload coverage artifact
+      uses: actions/upload-artifact@v5
+      with:
+        name: node-coverage
+        path: coverage/lcov.info
+        if-no-files-found: error
+        retention-days: 1
 
   # Run SonarQube analysis only on pushes to main branch
   sonar-analysis:
@@ -37,6 +45,11 @@ jobs:
          uses: actions/checkout@v4
          with:
            fetch-depth: 0
+       - name: Download coverage artifact
+         uses: actions/download-artifact@v6
+         with:
+           name: node-coverage
+           path: coverage
        - uses: SonarSource/sonarqube-scan-action@v5
          env:
            SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

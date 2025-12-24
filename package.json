@@ -4,14 +4,15 @@
   "description": "testing",
   "main": "app.js",
   "scripts": {
-    "test": "jest",
+    "test": "jest --coverage",
     "start": "node app.js"
   },
   "author": "Anish Chanda",
   "license": "ISC",
   "dependencies": {
     "express": "^4.21.2",
-    "express-handlebars": "^8.0.1"
+    "express-handlebars": "^8.0.1",
+    "node-cache": "^5.1.2"
   },
   "devDependencies": {
     "@babel/core": "^7.26.10",
