@@ -7,6 +7,7 @@ const dataCache = require('./modules/dataCache.js');
 const jobsService = require('./service/jobsService.js');
 const { getPartitions } = require('./handlers/fetchPartitions.js');
 const { getJobStates } = require('./handlers/fetchJobStates.js');
+const { getPendingReason } = require('./handlers/fetchPendingReason.js');
 const { validatePartitionName, validatePageNumber, validatePageSize, validateFilterValue } = require('./helpers/inputValidation');
 
 
@@ -222,6 +223,15 @@ router.get('/api/jobs', async (req, res) => {
       success: false,
       error: error.message || 'Invalid request parameters'
     });
+  }
+});
+
+router.get('/api/jobs/:id/pending-reason', async (req, res) => {
+  try {
+    const reason = await getPendingReason(req.params.id);
+    res.json({ success: true, data: reason });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

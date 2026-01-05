@@ -59,6 +59,14 @@ class DataCache {
         this.cache.set(`seff:${jobId}`, data, 1800); // 30 minutes
     }
 
+    getPendingReason(jobId) {
+        return this.cache.get(`pending:${jobId}`);
+    }
+
+    setPendingReason(jobId, data) {
+        this.cache.set(`pending:${jobId}`, data, 60); // 60 seconds TTL
+    }
+
     logStats() {
         console.log('[DataCache Stats]', this.cache.getStats());
     }
