@@ -118,6 +118,9 @@ app.engine('handlebars', hbs);
 app.set('view engine', 'handlebars');
 app.set('views', './views');
 
+// Serve static files from public directory
+app.use(express.static('public'));
+
 const router = express.Router();
 app.use(process.env.PASSENGER_BASE_URI || '/', router);
 
