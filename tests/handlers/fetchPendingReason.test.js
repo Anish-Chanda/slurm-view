@@ -1,12 +1,14 @@
 const { getPendingReason } = require("../../handlers/fetchPendingReason");
 const { executeCommand } = require("../../helpers/executeCmd");
 const dataCache = require("../../modules/dataCache");
+const priorityUtils = require("../../helpers/priorityUtils");
 
 jest.mock("../../helpers/executeCmd");
 jest.mock("../../modules/dataCache", () => ({
     getPendingReason: jest.fn(),
     setPendingReason: jest.fn()
 }));
+jest.mock("../../helpers/priorityUtils");
 
 describe("getPendingReason", () => {
     beforeEach(() => {
@@ -30,12 +32,12 @@ describe("getPendingReason", () => {
         expect(result.message).toContain('RUNNING');
     });
 
-    it("should return other reason message if reason is not Resources", async () => {
-        executeCommand.mockReturnValue("JobId=123 JobState=PENDING Reason=Priority");
+    it("should return other reason message if reason is not Resources or Priority", async () => {
+        executeCommand.mockReturnValue("JobId=123 JobState=PENDING Reason=Dependency");
         
         const result = await getPendingReason('123');
         expect(result.type).toBe('Other');
-        expect(result.message).toContain('Priority');
+        expect(result.message).toContain('Dependency');
     });
 
     it("should analyze specific node if SchedNodeList is present", async () => {
@@ -91,6 +93,81 @@ describe("getPendingReason", () => {
         
         expect(result.summary.blockedNodes).toBe(1);
         expect(result.summary.freeNodes).toBe(1);
+    });
+
+    it("should analyze priority pending reason", async () => {
+        // Mock Job Info
+        executeCommand.mockReturnValue(
+            "JobId=9156162 JobState=PENDING Reason=Priority Partition=nova"
+        );
+
+        // Mock priority utils
+        priorityUtils.getJobPriority.mockReturnValue({
+            jobId: '9156162',
+            partition: 'nova',
+            priority: 35940,
+            components: {
+                site: 0,
+                age: 1000,
+                fairshare: 24923,
+                jobsize: 17,
+                partition: 10000,
+                qos: 0
+            },
+            weights: {
+                site: 1,
+                age: 1000,
+                fairshare: 100000,
+                jobsize: 10000,
+                partition: 100000,
+                qos: 1
+            }
+        });
+
+        priorityUtils.getCompetingJobs.mockReturnValue({
+            higherPriorityCount: 5,
+            competitors: [
+                { jobId: '9244468', priority: 60954, user: 'ecoppen', state: 'PENDING' },
+                { jobId: '9234494', priority: 61682, user: 'isaakd', state: 'PENDING' }
+            ],
+            totalPending: 20
+        });
+
+        priorityUtils.getRunningJobsCount.mockReturnValue(15);
+
+        priorityUtils.calculateContributions.mockReturnValue({
+            site: '0.0',
+            age: '0.0',
+            fairshare: '71.3',
+            jobsize: '0.0',
+            partition: '28.6',
+            qos: '0.0'
+        });
+
+        const result = await getPendingReason('9156162');
+
+        expect(result.type).toBe('Priority');
+        expect(result.jobId).toBe('9156162');
+        expect(result.partition).toBe('nova');
+        expect(result.priority.total).toBe(35940);
+        expect(result.competition.higherPriorityCount).toBe(5);
+        expect(result.competition.runningJobs).toBe(15);
+        expect(result.queuePosition).toBe(6);
+        expect(dataCache.setPendingReason).toHaveBeenCalled();
+    });
+
+    it("should fallback to Other type if priority analysis fails", async () => {
+        executeCommand.mockReturnValue("JobId=123 JobState=PENDING Reason=Priority Partition=nova");
+        
+        priorityUtils.getJobPriority.mockImplementation(() => {
+            throw new Error("sprio command failed");
+        });
+
+        const result = await getPendingReason('123');
+
+        expect(result.type).toBe('Other');
+        expect(result.message).toContain('Priority');
+        expect(result.message).toContain('detailed analysis unavailable');
     });
 
     it("should handle errors gracefully", async () => {

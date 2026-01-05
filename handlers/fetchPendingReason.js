@@ -1,6 +1,12 @@
 const { executeCommand } = require("../helpers/executeCmd");
 const { createSafeCommand, validatePartitionName } = require("../helpers/inputValidation");
 const { parseTres, checkResources } = require("../helpers/tresUtils");
+const { 
+    getJobPriority, 
+    getCompetingJobs, 
+    getRunningJobsCount,
+    calculateContributions 
+} = require("../helpers/priorityUtils");
 const dataCache = require("../modules/dataCache");
 
 const getPendingReason = async (jobId) => {
@@ -19,45 +25,17 @@ const getPendingReason = async (jobId) => {
             return { type: 'Status', message: `Job is ${jobData.JobState}` };
         }
         
-        if (jobData.Reason !== 'Resources') {
-            return { type: 'Other', message: `Pending reason: ${jobData.Reason}` };
-        }
-
-        // Identify Target Nodes
-        let targetNodes = [];
-        let scope = 'Partition';
-
-        if (jobData.SchedNodeList && jobData.SchedNodeList !== '(null)') {
-            targetNodes = [jobData.SchedNodeList]; // Simplified: assume single node or list string
-            scope = 'Scheduled Node';
-        } else if (jobData.ReqNodeList && jobData.ReqNodeList !== '(null)') {
-            targetNodes = [jobData.ReqNodeList];
-            scope = 'Requested Node';
+        // Route to appropriate handler based on pending reason
+        let result;
+        if (jobData.Reason === 'Resources') {
+            result = analyzeResourcesPending(jobId, jobData);
+        } else if (jobData.Reason === 'Priority') {
+            result = analyzePriorityPending(jobId, jobData);
         } else {
-            // Fetch all nodes in partition
-            const partCmd = createSafeCommand('sinfo', ['-p', jobData.Partition, '-h', '-o', '%N']);
-            const partOutput = executeCommand(partCmd);
-            targetNodes = partOutput.trim().split(',').filter(n => n);
+            result = { type: 'Other', message: `Pending reason: ${jobData.Reason}` };
         }
 
-        // Analyze Nodes       
-        // If targetNodes contains ranges (e.g. node[1-5]), scontrol handles it.
-        const nodesCmdArgs = ['show', 'node', targetNodes.join(',')];
-        const nodesCmd = createSafeCommand('scontrol', nodesCmdArgs);
-        const nodesOutput = executeCommand(nodesCmd);
-        
-        const nodesAnalysis = analyzeNodes(nodesOutput, jobData.ReqTRES);
-
-        const result = {
-            type: 'Resources',
-            scope: scope,
-            jobId: jobId,
-            reqTres: jobData.ReqTRES,
-            summary: summarizeAnalysis(nodesAnalysis, targetNodes.length),
-            details: nodesAnalysis // Detailed breakdown
-        };
-
-        // Cache result (short TTL as resources change)
+        // Cache result (short TTL as resources/priorities change)
         dataCache.setPendingReason(jobId, result);
         
         return result;
@@ -65,6 +43,101 @@ const getPendingReason = async (jobId) => {
     } catch (error) {
         console.error(`Error fetching pending reason for job ${jobId}:`, error.message);
         return { type: 'Error', message: error.message };
+    }
+};
+
+/**
+ * Analyze a job pending due to resources
+ * @param {string} jobId - Job ID
+ * @param {Object} jobData - Parsed job data from scontrol
+ * @returns {Object} Resources analysis result
+ */
+const analyzeResourcesPending = (jobId, jobData) => {
+    // Identify Target Nodes
+    let targetNodes = [];
+    let scope = 'Partition';
+
+    if (jobData.SchedNodeList && jobData.SchedNodeList !== '(null)') {
+        targetNodes = [jobData.SchedNodeList];
+        scope = 'Scheduled Node';
+    } else if (jobData.ReqNodeList && jobData.ReqNodeList !== '(null)') {
+        targetNodes = [jobData.ReqNodeList];
+        scope = 'Requested Node';
+    } else {
+        // Fetch all nodes in partition
+        const partCmd = createSafeCommand('sinfo', ['-p', jobData.Partition, '-h', '-o', '%N']);
+        const partOutput = executeCommand(partCmd);
+        targetNodes = partOutput.trim().split(',').filter(n => n);
+    }
+
+    // Analyze Nodes       
+    const nodesCmdArgs = ['show', 'node', targetNodes.join(',')];
+    const nodesCmd = createSafeCommand('scontrol', nodesCmdArgs);
+    const nodesOutput = executeCommand(nodesCmd);
+    
+    const nodesAnalysis = analyzeNodes(nodesOutput, jobData.ReqTRES);
+
+    return {
+        type: 'Resources',
+        scope: scope,
+        jobId: jobId,
+        reqTres: jobData.ReqTRES,
+        summary: summarizeAnalysis(nodesAnalysis, targetNodes.length),
+        details: nodesAnalysis
+    };
+};
+
+/**
+ * Analyze a job pending due to priority
+ * @param {string} jobId - Job ID
+ * @param {Object} jobData - Parsed job data from scontrol
+ * @returns {Object} Priority analysis result
+ */
+const analyzePriorityPending = (jobId, jobData) => {
+    try {
+        // Get job priority breakdown
+        const priorityData = getJobPriority(jobId);
+        
+        // Get competing jobs (limit to 5)
+        const competition = getCompetingJobs(jobData.Partition, priorityData.priority, 5);
+        
+        // Get running jobs count
+        const runningCount = getRunningJobsCount(jobData.Partition);
+        
+        // Calculate percentage contributions
+        const contributions = calculateContributions(
+            priorityData.components, 
+            priorityData.weights
+        );
+
+        // Calculate estimated position in queue
+        const queuePosition = competition.higherPriorityCount + 1;
+
+        return {
+            type: 'Priority',
+            jobId: jobId,
+            partition: jobData.Partition,
+            priority: {
+                total: priorityData.priority,
+                components: priorityData.components,
+                weights: priorityData.weights,
+                contributions: contributions
+            },
+            competition: {
+                higherPriorityCount: competition.higherPriorityCount,
+                topCompetitors: competition.competitors,
+                totalPending: competition.totalPending,
+                runningJobs: runningCount
+            },
+            queuePosition: queuePosition
+        };
+    } catch (error) {
+        console.error(`Error analyzing priority for job ${jobId}:`, error.message);
+        // Fallback to simple message if priority analysis fails
+        return { 
+            type: 'Other', 
+            message: `Pending reason: Priority (detailed analysis unavailable: ${error.message})` 
+        };
     }
 };
 
