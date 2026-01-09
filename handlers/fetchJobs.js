@@ -41,6 +41,13 @@ function formatJobsData(jobs) {
       total_gpus: getTresvalue(job.tres_req_str, "gres/gpu"),
       state_reason: job.state_reason || 'None', 
       account: job.account || 'N/A',
+      
+      // Dependency related fields
+      dependency: job.dependency || null,
+      exit_code: job.exit_code?.status || job.exit_code || null,
+      derived_exit_code: job.derived_exit_code || null,
+      end_time: job.end_time?.number || null,
+      flags: job.flags || []
     }
   })
 }

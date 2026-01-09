@@ -2,8 +2,8 @@ const dataCache = require("../../modules/dataCache");
 
 describe('DataCache', () => {
     beforeEach(() => {
-        // Reset the cache before each test
-        dataCache.cache.flushAll();
+        // Reset all caches before each test
+        dataCache.clearAll();
     });
 
     test('should store and retrieve data', () => {
@@ -11,7 +11,8 @@ describe('DataCache', () => {
         dataCache.setData('jobs', testData);
 
         const retrieved = dataCache.getData('jobs');
-        expect(retrieved).toEqual(testData);
+        expect(retrieved.jobs).toEqual(testData.jobs);
+        expect(retrieved.success).toBe(true);
     });
 
     test('should update lastUpdated timestamp on data set', () => {
@@ -73,7 +74,7 @@ describe('DataCache', () => {
         
         // Verify TTL is set (approximately 1800s)
         // node-cache getTtl returns timestamp.
-        const ttlTimestamp = dataCache.cache.getTtl(`seff:${jobId}`);
+        const ttlTimestamp = dataCache.seffCache.getTtl(jobId.toString());
         const now = Date.now();
         const expectedExpiry = now + 1800 * 1000;
         

@@ -1,11 +1,13 @@
 const { getPartitions } = require('../../handlers/fetchPartitions');
 const { executeCommand } = require('../../helpers/executeCmd');
+const dataCache = require('../../modules/dataCache');
 
 jest.mock('../../helpers/executeCmd');
 
 describe('getPartitions', () => {
     beforeEach(() => {
         jest.clearAllMocks();
+        dataCache.clearAll(); // Clear cache before each test
     });
 
     test('should return formatted partitions when command succeeds', () => {

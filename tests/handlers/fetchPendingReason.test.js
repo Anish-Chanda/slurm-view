@@ -6,13 +6,16 @@ const priorityUtils = require("../../helpers/priorityUtils");
 jest.mock("../../helpers/executeCmd");
 jest.mock("../../modules/dataCache", () => ({
     getPendingReason: jest.fn(),
-    setPendingReason: jest.fn()
+    setPendingReason: jest.fn(),
+    getJobById: jest.fn()
 }));
 jest.mock("../../helpers/priorityUtils");
 
 describe("getPendingReason", () => {
     beforeEach(() => {
         jest.resetAllMocks();
+        // Default: no job in cache (fallback to scontrol)
+        dataCache.getJobById.mockReturnValue(null);
     });
 
     it("should return cached data if available", async () => {
@@ -33,11 +36,11 @@ describe("getPendingReason", () => {
     });
 
     it("should return other reason message if reason is not Resources or Priority", async () => {
-        executeCommand.mockReturnValue("JobId=123 JobState=PENDING Reason=Dependency");
+        executeCommand.mockReturnValue("JobId=123 JobState=PENDING Reason=Licenses");
         
         const result = await getPendingReason('123');
         expect(result.type).toBe('Other');
-        expect(result.message).toContain('Dependency');
+        expect(result.message).toContain('Licenses');
     });
 
     it("should analyze specific node if SchedNodeList is present", async () => {
@@ -178,5 +181,159 @@ describe("getPendingReason", () => {
         const result = await getPendingReason('123');
         expect(result.type).toBe('Error');
         expect(result.message).toBe('Command failed');
+    });
+
+    describe("Dependency pending reason", () => {
+        it("should analyze dependency with afterok type", async () => {
+            // Mock Job Info with Dependency
+            executeCommand.mockReturnValueOnce(
+                "JobId=456 JobState=PENDING Reason=Dependency Dependency=afterok:123 Partition=debug"
+            );
+
+            // Mock dependent job info
+            executeCommand.mockReturnValueOnce(
+                "JobId=123 JobState=COMPLETED ExitCode=0:0 EndTime=2024-01-09T10:00:00"
+            );
+
+            const result = await getPendingReason('456');
+
+            expect(result.type).toBe('Dependency');
+            expect(result.jobId).toBe('456');
+            expect(result.rawDependency).toBe('afterok:123');
+            expect(result.dependencies).toHaveLength(1);
+            expect(result.dependencies[0].type).toBe('afterok');
+            expect(result.dependencies[0].jobs).toHaveLength(1);
+            expect(result.dependencies[0].jobs[0].jobId).toBe('123');
+            expect(result.dependencies[0].jobs[0].state).toBe('COMPLETED');
+            expect(result.dependencies[0].satisfied).toBe(true);
+            expect(result.allSatisfied).toBe(true);
+        });
+
+        it("should handle dependency with multiple jobs", async () => {
+            // Mock Job Info
+            executeCommand.mockReturnValueOnce(
+                "JobId=789 JobState=PENDING Reason=Dependency Dependency=afterok:123:456 Partition=debug"
+            );
+
+            // Mock first dependent job (completed successfully)
+            executeCommand.mockReturnValueOnce(
+                "JobId=123 JobState=COMPLETED ExitCode=0:0 EndTime=2024-01-09T10:00:00"
+            );
+
+            // Mock second dependent job (still running)
+            executeCommand.mockReturnValueOnce(
+                "JobId=456 JobState=RUNNING Partition=debug"
+            );
+
+            const result = await getPendingReason('789');
+
+            expect(result.type).toBe('Dependency');
+            expect(result.dependencies).toHaveLength(1);
+            expect(result.dependencies[0].jobs).toHaveLength(2);
+            expect(result.dependencies[0].jobs[0].satisfied).toBe(true);
+            expect(result.dependencies[0].jobs[1].satisfied).toBe(false);
+            expect(result.dependencies[0].satisfied).toBe(false);
+            expect(result.allSatisfied).toBe(false);
+        });
+
+        it("should handle afterany dependency", async () => {
+            // Mock Job Info
+            executeCommand.mockReturnValueOnce(
+                "JobId=999 JobState=PENDING Reason=Dependency Dependency=afterany:888 Partition=debug"
+            );
+
+            // Mock dependent job (failed)
+            executeCommand.mockReturnValueOnce(
+                "JobId=888 JobState=COMPLETED ExitCode=1:0 EndTime=2024-01-09T10:00:00"
+            );
+
+            const result = await getPendingReason('999');
+
+            expect(result.type).toBe('Dependency');
+            expect(result.dependencies[0].type).toBe('afterany');
+            expect(result.dependencies[0].jobs[0].satisfied).toBe(true);
+            expect(result.allSatisfied).toBe(true);
+        });
+
+        it("should handle afternotok dependency", async () => {
+            // Mock Job Info
+            executeCommand.mockReturnValueOnce(
+                "JobId=555 JobState=PENDING Reason=Dependency Dependency=afternotok:444 Partition=debug"
+            );
+
+            // Mock dependent job (failed with non-zero exit code)
+            executeCommand.mockReturnValueOnce(
+                "JobId=444 JobState=COMPLETED ExitCode=5:0 EndTime=2024-01-09T10:00:00"
+            );
+
+            const result = await getPendingReason('555');
+
+            expect(result.type).toBe('Dependency');
+            expect(result.dependencies[0].type).toBe('afternotok');
+            expect(result.dependencies[0].jobs[0].exitCode).toBe('5:0');
+            expect(result.dependencies[0].jobs[0].satisfied).toBe(true);
+            expect(result.allSatisfied).toBe(true);
+        });
+
+        it("should handle singleton dependency", async () => {
+            // Mock Job Info
+            executeCommand.mockReturnValueOnce(
+                "JobId=777 JobState=PENDING Reason=Dependency Dependency=singleton Partition=debug"
+            );
+
+            const result = await getPendingReason('777');
+
+            expect(result.type).toBe('Dependency');
+            expect(result.dependencies).toHaveLength(1);
+            expect(result.dependencies[0].type).toBe('singleton');
+            expect(result.dependencies[0].description).toContain('one job');
+        });
+
+        it("should handle job not found error for dependency", async () => {
+            // Mock Job Info
+            executeCommand.mockReturnValueOnce(
+                "JobId=666 JobState=PENDING Reason=Dependency Dependency=afterok:333 Partition=debug"
+            );
+
+            // Mock dependent job not found
+            executeCommand.mockImplementationOnce(() => {
+                throw new Error("Invalid job id specified");
+            });
+
+            const result = await getPendingReason('666');
+
+            expect(result.type).toBe('Dependency');
+            expect(result.dependencies[0].jobs[0].state).toBe('UNKNOWN');
+            expect(result.dependencies[0].jobs[0].error).toContain('not found');
+            expect(result.dependencies[0].satisfied).toBe(false);
+        });
+
+        it("should handle null or missing dependency field", async () => {
+            // Mock Job Info with null dependency
+            executeCommand.mockReturnValueOnce(
+                "JobId=111 JobState=PENDING Reason=Dependency Dependency=(null) Partition=debug"
+            );
+
+            const result = await getPendingReason('111');
+
+            expect(result.type).toBe('Dependency');
+            expect(result.message).toContain('unavailable');
+        });
+
+        it("should fallback to Other type if dependency analysis fails", async () => {
+            executeCommand.mockReturnValueOnce(
+                "JobId=222 JobState=PENDING Reason=Dependency Dependency=afterok:123 Partition=debug"
+            );
+
+            // Make executeCommand fail on dependent job query
+            executeCommand.mockImplementationOnce(() => {
+                throw new Error("Critical error");
+            });
+
+            const result = await getPendingReason('222');
+
+            // Should handle gracefully and still return Dependency type
+            expect(result.type).toBe('Dependency');
+        });
     });
 });

@@ -1,11 +1,13 @@
 const { getJobStates } = require('../../handlers/fetchJobStates');
 const { executeCommand } = require('../../helpers/executeCmd');
+const dataCache = require('../../modules/dataCache');
 
 jest.mock('../../helpers/executeCmd');
 
 describe('getJobStates', () => {
     beforeEach(() => {
         jest.clearAllMocks();
+        dataCache.clearAll(); // Clear cache before each test
     });
 
     test('should return formatted job states when command succeeds', () => {
