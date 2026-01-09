@@ -13,7 +13,8 @@ function formatTimeLeft(timeLimit, startTime, jobState) {
   }
 
   const nowSec = Math.floor(Date.now() / 1000);
-  const endTime = startTime + timeLimit;
+  const timeLimitInSeconds = timeLimit * 60; // Convert from minutes to seconds
+  const endTime = startTime + timeLimitInSeconds;
   const remaining = endTime - nowSec;
 
   // If job has exceeded its time limit, show as "Exceeded"

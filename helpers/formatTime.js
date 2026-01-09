@@ -15,16 +15,27 @@ function formatTime(time) {
   const minutes = Math.floor(seconds / 60);
   seconds %= 60;
 
-  // Build the string, always including necessary zero‑values
+  // Build the string, removing trailing zero values
+  const parts = [];
   if (days > 0) {
-    return `${days}d ${hours}h ${minutes}m ${seconds}s`;
-  } else if (hours > 0) {
-    return `${hours}h ${minutes}m ${seconds}s`;
-  } else if (minutes > 0) {
-    return `${minutes}m ${seconds}s`;
-  } else {
-    return `${seconds}s`;
+    parts.push(`${days}d`);
   }
+  if (hours > 0) {
+    parts.push(`${hours}h`);
+  }
+  if (minutes > 0) {
+    parts.push(`${minutes}m`);
+  }
+  if (seconds > 0) {
+    parts.push(`${seconds}s`);
+  }
+  
+  // If nothing was added, return "0s"
+  if (parts.length === 0) {
+    return "0s";
+  }
+
+  return parts.join(' ');
 }
 
 function formatUnixTimestamp(time) {

@@ -107,7 +107,8 @@ describe("getSlurmJobs", () => {
                     name: "Test Job",
                     user_name: "user2",
                     job_state: "R",
-                    time_limit: { number: "2-00:00:00" },
+                    time_limit: { number: 120 }, // 120 minutes = 2 hours
+                    start_time: { number: 1640995200 },
                     node_count: { number: "1" },
                 },
             ],
@@ -131,6 +132,8 @@ describe("getSlurmJobs", () => {
                     name: "Test Job 1",
                     user_name: "user1",
                     job_state: "R",
+                    time_limit: { number: 60 }, // 60 minutes
+                    start_time: { number: 1640995200 },
                     state_reason: "None"
                 },
                 {
@@ -139,6 +142,7 @@ describe("getSlurmJobs", () => {
                     name: "Test Job 2",
                     user_name: "user2",
                     job_state: "PD",
+                    time_limit: { number: 120 }, // 120 minutes
                     state_reason: "Resources"
                 }
             ],
@@ -368,7 +372,9 @@ describe("getSlurmJobs with pagination", () => {
             partition: "debug",
             name: `Test Job ${i + 1}`,
             user_name: "user1",
-            job_state: "R"
+            job_state: "RUNNING",
+            time_limit: { number: 60 }, // 60 minutes
+            start_time: { number: 1640995200 }
         }));
 
         const validOutput = JSON.stringify({ jobs });
@@ -397,7 +403,10 @@ describe("getSlurmJobs with pagination", () => {
     it("should handle custom page size", async () => {
         const jobs = Array(25).fill().map((_, i) => ({
             job_id: `job-${i + 1}`,
-            name: `Test Job ${i + 1}`
+            name: `Test Job ${i + 1}`,
+            job_state: "RUNNING",
+            time_limit: { number: 60 },
+            start_time: { number: 1640995200 }
         }));
 
         const validOutput = JSON.stringify({ jobs });
@@ -417,11 +426,11 @@ describe("getSlurmJobs with pagination", () => {
 
     it("should apply filters before pagination", async () => {
         const jobs = [
-            { job_id: "1", user_name: "user1" },
-            { job_id: "2", user_name: "user2" },
-            { job_id: "3", user_name: "user1" },
-            { job_id: "4", user_name: "user2" },
-            { job_id: "5", user_name: "user1" }
+            { job_id: "1", user_name: "user1", job_state: "RUNNING", time_limit: { number: 60 }, start_time: { number: 1640995200 } },
+            { job_id: "2", user_name: "user2", job_state: "RUNNING", time_limit: { number: 60 }, start_time: { number: 1640995200 } },
+            { job_id: "3", user_name: "user1", job_state: "RUNNING", time_limit: { number: 60 }, start_time: { number: 1640995200 } },
+            { job_id: "4", user_name: "user2", job_state: "RUNNING", time_limit: { number: 60 }, start_time: { number: 1640995200 } },
+            { job_id: "5", user_name: "user1", job_state: "RUNNING", time_limit: { number: 60 }, start_time: { number: 1640995200 } }
         ];
 
         const validOutput = JSON.stringify({ jobs });
@@ -436,7 +445,10 @@ describe("getSlurmJobs with pagination", () => {
 
     it("should return empty array for out of range pages", async () => {
         const jobs = Array(5).fill().map((_, i) => ({
-            job_id: `job-${i + 1}`
+            job_id: `job-${i + 1}`,
+            job_state: "RUNNING",
+            time_limit: { number: 60 },
+            start_time: { number: 1640995200 }
         }));
 
         const validOutput = JSON.stringify({ jobs });

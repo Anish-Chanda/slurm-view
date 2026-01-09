@@ -25,7 +25,7 @@ function formatJobsData(jobs) {
       name: job.name || 'N/A',
       user_name: job.user_name || 'N/A',
       job_state: jobState || 'N/A',
-      time_limit: formatTime(job.time_limit?.number),
+      time_limit: formatTime(job.time_limit?.number * 60), // Convert from minutes to seconds
       time_left: formatTimeLeft(job.time_limit?.number, job.start_time?.number, jobState),
       nodes: job.node_count?.number || 'N/A',
 
