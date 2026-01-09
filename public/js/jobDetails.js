@@ -77,6 +77,10 @@ function renderPendingReason(data, container) {
       html += renderResourcesPendingReason(data);
   } else if (data.type === 'Priority') {
       html += renderPriorityPendingReason(data);
+  } else if (data.type === 'Dependency') {
+      html += renderDependencyPendingReason(data);
+  } else if (data.type === 'DependencyNeverSatisfied') {
+      html += renderDependencyNeverSatisfiedReason(data);
   } else if (data.type === 'Status') {
       html += `
           <div class="flex items-center text-green-600">
@@ -320,13 +324,269 @@ function renderPriorityPendingReason(data) {
   } else {
       html += `
           <div class="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
-              <p class="text-green-700 font-medium">🎉 No jobs ahead in queue!</p>
+              <p class="text-green-700 font-medium">No jobs ahead in queue!</p>
               <p class="text-green-600 text-sm mt-1">Your job should start soon when resources become available.</p>
           </div>
       `;
   }
 
   return html;
+}
+
+function renderDependencyPendingReason(data) {
+  let html = `
+      <div class="flex items-center mb-4">
+          <div class="bg-blue-100 text-blue-800 p-2 rounded-full mr-3">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
+              </svg>
+          </div>
+          <div>
+              <h3 class="text-lg font-semibold text-slate-800">Pending Reason: Dependency</h3>
+              <p class="text-sm text-slate-600 font-mono">${data.rawDependency || 'Job dependencies'}</p>
+          </div>
+      </div>
+  `;
+
+  // If simple message, show it and return
+  if (data.message) {
+      html += `
+          <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <p class="text-blue-700">${data.message}</p>
+          </div>
+      `;
+      return html;
+  }
+
+  // Status summary
+  if (data.dependencies && data.dependencies.length > 0) {
+      const satisfiedCount = data.dependencies.filter(d => d.satisfied).length;
+      const totalCount = data.dependencies.length;
+      
+      html += `
+          <div class="grid grid-cols-3 gap-3 mb-6 text-center">
+              <div class="bg-blue-50 p-3 rounded border border-blue-100">
+                  <div class="text-2xl font-bold text-blue-700">${totalCount}</div>
+                  <div class="text-xs text-blue-600 uppercase tracking-wide">Total Dependencies</div>
+              </div>
+              <div class="bg-green-50 p-3 rounded border border-green-100">
+                  <div class="text-2xl font-bold text-green-700">${satisfiedCount}</div>
+                  <div class="text-xs text-green-600 uppercase tracking-wide">Satisfied</div>
+              </div>
+              <div class="bg-orange-50 p-3 rounded border border-orange-100">
+                  <div class="text-2xl font-bold text-orange-700">${totalCount - satisfiedCount}</div>
+                  <div class="text-xs text-orange-600 uppercase tracking-wide">Waiting</div>
+              </div>
+          </div>
+      `;
+
+      // Dependency details
+      html += '<h4 class="font-medium text-slate-700 mb-3">Dependency Details</h4>';
+      html += '<div class="space-y-4">';
+      
+      data.dependencies.forEach(dep => {
+          const isSatisfied = dep.satisfied;
+          const bgColor = isSatisfied ? 'bg-green-50 border-green-200' : 'bg-orange-50 border-orange-200';
+          const statusColor = isSatisfied ? 'bg-green-200 text-green-800' : 'bg-orange-200 text-orange-800';
+          const iconColor = isSatisfied ? 'text-green-600' : 'text-orange-600';
+          
+          html += `
+              <div class="border ${bgColor} rounded-lg p-4">
+                  <div class="flex items-start justify-between mb-3">
+                      <div class="flex items-center gap-2">
+                          ${isSatisfied ? 
+                              `<svg class="w-5 h-5 ${iconColor}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>` :
+                              `<svg class="w-5 h-5 ${iconColor}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`
+                          }
+                          <span class="font-semibold text-slate-800 capitalize">${dep.type}</span>
+                      </div>
+                      <span class="text-xs ${statusColor} px-2 py-1 rounded font-medium">
+                          ${isSatisfied ? 'Satisfied' : 'Waiting'}
+                      </span>
+                  </div>
+                  
+                  <p class="text-sm text-slate-600 mb-3">${dep.description}</p>
+          `;
+          
+          // Show job details if available
+          if (dep.jobs && dep.jobs.length > 0) {
+              html += '<div class="space-y-2">';
+              dep.jobs.forEach(job => {
+                  const stateColor = getJobStateColor(job.state);
+                  const jobSatisfied = job.satisfied;
+                  
+                  html += `
+                      <div class="bg-white border border-slate-200 rounded p-3">
+                          <div class="flex justify-between items-center mb-2">
+                              <div class="flex items-center gap-2">
+                                  <span class="font-mono text-sm font-semibold text-slate-700">Job ${job.jobId}</span>
+                                  <span class="text-xs ${stateColor} px-2 py-0.5 rounded">${job.state}</span>
+                                  ${job.statusMarker ? `<span class="text-xs bg-slate-200 text-slate-700 px-2 py-0.5 rounded font-mono">(${job.statusMarker})</span>` : ''}
+                              </div>
+                              ${jobSatisfied ? 
+                                  '<svg class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>' :
+                                  '<svg class="w-4 h-4 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>'
+                              }
+                          </div>
+                          ${job.exitCode !== 'N/A' ? `<div class="text-xs text-slate-600">Exit Code: <span class="font-mono">${job.exitCode}</span></div>` : ''}
+                          ${job.endTime !== 'Running' && job.endTime !== 'Unknown' ? `<div class="text-xs text-slate-600">End Time: ${job.endTime}</div>` : ''}
+                          ${job.error ? `<div class="text-xs text-slate-500 italic mt-1">${job.error}</div>` : ''}
+                      </div>
+                  `;
+              });
+              html += '</div>';
+          }
+          
+          html += '</div>';
+      });
+      
+      html += '</div>';
+      
+      // Overall status message
+      if (data.allSatisfied) {
+          html += `
+              <div class="mt-4 bg-green-50 border border-green-200 rounded-lg p-4 text-center">
+                  <p class="text-green-700 font-medium">All dependencies satisfied!</p>
+                  <p class="text-green-600 text-sm mt-1">This job should start soon.</p>
+              </div>
+          `;
+      } else {
+          const operatorText = data.operator === 'OR' ? 'At least one dependency must be satisfied' : 'All dependencies must be satisfied';
+          html += `
+              <div class="mt-4 bg-orange-50 border border-orange-200 rounded-lg p-4 text-center">
+                  <p class="text-orange-700 font-medium">Waiting for dependencies...</p>
+                  <p class="text-orange-600 text-sm mt-1">${operatorText} (${data.operator}).</p>
+              </div>
+          `;
+      }
+  }
+
+  return html;
+}
+
+function renderDependencyNeverSatisfiedReason(data) {
+  let html = `
+      <div class="flex items-center mb-4">
+          <div class="bg-red-100 text-red-800 p-2 rounded-full mr-3">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+              </svg>
+          </div>
+          <div>
+              <h3 class="text-lg font-semibold text-red-800">Dependency Will Never Be Satisfied</h3>
+              <p class="text-sm text-slate-600 font-mono">${data.rawDependency || 'Job dependencies'}</p>
+          </div>
+      </div>
+  `;
+
+  // Critical alert box
+  html += `
+      <div class="bg-red-50 border-2 border-red-300 rounded-lg p-4 mb-6">
+          <div class="flex items-start gap-3">
+              <svg class="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+              </svg>
+              <div>
+                  <h4 class="font-bold text-red-800 mb-1">Critical: This Job Will Never Run</h4>
+                  <p class="text-red-700 text-sm mb-2">One or more job dependencies have failed or cannot be satisfied. This job is stuck and will not start automatically.</p>
+                  ${data.recommendation ? `<p class="text-red-600 text-sm font-medium">Recommendation: ${data.recommendation}</p>` : ''}
+              </div>
+          </div>
+      </div>
+  `;
+
+  // If simple message, show it and return
+  if (data.message) {
+      html += `
+          <div class="bg-slate-50 border border-slate-200 rounded-lg p-4">
+              <p class="text-slate-700">${data.message}</p>
+          </div>
+      `;
+      return html;
+  }
+
+  // Dependency details
+  if (data.dependencies && data.dependencies.length > 0) {
+      html += '<h4 class="font-medium text-slate-700 mb-3">Failed Dependencies</h4>';
+      html += '<div class="space-y-4">';
+      
+      data.dependencies.forEach(dep => {
+          html += `
+              <div class="border border-red-200 bg-red-50 rounded-lg p-4">
+                  <div class="flex items-start justify-between mb-3">
+                      <div class="flex items-center gap-2">
+                          <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                          <span class="font-semibold text-red-800 capitalize">${dep.type}</span>
+                      </div>
+                      <span class="text-xs bg-red-200 text-red-800 px-2 py-1 rounded font-medium">
+                          Failed
+                      </span>
+                  </div>
+                  
+                  <p class="text-sm text-slate-600 mb-3">${dep.description}</p>
+          `;
+          
+          // Show job details if available
+          if (dep.jobs && dep.jobs.length > 0) {
+              html += '<div class="space-y-2">';
+              dep.jobs.forEach(job => {
+                  const stateColor = getJobStateColor(job.state);
+                  
+                  html += `
+                      <div class="bg-white border border-red-200 rounded p-3">
+                          <div class="flex justify-between items-center mb-2">
+                              <div class="flex items-center gap-2">
+                                  <span class="font-mono text-sm font-semibold text-slate-700">Job ${job.jobId}</span>
+                                  <span class="text-xs ${stateColor} px-2 py-0.5 rounded">${job.state}</span>
+                                  ${job.statusMarker ? `<span class="text-xs bg-red-200 text-red-800 px-2 py-0.5 rounded font-mono">(${job.statusMarker})</span>` : ''}
+                              </div>
+                              <svg class="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                          </div>
+                          ${job.reason ? `<div class="text-xs text-red-700 font-medium mb-1">Reason: ${job.reason}</div>` : ''}
+                          ${job.exitCode !== 'N/A' ? `<div class="text-xs text-slate-600">Exit Code: <span class="font-mono">${job.exitCode}</span></div>` : ''}
+                          ${job.endTime !== 'Running' && job.endTime !== 'Unknown' && job.endTime !== 'N/A' ? `<div class="text-xs text-slate-600">End Time: ${job.endTime}</div>` : ''}
+                          ${job.error ? `<div class="text-xs text-slate-500 italic mt-1">${job.error}</div>` : ''}
+                      </div>
+                  `;
+              });
+              html += '</div>';
+          }
+          
+          html += '</div>';
+      });
+      
+      html += '</div>';
+      
+      // Action recommendation
+      html += `
+          <div class="mt-6 bg-amber-50 border border-amber-200 rounded-lg p-4">
+              <h4 class="font-medium text-amber-900 mb-2">Recommended Actions</h4>
+              <ul class="list-disc list-inside text-sm text-amber-800 space-y-1">
+                  <li>Cancel this job using: <code class="bg-amber-100 px-1 py-0.5 rounded">scancel ${data.jobId}</code></li>
+                  <li>Review and fix the dependencies in your job submission script</li>
+                  <li>Check why the dependent job(s) failed</li>
+                  <li>Resubmit the job chain with corrected dependencies</li>
+              </ul>
+          </div>
+      `;
+  }
+
+  return html;
+}
+
+// Helper function to get color classes for job states
+function getJobStateColor(state) {
+  const colors = {
+      'COMPLETED': 'bg-green-100 text-green-700',
+      'RUNNING': 'bg-blue-100 text-blue-700',
+      'PENDING': 'bg-yellow-100 text-yellow-700',
+      'FAILED': 'bg-red-100 text-red-700',
+      'CANCELLED': 'bg-gray-100 text-gray-700',
+      'TIMEOUT': 'bg-red-100 text-red-700',
+      'UNKNOWN': 'bg-slate-100 text-slate-700',
+      'NOT_FOUND': 'bg-gray-100 text-gray-700'
+  };
+  return colors[state] || 'bg-slate-100 text-slate-700';
 }
 
 function fetchAndDisplaySeffReport(jobId, container) {

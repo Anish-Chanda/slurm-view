@@ -31,6 +31,10 @@ const getPendingReason = async (jobId) => {
             result = analyzeResourcesPending(jobId, jobData);
         } else if (jobData.Reason === 'Priority') {
             result = analyzePriorityPending(jobId, jobData);
+        } else if (jobData.Reason === 'Dependency') {
+            result = analyzeDependencyPending(jobId, jobData);
+        } else if (jobData.Reason === 'DependencyNeverSatisfied') {
+            result = analyzeDependencyNeverSatisfied(jobId, jobData);
         } else {
             result = { type: 'Other', message: `Pending reason: ${jobData.Reason}` };
         }
@@ -140,7 +144,400 @@ const analyzePriorityPending = (jobId, jobData) => {
         };
     }
 };
+/**
+ * Analyze a job pending due to dependency
+ * @param {string} jobId - Job ID
+ * @param {Object} jobData - Parsed job data from scontrol
+ * @returns {Object} Dependency analysis result
+ */
+const analyzeDependencyPending = (jobId, jobData) => {
+    try {
+        // Parse dependency string
+        const dependency = jobData.Dependency || '';
+        
+        if (!dependency || dependency === '(null)') {
+            return {
+                type: 'Dependency',
+                message: 'Job has dependency but details unavailable'
+            };
+        }
 
+        // Parse dependency format: type:jobid[:jobid]...
+        // Examples: afterok:123, afterany:456:789, singleton
+        const parsed = parseDependencyString(dependency);
+        const dependencies = parsed.dependencies;
+        const operator = parsed.operator;
+        
+        // Get status of dependent jobs
+        const dependencyDetails = dependencies.map(dep => {
+            if (dep.type === 'singleton') {
+                return {
+                    type: 'singleton',
+                    description: 'Only one job with this name can run at a time',
+                    status: 'active',
+                    satisfied: false
+                };
+            }
+            
+            // Fetch dependent job(s) status
+            const jobStatuses = dep.jobIds.map(depJobId => {
+                const statusFromDep = dep.statusMap ? dep.statusMap[depJobId] : null;
+                
+                // If status is 'failed' or 'unfulfilled', we know the dependency is not satisfied
+                if (statusFromDep === 'failed' || statusFromDep === 'unfulfilled') {
+                    return {
+                        jobId: depJobId,
+                        state: statusFromDep === 'failed' ? 'FAILED' : 'UNKNOWN',
+                        exitCode: 'N/A',
+                        endTime: 'N/A',
+                        satisfied: false,
+                        statusMarker: statusFromDep
+                    };
+                }
+                
+                // Try to get from cache first
+                let depJobData = dataCache.getJobById(depJobId);
+                let fromCache = !!depJobData;
+                
+                if (!depJobData) {
+                    // Query Slurm if not in cache
+                    try {
+                        const depCmd = createSafeCommand('scontrol', ['show', 'job', depJobId]);
+                        const depOutput = executeCommand(depCmd);
+                        depJobData = parseJobData(depOutput);
+                    } catch (error) {
+                        // Job might not exist anymore (completed and cleaned up)
+                        return {
+                            jobId: depJobId,
+                            state: 'UNKNOWN',
+                            exitCode: 'N/A',
+                            endTime: 'Unknown',
+                            satisfied: false,
+                            error: 'Job not found - may have been cleaned up',
+                            statusMarker: statusFromDep
+                        };
+                    }
+                }
+                
+                return {
+                    jobId: depJobId,
+                    state: depJobData.JobState || depJobData.job_state,
+                    exitCode: depJobData.ExitCode || depJobData.exit_code || depJobData.derived_exit_code || 'N/A',
+                    endTime: depJobData.EndTime || depJobData.end_time || 'Running',
+                    satisfied: checkDependencySatisfied(dep.type, depJobData),
+                    statusMarker: statusFromDep,
+                    fromCache: fromCache
+                };
+            });
+
+            return {
+                type: dep.type,
+                description: getDependencyTypeDescription(dep.type),
+                jobs: jobStatuses,
+                satisfied: jobStatuses.every(j => j.satisfied)
+            };
+        });
+
+        // Determine overall status
+        // For AND (,): all must be satisfied
+        // For OR (?): at least one must be satisfied
+        let allSatisfied, anySatisfied;
+        if (operator === 'OR') {
+            allSatisfied = dependencyDetails.some(d => d.satisfied);
+            anySatisfied = dependencyDetails.some(d => d.satisfied);
+        } else { // AND
+            allSatisfied = dependencyDetails.every(d => d.satisfied);
+            anySatisfied = dependencyDetails.some(d => d.satisfied);
+        }
+        
+        return {
+            type: 'Dependency',
+            jobId: jobId,
+            rawDependency: dependency,
+            operator: operator,
+            dependencies: dependencyDetails,
+            allSatisfied: allSatisfied,
+            anySatisfied: anySatisfied
+        };
+
+    } catch (error) {
+        console.error(`Error analyzing dependency for job ${jobId}:`, error.message);
+        return { 
+            type: 'Other', 
+            message: `Pending reason: Dependency (detailed analysis unavailable: ${error.message})` 
+        };
+    }
+};
+
+/**
+ * Analyze a job with DependencyNeverSatisfied reason
+ * @param {string} jobId - Job ID
+ * @param {Object} jobData - Parsed job data from scontrol
+ * @returns {Object} DependencyNeverSatisfied analysis result
+ */
+const analyzeDependencyNeverSatisfied = (jobId, jobData) => {
+    try {
+        // Parse dependency string
+        const dependency = jobData.Dependency || '';
+        
+        if (!dependency || dependency === '(null)') {
+            return {
+                type: 'DependencyNeverSatisfied',
+                message: 'Job dependency will never be satisfied, but details unavailable',
+                canBeFixed: false
+            };
+        }
+
+        // Parse dependency format
+        const parsed = parseDependencyString(dependency);
+        const dependencies = parsed.dependencies;
+        const operator = parsed.operator;
+        
+        // Get status of dependent jobs
+        const dependencyDetails = dependencies.map(dep => {
+            if (dep.type === 'singleton') {
+                return {
+                    type: 'singleton',
+                    description: 'Only one job with this name can run at a time',
+                    status: 'never_satisfied',
+                    reason: 'Another job with the same name is blocking this job indefinitely'
+                };
+            }
+            
+            // Fetch dependent job(s) status
+            const jobStatuses = dep.jobIds.map(depJobId => {
+                const statusFromDep = dep.statusMap ? dep.statusMap[depJobId] : null;
+                
+                // If status is 'failed', we know why it will never be satisfied
+                if (statusFromDep === 'failed') {
+                    return {
+                        jobId: depJobId,
+                        state: 'FAILED',
+                        exitCode: 'N/A',
+                        endTime: 'N/A',
+                        satisfied: false,
+                        statusMarker: statusFromDep,
+                        reason: `Dependent job ${depJobId} failed and has been cleaned up`
+                    };
+                }
+                
+                // Try to get from cache first
+                let depJobData = dataCache.getJobById(depJobId);
+                let fromCache = !!depJobData;
+                
+                if (!depJobData) {
+                    // Query Slurm if not in cache
+                    try {
+                        const depCmd = createSafeCommand('scontrol', ['show', 'job', depJobId]);
+                        const depOutput = executeCommand(depCmd);
+                        depJobData = parseJobData(depOutput);
+                    } catch (error) {
+                        // Job doesn't exist - this is likely why it will never be satisfied
+                        return {
+                            jobId: depJobId,
+                            state: 'NOT_FOUND',
+                            exitCode: 'N/A',
+                            endTime: 'N/A',
+                            satisfied: false,
+                            error: true,
+                            statusMarker: statusFromDep,
+                            reason: `Job ${depJobId} no longer exists (likely failed and cleaned up)`
+                        };
+                    }
+                }
+                
+                const satisfied = checkDependencySatisfied(dep.type, depJobData);
+                let reason = '';
+                
+                if (!satisfied) {
+                    const jobState = depJobData.JobState || depJobData.job_state;
+                    const exitCode = depJobData.ExitCode || depJobData.exit_code || depJobData.derived_exit_code;
+                    
+                    if (jobState === 'FAILED' || jobState === 'CANCELLED') {
+                        reason = `Job ${depJobId} ${jobState.toLowerCase()} with exit code ${exitCode}`;
+                    } else if (jobState === 'TIMEOUT') {
+                        reason = `Job ${depJobId} timed out`;
+                    } else {
+                        reason = `Job ${depJobId} is in ${jobState} state`;
+                    }
+                }
+                
+                return {
+                    jobId: depJobId,
+                    state: depJobData.JobState || depJobData.job_state,
+                    exitCode: depJobData.ExitCode || depJobData.exit_code || depJobData.derived_exit_code || 'N/A',
+                    endTime: depJobData.EndTime || depJobData.end_time || 'N/A',
+                    satisfied: satisfied,
+                    statusMarker: statusFromDep,
+                    reason: reason,
+                    fromCache: fromCache
+                };
+            });
+
+            return {
+                type: dep.type,
+                description: getDependencyTypeDescription(dep.type),
+                jobs: jobStatuses,
+                satisfied: false, // Always false for DependencyNeverSatisfied
+                reason: 'One or more dependent jobs failed or cannot be satisfied'
+            };
+        });
+
+        return {
+            type: 'DependencyNeverSatisfied',
+            jobId: jobId,
+            rawDependency: dependency,
+            operator: operator,
+            dependencies: dependencyDetails,
+            canBeFixed: false,
+            recommendation: 'This job will never run. You need to cancel it and resubmit with corrected dependencies.'
+        };
+
+    } catch (error) {
+        console.error(`Error analyzing DependencyNeverSatisfied for job ${jobId}:`, error.message);
+        return { 
+            type: 'DependencyNeverSatisfied', 
+            message: `Job dependency will never be satisfied (detailed analysis unavailable: ${error.message})`,
+            canBeFixed: false
+        };
+    }
+};
+
+/**
+ * Parse dependency string into structured format
+ * @param {string} depString - Dependency string from Slurm
+ * @returns {Object} Dependency object with type (AND/OR) and dependencies array
+ */
+const parseDependencyString = (depString) => {
+    const result = {
+        operator: 'AND', // default
+        dependencies: []
+    };
+    
+    // Handle singleton special case
+    if (depString.includes('singleton')) {
+        result.dependencies.push({ type: 'singleton', jobIds: [] });
+        return result;
+    }
+    
+    // Determine operator - check for ? (OR) or , (AND)
+    let parts;
+    if (depString.includes('?')) {
+        result.operator = 'OR';
+        parts = depString.split('?');
+    } else {
+        result.operator = 'AND';
+        parts = depString.split(',');
+    }
+    
+    parts.forEach(part => {
+        // Match pattern like: afterok:123(unfulfilled) or afterok:123_*(failed) or after:123+60
+        const match = part.match(/^([^:]+):(.+)$/);
+        if (match) {
+            const type = match[1];
+            const jobPart = match[2];
+            
+            // Extract job IDs, status markers, and time delays
+            const jobIds = [];
+            const statusMap = {};
+            const timeDelays = {};
+            
+            // Split by colon to handle multiple job IDs
+            const jobSegments = jobPart.split(':');
+            jobSegments.forEach(segment => {
+                // Extract job ID, time delay, and status
+                // Pattern: 123+60(unfulfilled) or 123_*(failed) or 123+60 or 123(unfulfilled)
+                const jobMatch = segment.match(/^(\d+)(?:\+(\d+))?(?:_\*)?(?:\(([^)]+)\))?$/);
+                if (jobMatch) {
+                    const jobId = jobMatch[1];
+                    const timeDelay = jobMatch[2]; // Time delay in minutes
+                    const status = jobMatch[3]; // 'unfulfilled', 'failed', etc.
+                    
+                    jobIds.push(jobId);
+                    if (status) {
+                        statusMap[jobId] = status;
+                    }
+                    if (timeDelay) {
+                        timeDelays[jobId] = parseInt(timeDelay);
+                    }
+                }
+            });
+            
+            result.dependencies.push({ type, jobIds, statusMap, timeDelays });
+        }
+    });
+    
+    return result;
+};
+
+/**
+ * Check if a dependency condition is satisfied
+ * @param {string} depType - Type of dependency
+ * @param {Object} jobData - Job data for the dependent job (supports both scontrol and JSON formats)
+ * @returns {boolean} Whether dependency is satisfied
+ */
+const checkDependencySatisfied = (depType, jobData) => {
+    // Support both scontrol format (JobState) and JSON format (job_state)
+    const state = jobData.JobState || jobData.job_state;
+    
+    // Parse exit code - handle multiple formats
+    let exitCode = 0;
+    if (jobData.DerivedExitCode || jobData.derived_exit_code) {
+        const rawCode = jobData.DerivedExitCode || jobData.derived_exit_code;
+        exitCode = typeof rawCode === 'string' ? parseInt(rawCode.split(':')[0]) : rawCode;
+    } else if (jobData.ExitCode || jobData.exit_code) {
+        const rawCode = jobData.ExitCode || jobData.exit_code;
+        exitCode = typeof rawCode === 'string' ? parseInt(rawCode.split(':')[0]) : rawCode;
+    }
+    
+    switch(depType) {
+        case 'afterok':
+            // Job must complete successfully (exit code 0)
+            return state === 'COMPLETED' && exitCode === 0;
+        
+        case 'afternotok':
+            // Job must fail (non-zero exit code)
+            return state === 'COMPLETED' && exitCode !== 0;
+        
+        case 'afterany':
+            // Job must be done (any state)
+            return state === 'COMPLETED' || state === 'FAILED' || state === 'CANCELLED';
+        
+        case 'after':
+            // Job must have started or been cancelled
+            return state !== 'PENDING';
+        
+        case 'aftercorr':
+            // Array task correlation
+            return state === 'COMPLETED' && exitCode === 0;
+        
+        case 'afterburstbuffer':
+            // Must complete with burst buffer cleanup
+            return state === 'COMPLETED';
+        
+        default:
+            return false;
+    }
+};
+
+/**
+ * Get human-readable description for dependency type
+ * @param {string} type - Dependency type
+ * @returns {string} Description
+ */
+const getDependencyTypeDescription = (type) => {
+    const descriptions = {
+        'after': 'After job starts or is cancelled (with optional time delay)',
+        'afterok': 'After successful completion (exit code 0)',
+        'afternotok': 'After failed completion (non-zero exit code)',
+        'afterany': 'After completion (any exit code)',
+        'aftercorr': 'After corresponding array task completes successfully',
+        'afterburstbuffer': 'After burst buffer stage-out completes',
+        'singleton': 'Only one job with this name can run at once'
+    };
+    
+    return descriptions[type] || `After ${type} condition`;
+};
 // Helper to parse scontrol show job output
 const parseJobData = (output) => {
     const data = {};
