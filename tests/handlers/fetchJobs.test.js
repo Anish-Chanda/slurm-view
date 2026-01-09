@@ -90,6 +90,72 @@ describe("matchesFilter", () => {
         expect(matchesFilter(runningJob, "statereason", "none")).toBe(true); // case insensitive
         expect(matchesFilter(runningJob, "statereason", "Resources")).toBe(false);
     });
+
+    it("should support wildcard * matching for state reason", () => {
+        const jobAssocGrp = {
+            ...testJob,
+            state_reason: "AssocGrpGRESRunMinutes"
+        };
+        const jobQOSGrp = {
+            ...testJob,
+            state_reason: "QOSGrpCPUMinutesLimit"
+        };
+        const jobAssocMax = {
+            ...testJob,
+            state_reason: "AssocMaxCpuPerJobLimit"
+        };
+        const jobQOSMax = {
+            ...testJob,
+            state_reason: "QOSMaxNodePerJobLimit"
+        };
+        const jobMaxPerAccount = {
+            ...testJob,
+            state_reason: "MaxCpuPerAccount"
+        };
+
+        // Test AssocGrp* pattern
+        expect(matchesFilter(jobAssocGrp, "statereason", "AssocGrp*")).toBe(true);
+        expect(matchesFilter(jobQOSGrp, "statereason", "AssocGrp*")).toBe(false);
+        expect(matchesFilter(jobAssocMax, "statereason", "AssocGrp*")).toBe(false);
+        
+        // Test QOSGrp* pattern
+        expect(matchesFilter(jobQOSGrp, "statereason", "QOSGrp*")).toBe(true);
+        expect(matchesFilter(jobAssocGrp, "statereason", "QOSGrp*")).toBe(false);
+        expect(matchesFilter(jobQOSMax, "statereason", "QOSGrp*")).toBe(false);
+        
+        // Test AssocMax* pattern
+        expect(matchesFilter(jobAssocMax, "statereason", "AssocMax*")).toBe(true);
+        expect(matchesFilter(jobAssocGrp, "statereason", "AssocMax*")).toBe(false);
+        expect(matchesFilter(jobQOSMax, "statereason", "AssocMax*")).toBe(false);
+        
+        // Test QOSMax* pattern
+        expect(matchesFilter(jobQOSMax, "statereason", "QOSMax*")).toBe(true);
+        expect(matchesFilter(jobQOSGrp, "statereason", "QOSMax*")).toBe(false);
+        expect(matchesFilter(jobAssocMax, "statereason", "QOSMax*")).toBe(false);
+        
+        // Test Max*PerAccount pattern
+        expect(matchesFilter(jobMaxPerAccount, "statereason", "Max*PerAccount")).toBe(true);
+        expect(matchesFilter(jobAssocGrp, "statereason", "Max*PerAccount")).toBe(false);
+        
+        // Test wildcard in middle
+        expect(matchesFilter(jobAssocGrp, "statereason", "Assoc*Minutes")).toBe(true);
+        expect(matchesFilter(jobQOSGrp, "statereason", "QOS*Limit")).toBe(true);
+        
+        // Test exact match still works
+        expect(matchesFilter(jobAssocGrp, "statereason", "AssocGrpGRESRunMinutes")).toBe(true);
+    });
+
+    it("should fall back to substring match when no wildcards present", () => {
+        const jobWithReason = {
+            ...testJob,
+            state_reason: "AssocGrpGRES"
+        };
+
+        // Without wildcards, should do substring match
+        expect(matchesFilter(jobWithReason, "statereason", "GrpGRES")).toBe(true);
+        expect(matchesFilter(jobWithReason, "statereason", "Assoc")).toBe(true);
+        expect(matchesFilter(jobWithReason, "statereason", "GRES")).toBe(true);
+    });
 });
 
 

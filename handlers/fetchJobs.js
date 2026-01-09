@@ -73,7 +73,31 @@ function matchesFilter(job, field, filterVal) {
   } else if (field === "statereason") {
     value = job.state_reason;
   }
-  return value && String(value).toLowerCase().includes(filterVal.toLowerCase());
+  
+  if (!value) return false;
+  
+  const valueStr = String(value).toLowerCase();
+  const filterStr = filterVal.toLowerCase();
+  
+  // Support asterisk wildcard pattern (*)
+  if (filterStr.includes('*')) {
+    // Convert wildcard pattern to regex
+    // Escape special regex characters except *
+    const regexPattern = filterStr
+      .replace(/[.+^${}()|[\]\\?]/g, '\\$&')  // Escape special regex chars including ?
+      .replace(/\*/g, '.*');  // Convert * to .*
+    
+    try {
+      const regex = new RegExp('^' + regexPattern + '$', 'i');
+      return regex.test(valueStr);
+    } catch (e) {
+      // If regex is invalid, fall back to simple includes
+      return valueStr.includes(filterStr.replace(/\*/g, ''));
+    }
+  }
+  
+  // Default: simple substring match
+  return valueStr.includes(filterStr);
 }
 
 async function getSlurmJobs(filters = {}, pagination = {}) {
