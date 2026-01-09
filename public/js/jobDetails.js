@@ -1,5 +1,10 @@
 // Job details expansion, pending reasons, and seff reports
 
+// Helper function to format numbers with commas
+function formatNumberWithCommas(num) {
+  return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
 function handleExpandClick(e) {
   const button = e.target.closest('.expand-btn');
   if (!button) return;
@@ -204,19 +209,19 @@ function renderPriorityPendingReason(data) {
   html += `
       <div class="grid grid-cols-4 gap-3 mb-6 text-center">
           <div class="bg-purple-50 p-3 rounded border border-purple-100">
-              <div class="text-2xl font-bold text-purple-700">${priority.total}</div>
+              <div class="text-2xl font-bold text-purple-700">${formatNumberWithCommas(priority.total)}</div>
               <div class="text-xs text-purple-600 uppercase tracking-wide">Total Priority</div>
           </div>
           <div class="bg-blue-50 p-3 rounded border border-blue-100">
-              <div class="text-2xl font-bold text-blue-700">#${data.queuePosition}</div>
+              <div class="text-2xl font-bold text-blue-700">#${formatNumberWithCommas(data.queuePosition)}</div>
               <div class="text-xs text-blue-600 uppercase tracking-wide">Queue Position</div>
           </div>
           <div class="bg-orange-50 p-3 rounded border border-orange-100">
-              <div class="text-2xl font-bold text-orange-700">${competition.higherPriorityCount}</div>
+              <div class="text-2xl font-bold text-orange-700">${formatNumberWithCommas(competition.higherPriorityCount)}</div>
               <div class="text-xs text-orange-600 uppercase tracking-wide">Jobs Ahead</div>
           </div>
           <div class="bg-green-50 p-3 rounded border border-green-100">
-              <div class="text-2xl font-bold text-green-700">${competition.runningJobs}</div>
+              <div class="text-2xl font-bold text-green-700">${formatNumberWithCommas(competition.runningJobs)}</div>
               <div class="text-xs text-green-600 uppercase tracking-wide">Running Jobs</div>
           </div>
       </div>
@@ -253,13 +258,20 @@ function renderPriorityPendingReason(data) {
           const contribution = priority.contributions[key];
           const percentage = parseFloat(contribution) || 0;
           
+          const multipliedValue = (value * weight).toFixed(2);
+          const formattedValue = formatNumberWithCommas(value);
+          const formattedWeight = formatNumberWithCommas(weight);
+          const formattedMultiplied = formatNumberWithCommas(multipliedValue);
+          
           html += `
               <div>
                   <div class="flex justify-between items-center text-sm mb-1">
                       <span class="font-medium text-slate-700">${componentLabels[key]}</span>
                       <span class="text-slate-600">
-                          <span class="font-mono">${value}</span> × ${weight} = 
-                          <span class="font-semibold">${contribution}%</span>
+                          <span class="font-mono">${formattedValue}</span> × <span class="font-mono">${formattedWeight}</span> = 
+                          <span class="font-mono text-slate-700">${formattedMultiplied}</span>
+                          <span class="mx-2 text-slate-400">•</span>
+                          <span class="font-bold text-slate-800">${contribution}%</span>
                       </span>
                   </div>
                   <div class="w-full bg-slate-200 rounded-full h-2">
