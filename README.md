@@ -24,6 +24,13 @@ Job Details
 Job Efficiency Report
 ![slurm view efficiency blurred](https://github.com/user-attachments/assets/451c2eb6-a585-4e64-b981-4bc711cd849a)
 
+Pending Reason Analysis (Resources)
+<img width="1323" height="1073" alt="slurm-view-pending-resources-blurred" src="https://github.com/user-attachments/assets/b9a44288-052c-460d-9123-18e0d2b0db10" />
+
+
+Pending Reason Analysis (Priority)
+<img width="1341" height="1237" alt="slurm-view-pending-priority-blurred" src="https://github.com/user-attachments/assets/397cc994-1b35-4bc4-9d51-9f9557cd9e9e" />
+
 
 
 ### Tech Stack
