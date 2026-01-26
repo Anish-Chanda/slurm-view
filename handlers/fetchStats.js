@@ -167,26 +167,24 @@ async function getGPUByState(partition = null) {
             }
         });
 
-        // Get Used GPUs from sinfo
+        // Get Used GPUs from squeue (actual job allocations)
         let usedGPUsOutput = "";
         try {
-            let sinfoArgs = ['-h', '-O', 'GresUsed'];
+            let squeueArgs = ['-t', 'RUNNING', '-o', '%b', '--noheader'];
             
             // Validate and add partition parameter if provided
             if (partition) {
                 const validatedPartition = validatePartitionName(partition);
-                sinfoArgs.unshift('-p', validatedPartition);
+                squeueArgs.unshift('-p', validatedPartition);
             }
             
-            const sinfoCommand = createSafeCommand('sinfo', sinfoArgs);
-            // Note: We can't easily make the grep commands safe with createSafeCommand since they're piped
-            // Instead, we'll get the raw output and filter in JavaScript
-            const rawOutput = executeCommand(sinfoCommand);
+            const squeueCommand = createSafeCommand('squeue', squeueArgs);
+            const rawOutput = executeCommand(squeueCommand);
             
-            // Filter the output in JavaScript instead of using shell pipes
+            // Filter the output to only include lines with GPU allocations
             usedGPUsOutput = rawOutput
                 .split('\n')
-                .filter(line => line.trim() && !line.includes('(null)') && line.includes('gpu'))
+                .filter(line => line.trim() && line.includes('gres/gpu'))
                 .join('\n');
         } catch (error) {
             // Command can fail if no GPUs are in use or partition has no GPUs - this is expected
@@ -196,13 +194,15 @@ async function getGPUByState(partition = null) {
         const usedLines = usedGPUsOutput.trim() ? usedGPUsOutput.trim().split("\n") : []; // Handle empty output safely
 
         const gpuUsed = {};
-        const usedRegex = /gpu:([^:(]+):(\d+)/g;
+        // Pattern to match gres/gpu:TYPE:COUNT or gres/gpu:TYPE (where COUNT defaults to 1)
+        const usedRegex = /gres\/gpu:([^:]+)(?::(\d+))?/g;
 
         usedLines.forEach(line => {
             let match;
             while ((match = usedRegex.exec(line)) !== null) {
                 const gpuType = match[1];
-                const count = Number(match[2]);
+                // If count is not specified, default to 1
+                const count = match[2] ? Number(match[2]) : 1;
                 gpuUsed[gpuType] = (gpuUsed[gpuType] || 0) + count;
             }
         });

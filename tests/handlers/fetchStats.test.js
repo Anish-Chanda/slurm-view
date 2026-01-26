@@ -222,11 +222,11 @@ NodeName=node1 Gres=gpu:a100:4 State=IDLE
 NodeName=node2 Gres=gpu:v100:2 State=MIXED
 NodeName=node3 Gres=gpu:a40:4 State=ALLOCATED
 `;
-    // Mock GPU used data
+    // Mock GPU used data from squeue (job allocations)
     const mockUsedGPUs = `
-gpu:a100:2
-gpu:v100:1
-gpu:a40:0
+gres/gpu:a100:2
+gres/gpu:v100:1
+gres/gpu:a100
 `;
 
     executeCommandStreaming.mockResolvedValue(mockNodeData);
@@ -236,8 +236,8 @@ gpu:a40:0
 
     // Verify executeCommandStreaming was called with the right command
     expect(executeCommandStreaming).toHaveBeenCalledWith("scontrol 'show' 'node' '-o'");
-    // Verify executeCommand was called with the right command (no grep pipes, filtering done in JS)
-    expect(executeCommand).toHaveBeenCalledWith("sinfo '-h' '-O' 'GresUsed'");
+    // Verify executeCommand was called with squeue instead of sinfo
+    expect(executeCommand).toHaveBeenCalledWith("squeue '-t' 'RUNNING' '-o' '%b' '--noheader'");
 
     // Check structure
     expect(result.name).toBe("GPU Utilization");
@@ -250,10 +250,10 @@ gpu:a40:0
     const usedGPUs = result.children[0].children;
     const availableGPUs = result.children[1].children;
 
-    // Find a100 in used GPUs
+    // Find a100 in used GPUs (2 explicit + 1 implicit = 3 total)
     const usedA100 = usedGPUs.find((gpu) => gpu.name === "a100");
     expect(usedA100).toBeDefined();
-    expect(usedA100.value).toBe(2);
+    expect(usedA100.value).toBe(3);
 
     // Find v100 in used GPUs
     const usedV100 = usedGPUs.find((gpu) => gpu.name === "v100");
@@ -263,9 +263,9 @@ gpu:a40:0
     // Check available GPUs
     const availableA100 = availableGPUs.find((gpu) => gpu.name === "a100");
     expect(availableA100).toBeDefined();
-    expect(availableA100.value).toBe(2); // 4 total - 2 used
+    expect(availableA100.value).toBe(1); // 4 total - 3 used
 
-    // a40 should be fully available
+    // a40 should be fully available (no jobs using it)
     const availableA40 = availableGPUs.find((gpu) => gpu.name === "a40");
     expect(availableA40).toBeDefined();
     expect(availableA40.value).toBe(4);
@@ -306,13 +306,13 @@ NodeName=node1 Gres=gpu:a100:4 Partitions=compute,gpu State=IDLE
 NodeName=node2 Gres=gpu:v100:2 Partitions=compute State=MIXED
 NodeName=node3 Gres=gpu:a40:4 Partitions=gpu State=ALLOCATED
 `);
-    executeCommand.mockReturnValue("gpu:a100:2");
+    executeCommand.mockReturnValue("gres/gpu:a100:2");
     
     const result = await getGPUByState("gpu");
     
     // Check that commands were called with the partition flag
     expect(executeCommandStreaming).toHaveBeenCalledWith("scontrol 'show' 'node' '-o'");
-    expect(executeCommand).toHaveBeenCalledWith("sinfo '-p' 'gpu' '-h' '-O' 'GresUsed'");
+    expect(executeCommand).toHaveBeenCalledWith("squeue '-p' 'gpu' '-t' 'RUNNING' '-o' '%b' '--noheader'");
     
     // Should include totalGPUs field
     expect(result.totalGPUs).toBe(8); // 4 a100 + 4 a40 = 8 total GPUs in gpu partition
@@ -324,7 +324,7 @@ NodeName=node1 Gres=gpu:a100:4 Partitions=compute,gpu State=IDLE
 NodeName=node2 Gres=gpu:v100:2 Partitions=compute State=MIXED
 NodeName=node3 Gres=gpu:a40:4 Partitions=gpu State=ALLOCATED
 `);
-    executeCommand.mockReturnValue("gpu:a100:1\ngpu:a40:2");
+    executeCommand.mockReturnValue("gres/gpu:a100:1\ngres/gpu:a40:2");
     
     const result = await getGPUByState("gpu");
     
@@ -399,6 +399,58 @@ NodeName=compute-node1 Gres=gpu:a100:8 Partitions=compute State=IDLE RealMemory=
     
     // Verify commands were called with correct partition filter
     expect(executeCommandStreaming).toHaveBeenCalledWith("scontrol 'show' 'node' '-o'");
-    expect(executeCommand).toHaveBeenCalledWith("sinfo '-p' 'reserved' '-h' '-O' 'GresUsed'");
+    expect(executeCommand).toHaveBeenCalledWith("squeue '-p' 'reserved' '-t' 'RUNNING' '-o' '%b' '--noheader'");
+  });
+
+  it("should correctly handle mixed GPU allocation formats (with and without explicit count)", async () => {
+    // Real-world scenario: some jobs specify count, some don't (defaults to 1)
+    executeCommandStreaming.mockResolvedValue(`
+NodeName=node1 Gres=gpu:a100:8 Partitions=nova State=MIXED
+NodeName=node2 Gres=gpu:a100-pcie:4 Partitions=nova State=MIXED
+NodeName=node3 Gres=gpu:a100:8 Partitions=nova State=MIXED
+`);
+    // Mix of formats: explicit counts and implicit (no count = 1)
+    executeCommand.mockReturnValue(`
+gres/gpu:a100:4
+gres/gpu:a100:2
+gres/gpu:a100
+gres/gpu:a100
+gres/gpu:a100
+gres/gpu:a100:1
+gres/gpu:a100-pcie:1
+gres/gpu:a100-pcie:1
+`);
+    
+    const result = await getGPUByState();
+    
+    // Total GPUs in cluster: 8 + 4 + 8 = 20
+    expect(result.totalGPUs).toBe(20);
+    
+    const usedGPUs = result.children[0].children;
+    
+    // Calculate expected A100 usage:
+    // 4 + 2 + 1 + 1 + 1 + 1 = 10 A100 GPUs
+    const usedA100 = usedGPUs.find(gpu => gpu.name === "a100");
+    expect(usedA100).toBeDefined();
+    expect(usedA100.value).toBe(10);
+    
+    // Calculate expected A100-PCIE usage:
+    // 1 + 1 = 2 A100-PCIE GPUs
+    const usedA100Pcie = usedGPUs.find(gpu => gpu.name === "a100-pcie");
+    expect(usedA100Pcie).toBeDefined();
+    expect(usedA100Pcie.value).toBe(2);
+    
+    // Check available GPUs
+    const availableGPUs = result.children[1].children;
+    
+    // A100 available: 16 total - 10 used = 6
+    const availableA100 = availableGPUs.find(gpu => gpu.name === "a100");
+    expect(availableA100).toBeDefined();
+    expect(availableA100.value).toBe(6);
+    
+    // A100-PCIE available: 4 total - 2 used = 2
+    const availableA100Pcie = availableGPUs.find(gpu => gpu.name === "a100-pcie");
+    expect(availableA100Pcie).toBeDefined();
+    expect(availableA100Pcie.value).toBe(2);
   });
 });
