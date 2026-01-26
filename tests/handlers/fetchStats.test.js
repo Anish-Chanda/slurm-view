@@ -11,6 +11,7 @@ jest.mock("../../modules/dataCache", () => ({
         set: jest.fn(),
         getStats: jest.fn()
     },
+    getData: jest.fn(),
     logStats: jest.fn()
 }));
 
@@ -215,29 +216,57 @@ describe("getGPUByState", () => {
     jest.clearAllMocks();
   });
 
-  it("should return correct structure with GPU data", async () => {
+  it("should return correct structure with GPU data from cached jobs", async () => {
     // Mock node data output
     const mockNodeData = `
 NodeName=node1 Gres=gpu:a100:4 State=IDLE
 NodeName=node2 Gres=gpu:v100:2 State=MIXED
 NodeName=node3 Gres=gpu:a40:4 State=ALLOCATED
 `;
-    // Mock GPU used data from squeue (job allocations)
-    const mockUsedGPUs = `
-gres/gpu:a100:2
-gres/gpu:v100:1
-gres/gpu:a100
-`;
+    
+    // Mock cached jobs data with GPU allocations
+    const mockJobsData = {
+      jobs: [
+        { 
+          job_id: "1001", 
+          job_state: "RUNNING", 
+          partition: "nova",
+          gpu_allocations: { total: 2, types: { a100: 2 } }
+        },
+        { 
+          job_id: "1002", 
+          job_state: "RUNNING", 
+          partition: "nova",
+          gpu_allocations: { total: 1, types: { v100: 1 } }
+        },
+        { 
+          job_id: "1003", 
+          job_state: "RUNNING", 
+          partition: "nova",
+          gpu_allocations: { total: 1, types: { a100: 1 } }
+        },
+        { 
+          job_id: "1004", 
+          job_state: "PENDING", 
+          partition: "nova",
+          gpu_allocations: { total: 2, types: { a100: 2 } } // Should be ignored
+        }
+      ]
+    };
 
     executeCommandStreaming.mockResolvedValue(mockNodeData);
-    executeCommand.mockReturnValue(mockUsedGPUs);
+    
+    // Mock dataCache.getData to return jobs
+    const dataCache = require("../../modules/dataCache");
+    dataCache.getData.mockReturnValue(mockJobsData);
 
     const result = await getGPUByState();
 
     // Verify executeCommandStreaming was called with the right command
     expect(executeCommandStreaming).toHaveBeenCalledWith("scontrol 'show' 'node' '-o'");
-    // Verify executeCommand was called with squeue instead of sinfo
-    expect(executeCommand).toHaveBeenCalledWith("squeue '-t' 'RUNNING' '-o' '%b' '--noheader'");
+    
+    // Verify we're using cached jobs data (no squeue call)
+    expect(executeCommand).not.toHaveBeenCalled();
 
     // Check structure
     expect(result.name).toBe("GPU Utilization");
@@ -288,7 +317,9 @@ gres/gpu:a100
 
   it("should handle empty GPU data", async () => {
     executeCommandStreaming.mockResolvedValue("");
-    executeCommand.mockReturnValue("");
+    
+    // Mock empty jobs data
+    const dataCache = require("../../modules/dataCache"); dataCache.getData.mockReturnValue({ jobs: [] });
 
     const result = await getGPUByState();
 
@@ -306,13 +337,20 @@ NodeName=node1 Gres=gpu:a100:4 Partitions=compute,gpu State=IDLE
 NodeName=node2 Gres=gpu:v100:2 Partitions=compute State=MIXED
 NodeName=node3 Gres=gpu:a40:4 Partitions=gpu State=ALLOCATED
 `);
-    executeCommand.mockReturnValue("gres/gpu:a100:2");
+    
+    const mockJobsData = {
+      jobs: [
+        { job_id: "1", job_state: "RUNNING", partition: "gpu", gpu_allocations: { total: 2, types: { a100: 2 } } },
+        { job_id: "2", job_state: "RUNNING", partition: "compute", gpu_allocations: { total: 1, types: { v100: 1 } } } // Should be filtered out
+      ]
+    };
+    const dataCache = require("../../modules/dataCache"); dataCache.getData.mockReturnValue(mockJobsData);
     
     const result = await getGPUByState("gpu");
     
     // Check that commands were called with the partition flag
     expect(executeCommandStreaming).toHaveBeenCalledWith("scontrol 'show' 'node' '-o'");
-    expect(executeCommand).toHaveBeenCalledWith("squeue '-p' 'gpu' '-t' 'RUNNING' '-o' '%b' '--noheader'");
+    expect(executeCommand).not.toHaveBeenCalled(); // Should use cached jobs, not squeue
     
     // Should include totalGPUs field
     expect(result.totalGPUs).toBe(8); // 4 a100 + 4 a40 = 8 total GPUs in gpu partition
@@ -324,7 +362,15 @@ NodeName=node1 Gres=gpu:a100:4 Partitions=compute,gpu State=IDLE
 NodeName=node2 Gres=gpu:v100:2 Partitions=compute State=MIXED
 NodeName=node3 Gres=gpu:a40:4 Partitions=gpu State=ALLOCATED
 `);
-    executeCommand.mockReturnValue("gres/gpu:a100:1\ngres/gpu:a40:2");
+    
+    const mockJobsData = {
+      jobs: [
+        { job_id: "1", job_state: "RUNNING", partition: "gpu", gpu_allocations: { total: 1, types: { a100: 1 } } },
+        { job_id: "2", job_state: "RUNNING", partition: "gpu", gpu_allocations: { total: 2, types: { a40: 2 } } },
+        { job_id: "3", job_state: "RUNNING", partition: "compute", gpu_allocations: { total: 1, types: { v100: 1 } } } // Filtered
+      ]
+    };
+    const dataCache = require("../../modules/dataCache"); dataCache.getData.mockReturnValue(mockJobsData);
     
     const result = await getGPUByState("gpu");
     
@@ -382,7 +428,9 @@ NodeName=reserved-node1 Gres=(null) Partitions=reserved State=IDLE RealMemory=12
 NodeName=reserved-node2 Gres=(null) Partitions=reserved State=ALLOCATED RealMemory=128000
 NodeName=compute-node1 Gres=gpu:a100:8 Partitions=compute State=IDLE RealMemory=256000
 `);
-    executeCommand.mockReturnValue(""); // No GPU usage in reserved partition
+    
+    // Mock empty jobs for reserved partition
+    const dataCache = require("../../modules/dataCache"); dataCache.getData.mockReturnValue({ jobs: [] });
     
     const result = await getGPUByState("reserved");
     
@@ -399,7 +447,7 @@ NodeName=compute-node1 Gres=gpu:a100:8 Partitions=compute State=IDLE RealMemory=
     
     // Verify commands were called with correct partition filter
     expect(executeCommandStreaming).toHaveBeenCalledWith("scontrol 'show' 'node' '-o'");
-    expect(executeCommand).toHaveBeenCalledWith("squeue '-p' 'reserved' '-t' 'RUNNING' '-o' '%b' '--noheader'");
+    expect(executeCommand).not.toHaveBeenCalled(); // Using cached jobs
   });
 
   it("should correctly handle mixed GPU allocation formats (with and without explicit count)", async () => {
@@ -409,17 +457,20 @@ NodeName=node1 Gres=gpu:a100:8 Partitions=nova State=MIXED
 NodeName=node2 Gres=gpu:a100-pcie:4 Partitions=nova State=MIXED
 NodeName=node3 Gres=gpu:a100:8 Partitions=nova State=MIXED
 `);
-    // Mix of formats: explicit counts and implicit (no count = 1)
-    executeCommand.mockReturnValue(`
-gres/gpu:a100:4
-gres/gpu:a100:2
-gres/gpu:a100
-gres/gpu:a100
-gres/gpu:a100
-gres/gpu:a100:1
-gres/gpu:a100-pcie:1
-gres/gpu:a100-pcie:1
-`);
+    
+    const mockJobsData = {
+      jobs: [
+        { job_id: "1", job_state: "RUNNING", partition: "nova", gpu_allocations: { total: 4, types: { a100: 4 } } },
+        { job_id: "2", job_state: "RUNNING", partition: "nova", gpu_allocations: { total: 2, types: { a100: 2 } } },
+        { job_id: "3", job_state: "RUNNING", partition: "nova", gpu_allocations: { total: 1, types: { a100: 1 } } },
+        { job_id: "4", job_state: "RUNNING", partition: "nova", gpu_allocations: { total: 1, types: { a100: 1 } } },
+        { job_id: "5", job_state: "RUNNING", partition: "nova", gpu_allocations: { total: 1, types: { a100: 1 } } },
+        { job_id: "6", job_state: "RUNNING", partition: "nova", gpu_allocations: { total: 1, types: { a100: 1 } } },
+        { job_id: "7", job_state: "RUNNING", partition: "nova", gpu_allocations: { total: 1, types: { "a100-pcie": 1 } } },
+        { job_id: "8", job_state: "RUNNING", partition: "nova", gpu_allocations: { total: 1, types: { "a100-pcie": 1 } } }
+      ]
+    };
+    const dataCache = require("../../modules/dataCache"); dataCache.getData.mockReturnValue(mockJobsData);
     
     const result = await getGPUByState();
     

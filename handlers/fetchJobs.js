@@ -2,7 +2,7 @@ const { DEFAULT_PAGE_SIZE } = require("../constants.js");
 const { executeCommand, executeCommandStreaming } = require("../helpers/executeCmd.js");
 const { formatTimeLeft } = require("../helpers/formatTimeLeft.js");
 const { formatTime, formatUnixTimestamp } = require("../helpers/formatTime.js");
-const { getTresvalue } = require("../helpers/getTresValue.js");
+const { getTresvalue, parseGpuAllocations } = require("../helpers/getTresValue.js");
 
 function parseJobsData(data) {
   try {
@@ -18,6 +18,9 @@ function formatJobsData(jobs) {
 
     //extract job state
     const jobState = Array.isArray(job.job_state) ? job.job_state[0] : job.job_state;
+
+    // Parse GPU allocations from gres_detail or tres_req_str
+    const gpuAllocations = parseGpuAllocations(job.gres_detail || job.tres_req_str);
 
     return {
       job_id: job.job_id || 'N/A',
@@ -39,6 +42,10 @@ function formatJobsData(jobs) {
       total_cpus: getTresvalue(job.tres_req_str, "cpu"),
       total_memory:  getTresvalue(job.tres_req_str, "mem"),
       total_gpus: getTresvalue(job.tres_req_str, "gres/gpu"),
+      
+      // GPU allocations with type breakdown
+      gpu_allocations: gpuAllocations,
+      
       state_reason: job.state_reason || 'None', 
       account: job.account || 'N/A',
       

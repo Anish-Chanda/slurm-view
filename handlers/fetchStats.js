@@ -166,46 +166,173 @@ async function getGPUByState(partition = null) {
                 }
             }
         });
+const { getTresvalue, parseGpuAllocations } = require("../../helpers/getTresValue");
 
-        // Get Used GPUs from squeue (actual job allocations)
-        let usedGPUsOutput = "";
-        try {
-            let squeueArgs = ['-t', 'RUNNING', '-o', '%b', '--noheader'];
-            
-            // Validate and add partition parameter if provided
-            if (partition) {
-                const validatedPartition = validatePartitionName(partition);
-                squeueArgs.unshift('-p', validatedPartition);
-            }
-            
-            const squeueCommand = createSafeCommand('squeue', squeueArgs);
-            const rawOutput = executeCommand(squeueCommand);
-            
-            // Filter the output to only include lines with GPU allocations
-            usedGPUsOutput = rawOutput
-                .split('\n')
-                .filter(line => line.trim() && line.includes('gres/gpu'))
-                .join('\n');
-        } catch (error) {
-            // Command can fail if no GPUs are in use or partition has no GPUs - this is expected
-            console.log(`No GPU usage found for partition ${partition || 'all'}: ${error.message}`);
-            usedGPUsOutput = "";
-        }
-        const usedLines = usedGPUsOutput.trim() ? usedGPUsOutput.trim().split("\n") : []; // Handle empty output safely
+describe("getTresvalue", () => {
+    test("should extract cpu value", () => {
+        const tres = "cpu=8,mem=30400M,node=1,billing=8";
+        expect(getTresvalue(tres, "cpu")).toBe("8");
+    });
 
-        const gpuUsed = {};
-        // Pattern to match gres/gpu:TYPE:COUNT or gres/gpu:TYPE (where COUNT defaults to 1)
-        const usedRegex = /gres\/gpu:([^:]+)(?::(\d+))?/g;
+    test("should extract mem value", () => {
+        const tres = "cpu=8,mem=30400M,node=1,billing=8";
+        expect(getTresvalue(tres, "mem")).toBe("30400M");
+    });
 
-        usedLines.forEach(line => {
-            let match;
-            while ((match = usedRegex.exec(line)) !== null) {
-                const gpuType = match[1];
-                // If count is not specified, default to 1
-                const count = match[2] ? Number(match[2]) : 1;
-                gpuUsed[gpuType] = (gpuUsed[gpuType] || 0) + count;
-            }
+    test("should extract gres/gpu value", () => {
+        const tres = "cpu=8,mem=30400M,node=1,billing=8,gres/gpu=8";
+        expect(getTresvalue(tres, "gres/gpu")).toBe("8");
+    });
+
+    test("should return N/A for missing key", () => {
+        const tres = "cpu=8,mem=30400M";
+        expect(getTresvalue(tres, "gres/gpu")).toBe("N/A");
+    });
+
+    test("should return N/A for null input", () => {
+        expect(getTresvalue(null, "cpu")).toBe("N/A");
+    });
+});
+
+describe("parseGpuAllocations", () => {
+    describe("gres_detail array format", () => {
+        test("should parse single GPU type from gres_detail", () => {
+            const gresDetail = ["gpu:a100:2(IDX:2-3)"];
+            const result = parseGpuAllocations(gresDetail);
+            
+            expect(result.total).toBe(2);
+            expect(result.types).toEqual({ a100: 2 });
         });
+
+        test("should parse multiple GPU entries", () => {
+            const gresDetail = ["gpu:a100:4(IDX:0-3)", "gpu:v100:2(IDX:0-1)"];
+            const result = parseGpuAllocations(gresDetail);
+            
+            expect(result.total).toBe(6);
+            expect(result.types).toEqual({ a100: 4, v100: 2 });
+        });
+
+        test("should handle GPU types with hyphens", () => {
+            const gresDetail = ["gpu:a100-pcie:1(IDX:0)"];
+            const result = parseGpuAllocations(gresDetail);
+            
+            expect(result.total).toBe(1);
+            expect(result.types).toEqual({ "a100-pcie": 1 });
+        });
+
+        test("should aggregate same GPU types", () => {
+            const gresDetail = ["gpu:a100:2(IDX:0-1)", "gpu:a100:3(IDX:2-4)"];
+            const result = parseGpuAllocations(gresDetail);
+            
+            expect(result.total).toBe(5);
+            expect(result.types).toEqual({ a100: 5 });
+        });
+    });
+
+    describe("tres string format", () => {
+        test("should parse GPU types from tres_req_str", () => {
+            const tres = "cpu=1,mem=100G,node=1,billing=2,gres/gpu=2,gres/gpu:a100=2";
+            const result = parseGpuAllocations(tres);
+            
+            expect(result.total).toBe(2);
+            expect(result.types).toEqual({ a100: 2 });
+        });
+
+        test("should parse multiple GPU types from tres string", () => {
+            const tres = "cpu=4,mem=200G,gres/gpu=6,gres/gpu:a100=4,gres/gpu:v100=2";
+            const result = parseGpuAllocations(tres);
+            
+            expect(result.total).toBe(6);
+            expect(result.types).toEqual({ a100: 4, v100: 2 });
+        });
+
+        test("should handle generic gres/gpu without type", () => {
+            const tres = "cpu=2,mem=50G,gres/gpu=3";
+            const result = parseGpuAllocations(tres);
+            
+            expect(result.total).toBe(3);
+            expect(result.types).toEqual({ unknown: 3 });
+        });
+
+        test("should handle GPU types with special characters", () => {
+            const tres = "cpu=1,gres/gpu:v100-sxm2-32G=1";
+            const result = parseGpuAllocations(tres);
+            
+            expect(result.total).toBe(1);
+            expect(result.types).toEqual({ "v100-sxm2-32G": 1 });
+        });
+    });
+
+    describe("edge cases", () => {
+        test("should return zero for null input", () => {
+            const result = parseGpuAllocations(null);
+            
+            expect(result.total).toBe(0);
+            expect(result.types).toEqual({});
+        });
+
+        test("should return zero for undefined input", () => {
+            const result = parseGpuAllocations(undefined);
+            
+            expect(result.total).toBe(0);
+            expect(result.types).toEqual({});
+        });
+
+        test("should return zero for empty array", () => {
+            const result = parseGpuAllocations([]);
+            
+            expect(result.total).toBe(0);
+            expect(result.types).toEqual({});
+        });
+
+        test("should return zero for empty string", () => {
+            const result = parseGpuAllocations("");
+            
+            expect(result.total).toBe(0);
+            expect(result.types).toEqual({});
+        });
+
+        test("should handle malformed gres_detail entries", () => {
+            const gresDetail = ["invalid:entry", "gpu:a100:2(IDX:0-1)"];
+            const result = parseGpuAllocations(gresDetail);
+            
+            expect(result.total).toBe(2);
+            expect(result.types).toEqual({ a100: 2 });
+        });
+    });
+});
+
+        // Get Used GPUs from cached jobs data
+        const gpuUsed = {};
+        const jobsData = dataCache.getData('jobs');
+        
+        if (jobsData && jobsData.jobs) {
+            // Filter for RUNNING jobs and optionally by partition
+            const runningJobs = jobsData.jobs.filter(job => {
+                if (job.job_state !== 'RUNNING') return false;
+                
+                // If partition filter is specified, check if job is in that partition
+                if (partition) {
+                    const validatedPartition = validatePartitionName(partition);
+                    return job.partition === validatedPartition;
+                }
+                
+                return true;
+            });
+
+            // Aggregate GPU usage from running jobs
+            runningJobs.forEach(job => {
+                if (job.gpu_allocations && job.gpu_allocations.types) {
+                    Object.entries(job.gpu_allocations.types).forEach(([gpuType, count]) => {
+                        gpuUsed[gpuType] = (gpuUsed[gpuType] || 0) + count;
+                    });
+                }
+            });
+            
+            console.log(`[Stats Handler] Calculated GPU usage from ${runningJobs.length} running jobs in cache`);
+        } else {
+            console.log(`[Stats Handler] No cached jobs data available, GPU used will be 0`);
+        }
 
         // combine totals and used
         const gpuTypes = {};
