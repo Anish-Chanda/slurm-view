@@ -126,7 +126,7 @@ function validateFilterValue(filterValue) {
  */
 function createSafeCommand(baseCommand, args = []) {
     // Validate base command (only allow commands used by this codebase)
-    const allowedCommands = ['sinfo', 'squeue', 'scontrol', 'seff', 'sprio'];
+    const allowedCommands = ['sinfo', 'squeue', 'scontrol', 'seff', 'sprio', 'sacctmgr'];
     if (!allowedCommands.includes(baseCommand)) {
         throw new Error(`Command '${baseCommand}' is not allowed`);
     }

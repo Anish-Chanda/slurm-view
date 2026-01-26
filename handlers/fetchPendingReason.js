@@ -35,6 +35,10 @@ const getPendingReason = async (jobId) => {
             result = analyzeDependencyPending(jobId, jobData);
         } else if (jobData.Reason === 'DependencyNeverSatisfied') {
             result = analyzeDependencyNeverSatisfied(jobId, jobData);
+        } else if (jobData.Reason === 'AssocGrpMemLimit') {
+            result = analyzeAssocGrpMemLimit(jobId, jobData);
+        } else if (jobData.Reason === 'AssocGrpCPULimit') {
+            result = analyzeAssocGrpCPULimit(jobId, jobData);
         } else {
             result = { type: 'Other', message: `Pending reason: ${jobData.Reason}` };
         }
@@ -559,6 +563,11 @@ const parseJobData = (output) => {
     if (reqTresMatch) {
         data.ReqTRES = parseTres(reqTresMatch[1]);
     }
+    
+    const allocTresMatch = output.match(/AllocTRES=([^\s]+)/);
+    if (allocTresMatch) {
+        data.AllocTRES = parseTres(allocTresMatch[1]);
+    }
 
     return data;
 };
@@ -630,6 +639,323 @@ const summarizeAnalysis = (nodes, totalNodes) => {
         bottlenecks: bottleneckCounts
     };
 };
+
+/**
+ * Analyze a job pending due to AssocGrpMemLimit
+ * @param {string} jobId - Job ID
+ * @param {Object} jobData - Parsed job data from scontrol
+ * @returns {Object} Memory limit analysis result
+ */
+const analyzeAssocGrpMemLimit = (jobId, jobData) => {
+    try {
+        const { buildAncestorChain, getEffectiveLimit, formatMemory, parseMemoryToMB } = require('../helpers/accountLimits.js');
+        
+        // Get account limits from cache
+        const allLimits = dataCache.getAccountLimits();
+        if (!allLimits) {
+            return { type: 'Error', message: 'Account limits not available' };
+        }
+        
+        const account = jobData.Account;
+        const user = jobData.UserId ? jobData.UserId.split('(')[0] : null;
+        
+        // Get job memory request from parsed TRES (use ReqTRES for pending jobs)
+        const jobMemory = jobData.ReqTRES?.mem || 0;
+        
+        // Build ancestor chain
+        const chain = buildAncestorChain(account, allLimits);
+        
+        // Find which level hit the limit
+        let limitingAccount = null;
+        let limitingLevel = null;
+        
+        for (let i = 0; i < chain.length; i++) {
+            const ancestorAccount = chain[i];
+            const ancestorData = allLimits.accounts[ancestorAccount];
+            
+            if (!ancestorData || !ancestorData.grpMem) continue;
+            
+            // Calculate current usage for this account (including all children)
+            const usage = calculateAccountUsage(ancestorAccount, allLimits, true);
+            
+            // Check if adding this job would exceed the limit
+            // Slurm uses: if (current_usage + job_request > limit) then block
+            if (usage.memory + jobMemory > ancestorData.grpMem) {
+                limitingAccount = ancestorAccount;
+                limitingLevel = i;
+                break;
+            }
+        }
+        
+        if (!limitingAccount) {
+            return { 
+                type: 'Info', 
+                message: 'Cache shows all accounts below limit, but Slurm reports limit reached',
+                details: 'This indicates jobs recently started/completed. Cache updates every 30 seconds - check back shortly.'
+            };
+        }
+        
+        const limitingData = allLimits.accounts[limitingAccount];
+        const usage = calculateAccountUsage(limitingAccount, allLimits, true);
+        
+        // Build hierarchy info
+        const hierarchy = chain.map((acc, index) => {
+            const accData = allLimits.accounts[acc];
+            const accUsage = calculateAccountUsage(acc, allLimits, true);
+            
+            return {
+                account: acc,
+                level: index,
+                hasLimit: !!accData.grpMem,
+                isLimiting: acc === limitingAccount,
+                limit: accData.grpMem ? {
+                    value: accData.grpMem,
+                    formatted: formatMemory(accData.grpMem)
+                } : null,
+                usage: accData.grpMem ? {
+                    value: accUsage.memory,
+                    formatted: formatMemory(accUsage.memory),
+                    percent: ((accUsage.memory / accData.grpMem) * 100).toFixed(1),
+                    runningJobs: accUsage.jobCount
+                } : null,
+                available: accData.grpMem ? {
+                    value: Math.max(0, accData.grpMem - accUsage.memory),
+                    formatted: formatMemory(Math.max(0, accData.grpMem - accUsage.memory))
+                } : null,
+                parent: accData.parent
+            };
+        });
+        
+        return {
+            type: 'AssocGrpMemLimit',
+            jobId: jobId,
+            account: account,
+            user: user,
+            limitingAccount: limitingAccount,
+            limitingLevel: limitingLevel,
+            isDirectAccount: limitingAccount === account,
+            hierarchy: hierarchy,
+            job: {
+                account: account,
+                user: user,
+                requested: {
+                    memory: jobMemory,
+                    formatted: formatMemory(jobMemory)
+                }
+            },
+            analysis: {
+                limitingAccount: limitingAccount,
+                limit: limitingData.grpMem,
+                limitFormatted: formatMemory(limitingData.grpMem),
+                currentUsage: usage.memory,
+                currentUsageFormatted: formatMemory(usage.memory),
+                percentUsed: ((usage.memory / limitingData.grpMem) * 100).toFixed(1),
+                available: Math.max(0, limitingData.grpMem - usage.memory),
+                availableFormatted: formatMemory(Math.max(0, limitingData.grpMem - usage.memory)),
+                shortfall: Math.min(0, limitingData.grpMem - usage.memory - jobMemory),
+                shortfallFormatted: formatMemory(Math.abs(Math.min(0, limitingData.grpMem - usage.memory - jobMemory))),
+                runningJobs: usage.jobCount
+            }
+        };
+        
+    } catch (error) {
+        console.error(`Error analyzing AssocGrpMemLimit for job ${jobId}:`, error.message);
+        return { type: 'Error', message: error.message };
+    }
+};
+
+/**
+ * Analyze a job pending due to AssocGrpCPULimit
+ * @param {string} jobId - Job ID
+ * @param {Object} jobData - Parsed job data from scontrol
+ * @returns {Object} CPU limit analysis result
+ */
+const analyzeAssocGrpCPULimit = (jobId, jobData) => {
+    try {
+        const { buildAncestorChain, getEffectiveLimit } = require('../helpers/accountLimits.js');
+        
+        // Get account limits from cache
+        const allLimits = dataCache.getAccountLimits();
+        if (!allLimits) {
+            return { type: 'Error', message: 'Account limits not available' };
+        }
+        
+        const account = jobData.Account;
+        const user = jobData.UserId ? jobData.UserId.split('(')[0] : null;
+        
+        // Get job CPU request from parsed TRES (use ReqTRES for pending jobs)
+        const jobCPUs = jobData.ReqTRES?.cpu || 0;
+        
+        // Build ancestor chain
+        const chain = buildAncestorChain(account, allLimits);
+        
+        // Find which level hit the limit
+        let limitingAccount = null;
+        let limitingLevel = null;
+        
+        for (let i = 0; i < chain.length; i++) {
+            const ancestorAccount = chain[i];
+            const ancestorData = allLimits.accounts[ancestorAccount];
+            
+            if (!ancestorData || !ancestorData.grpCPUs) continue;
+            
+            // Calculate current usage for this account (including all children)
+            const usage = calculateAccountUsage(ancestorAccount, allLimits, true);
+            
+            // Check if adding this job would exceed the limit
+            // Slurm uses: if (current_usage + job_request > limit) then block
+            if (usage.cpus + jobCPUs > ancestorData.grpCPUs) {
+                limitingAccount = ancestorAccount;
+                limitingLevel = i;
+                break;
+            }
+        }
+        
+        if (!limitingAccount) {
+            return { 
+                type: 'Info', 
+                message: 'Cache shows all accounts below limit, but Slurm reports limit reached',
+                details: 'This indicates jobs recently started/completed. Cache updates every 30 seconds - check back shortly.'
+            };
+        }
+        
+        const limitingData = allLimits.accounts[limitingAccount];
+        const usage = calculateAccountUsage(limitingAccount, allLimits, true);
+        
+        // Build hierarchy info
+        const hierarchy = chain.map((acc, index) => {
+            const accData = allLimits.accounts[acc];
+            const accUsage = calculateAccountUsage(acc, allLimits, true);
+            
+            return {
+                account: acc,
+                level: index,
+                hasLimit: !!accData.grpCPUs,
+                isLimiting: acc === limitingAccount,
+                limit: accData.grpCPUs ? {
+                    value: accData.grpCPUs,
+                    formatted: accData.grpCPUs.toLocaleString()
+                } : null,
+                usage: accData.grpCPUs ? {
+                    value: accUsage.cpus,
+                    formatted: accUsage.cpus.toLocaleString(),
+                    percent: ((accUsage.cpus / accData.grpCPUs) * 100).toFixed(1),
+                    runningJobs: accUsage.jobCount
+                } : null,
+                available: accData.grpCPUs ? {
+                    value: Math.max(0, accData.grpCPUs - accUsage.cpus),
+                    formatted: Math.max(0, accData.grpCPUs - accUsage.cpus).toLocaleString()
+                } : null,
+                parent: accData.parent
+            };
+        });
+        
+        return {
+            type: 'AssocGrpCPULimit',
+            jobId: jobId,
+            account: account,
+            user: user,
+            limitingAccount: limitingAccount,
+            limitingLevel: limitingLevel,
+            isDirectAccount: limitingAccount === account,
+            hierarchy: hierarchy,
+            job: {
+                account: account,
+                user: user,
+                requested: {
+                    cpus: jobCPUs,
+                    formatted: jobCPUs.toLocaleString()
+                }
+            },
+            analysis: {
+                limitingAccount: limitingAccount,
+                limit: limitingData.grpCPUs,
+                limitFormatted: limitingData.grpCPUs.toLocaleString(),
+                currentUsage: usage.cpus,
+                currentUsageFormatted: usage.cpus.toLocaleString(),
+                percentUsed: ((usage.cpus / limitingData.grpCPUs) * 100).toFixed(1),
+                available: Math.max(0, limitingData.grpCPUs - usage.cpus),
+                availableFormatted: Math.max(0, limitingData.grpCPUs - usage.cpus).toLocaleString(),
+                shortfall: Math.min(0, limitingData.grpCPUs - usage.cpus - jobCPUs),
+                shortfallFormatted: Math.abs(Math.min(0, limitingData.grpCPUs - usage.cpus - jobCPUs)).toLocaleString(),
+                runningJobs: usage.jobCount
+            }
+        };
+        
+    } catch (error) {
+        console.error(`Error analyzing AssocGrpCPULimit for job ${jobId}:`, error.message);
+        return { type: 'Error', message: error.message };
+    }
+};
+
+/**
+ * Calculate account usage (memory, CPUs, GPUs) from cached jobs
+ * @param {string} account - Account name
+ * @param {Object} allLimits - All account limits data
+ * @param {boolean} includeChildren - Whether to include child account usage
+ * @returns {Object} - { memory, cpus, gpus, jobCount }
+ */
+function calculateAccountUsage(account, allLimits, includeChildren = false) {
+    const jobsData = dataCache.getData('jobs');
+    const usage = { memory: 0, cpus: 0, gpus: 0, jobCount: 0 };
+    
+    if (!jobsData || !jobsData.jobs) {
+        return usage;
+    }
+    
+    // Get list of accounts to check
+    let accountsToCheck = [account];
+    if (includeChildren) {
+        accountsToCheck = getAllDescendantAccounts(account, allLimits);
+    }
+    
+    const { parseMemoryToMB } = require('../helpers/accountLimits.js');
+    
+    // Sum usage from RUNNING jobs
+    // Note: We need to use allocated resources (AllocTRES), not requested (ReqTRES)
+    // because Slurm counts what's actually allocated toward the limit
+    jobsData.jobs.forEach(job => {
+        if (job.job_state === 'RUNNING' && accountsToCheck.includes(job.account)) {
+            // For running jobs, use alloc_tres if available (actual allocation),
+            // otherwise fall back to total_memory (which comes from ReqTRES)
+            const memToUse = job.alloc_memory || job.total_memory;
+            const cpusToUse = job.alloc_cpus || job.total_cpus;
+            const gpusToUse = job.alloc_gpus || job.total_gpus;
+            
+            usage.memory += parseMemoryToMB(memToUse);
+            usage.cpus += parseInt(cpusToUse) || 0;
+            usage.gpus += parseInt(gpusToUse) || 0;
+            usage.jobCount++;
+        }
+    });
+    
+    return usage;
+}
+
+/**
+ * Get all descendant accounts (children, grandchildren, etc.)
+ * @param {string} parentAccount - Parent account name
+ * @param {Object} allLimits - All account limits data
+ * @returns {Array<string>} - List of account names including parent
+ */
+function getAllDescendantAccounts(parentAccount, allLimits) {
+    const descendants = [parentAccount];
+    
+    Object.keys(allLimits.accounts).forEach(account => {
+        if (allLimits.accounts[account].parent === parentAccount) {
+            descendants.push(account);
+            // Recursively get their children
+            const childDescendants = getAllDescendantAccounts(account, allLimits);
+            childDescendants.forEach(desc => {
+                if (!descendants.includes(desc)) {
+                    descendants.push(desc);
+                }
+            });
+        }
+    });
+    
+    return descendants;
+}
 
 module.exports = {
     getPendingReason

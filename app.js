@@ -358,4 +358,35 @@ router.get('/', async (req, res) => {
 
 const server = app.listen(port, () => {
   console.log(`[Main Worker] App listening on port ${port}`);
+  
+  // Initialize account limits on startup
+  initializeAccountLimits();
 });
+
+/**
+ * Initialize account limits cache on startup
+ */
+async function initializeAccountLimits() {
+  try {
+    const { fetchAccountLimits } = require('./helpers/accountLimits.js');
+    const limitsData = fetchAccountLimits();
+    dataCache.setAccountLimits(limitsData);
+    console.log('[Startup] Account limits initialized');
+    
+    // Refresh hourly
+    setInterval(() => {
+      try {
+        if (dataCache.isAccountLimitsStale()) {
+          const updatedLimits = fetchAccountLimits();
+          dataCache.setAccountLimits(updatedLimits);
+          console.log('[Background] Account limits refreshed');
+        }
+      } catch (error) {
+        console.error('[Background] Failed to refresh account limits:', error.message);
+      }
+    }, 3600000); // 1 hour
+    
+  } catch (error) {
+    console.error('[Startup] Failed to initialize account limits:', error.message);
+  }
+}

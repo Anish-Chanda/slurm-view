@@ -19,6 +19,10 @@ class DataCache {
         // Pending reason analysis cache (keyed by job_id)
         this.pendingReasonCache = new NodeCache({ stdTTL: 60, checkperiod: 120 }); // 60 sec TTL
 
+        // Account limits cache (very long TTL - updated hourly)
+        this.accountLimitsCache = new NodeCache({ stdTTL: 3600, checkperiod: 600 }); // 1 hour TTL
+        this.accountLimitsLastUpdated = 0;
+
         // General purpose cache for stats and other data
         this.cache = new NodeCache({ stdTTL: 5, checkperiod: 120 }); // 5 sec TTL for stats
 
@@ -189,14 +193,46 @@ class DataCache {
     }
 
     /**
+     * Get account limits data
+     * @returns {Object|null} - Account limits or null
+     */
+    getAccountLimits() {
+        return this.accountLimitsCache.get('limits') || null;
+    }
+
+    /**
+     * Set account limits data
+     * @param {Object} data - Account limits data with timestamp and accounts
+     * @param {number} ttl - Optional TTL in seconds (default: 3600)
+     */
+    setAccountLimits(data, ttl = 3600) {
+        this.accountLimitsCache.set('limits', data, ttl);
+        this.accountLimitsLastUpdated = data.timestamp || Date.now();
+        console.log('[DataCache] Account limits cached:', Object.keys(data.accounts || {}).length, 'accounts');
+    }
+
+    /**
+     * Check if account limits need refresh
+     * @param {number} threshold - Time in ms (default: 1 hour)
+     * @returns {boolean} - True if stale
+     */
+    isAccountLimitsStale(threshold = 3600000) {
+        if (!this.accountLimitsCache.get('limits')) return true;
+        const age = Date.now() - this.accountLimitsLastUpdated;
+        return age > threshold;
+    }
+
+    /**
      * Clear all caches
      */
     clearAll() {
         this.jobsCache.flushAll();
         this.seffCache.flushAll();
         this.pendingReasonCache.flushAll();
+        this.accountLimitsCache.flushAll();
         this.cache.flushAll();
         this.jobsLastUpdated = 0;
+        this.accountLimitsLastUpdated = 0;
     }
 
     /**
@@ -207,6 +243,7 @@ class DataCache {
             jobs: this.jobsCache.getStats(),
             seff: this.seffCache.getStats(),
             pendingReason: this.pendingReasonCache.getStats(),
+            accountLimits: this.accountLimitsCache.getStats(),
             general: this.cache.getStats()
         });
     }

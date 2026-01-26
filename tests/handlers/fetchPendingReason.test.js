@@ -7,7 +7,9 @@ jest.mock("../../helpers/executeCmd");
 jest.mock("../../modules/dataCache", () => ({
     getPendingReason: jest.fn(),
     setPendingReason: jest.fn(),
-    getJobById: jest.fn()
+    getJobById: jest.fn(),
+    getAccountLimits: jest.fn(),
+    getData: jest.fn()
 }));
 jest.mock("../../helpers/priorityUtils");
 
@@ -334,6 +336,248 @@ describe("getPendingReason", () => {
 
             // Should handle gracefully and still return Dependency type
             expect(result.type).toBe('Dependency');
+        });
+    });
+
+    describe('AssocGrpMemLimit', () => {
+        beforeEach(() => {
+            jest.resetAllMocks();
+            dataCache.getPendingReason = jest.fn().mockReturnValue(null);
+        });
+
+        it('should analyze account memory limits for pending job', async () => {
+            const mockAccountLimits = {
+                timestamp: Date.now(),
+                accounts: {
+                    'niemi-lab': {
+                        parent: 'stat',
+                        grpMem: 38000000,
+                        grpCPUs: 7200,
+                        grpTRES: { mem: 38000000, cpu: 7200 },
+                        users: ['user1']
+                    },
+                    'stat': {
+                        parent: 'las',
+                        grpMem: null,
+                        grpCPUs: null,
+                        grpTRES: { mem: null, cpu: null },
+                        users: []
+                    },
+                    'las': {
+                        parent: 'research',
+                        grpMem: 93959424,
+                        grpCPUs: 17000,
+                        grpTRES: { mem: 93959424, cpu: 17000 },
+                        users: []
+                    },
+                    'research': {
+                        parent: 'root',
+                        grpMem: null,
+                        grpCPUs: null,
+                        grpTRES: { mem: null, cpu: null },
+                        users: []
+                    },
+                    'root': {
+                        parent: null,
+                        grpMem: null,
+                        grpCPUs: null,
+                        grpTRES: { mem: null, cpu: null },
+                        users: []
+                    }
+                }
+            };
+
+            const mockJobs = {
+                jobs: [
+                    {
+                        job_id: 100,
+                        account: 'niemi-lab',
+                        job_state: 'RUNNING',
+                        alloc_memory: 1000000,
+                        alloc_cpus: 10
+                    },
+                    {
+                        job_id: 101,
+                        account: 'niemi-lab',
+                        job_state: 'RUNNING',
+                        alloc_memory: 37500000,
+                        alloc_cpus: 100
+                    }
+                ]
+            };
+
+            dataCache.getAccountLimits = jest.fn().mockReturnValue(mockAccountLimits);
+            dataCache.getData = jest.fn().mockReturnValue(mockJobs);
+            dataCache.getJobById.mockReturnValue({
+                job_id: 200,
+                account: 'niemi-lab',
+                job_state: ['PENDING'],
+                total_memory: 378000,
+                total_cpus: 10
+            });
+
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=AssocGrpMemLimit Account=niemi-lab ReqTRES=cpu=10,mem=378000M Partition=debug"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('AssocGrpMemLimit');
+            expect(result.hierarchy).toBeDefined();
+            expect(result.hierarchy.find(acc => acc.account === 'niemi-lab')).toBeDefined();
+            expect(result.limitingAccount).toBe('niemi-lab');
+        });
+
+        it('should handle missing account limits data', async () => {
+            dataCache.getAccountLimits = jest.fn().mockReturnValue(null);
+            dataCache.getJobById.mockReturnValue({
+                job_id: 200,
+                account: 'niemi-lab',
+                job_state: ['PENDING']
+            });
+
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=AssocGrpMemLimit Account=niemi-lab"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('Error');
+            expect(result.message).toContain('Account limits not available');
+        });
+
+        it('should identify limiting account in hierarchy', async () => {
+            const mockAccountLimits = {
+                timestamp: Date.now(),
+                accounts: {
+                    'child-account': {
+                        parent: 'parent-account',
+                        grpMem: 10000,
+                        grpCPUs: 100,
+                        grpTRES: { mem: 10000, cpu: 100 }
+                    },
+                    'parent-account': {
+                        parent: 'root',
+                        grpMem: 50000,
+                        grpCPUs: 500,
+                        grpTRES: { mem: 50000, cpu: 500 }
+                    },
+                    'root': {
+                        parent: null,
+                        grpMem: null,
+                        grpCPUs: null,
+                        grpTRES: { mem: null, cpu: null }
+                    }
+                }
+            };
+
+            const mockJobs = {
+                jobs: [
+                    {
+                        job_id: 100,
+                        account: 'child-account',
+                        job_state: 'RUNNING',
+                        alloc_memory: 9000,
+                        alloc_cpus: 50
+                    }
+                ]
+            };
+
+            dataCache.getAccountLimits = jest.fn().mockReturnValue(mockAccountLimits);
+            dataCache.getData = jest.fn().mockReturnValue(mockJobs);
+            dataCache.getJobById.mockReturnValue({
+                job_id: 200,
+                account: 'child-account',
+                total_memory: 2000,
+                total_cpus: 10
+            });
+
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=AssocGrpMemLimit Account=child-account ReqTRES=cpu=10,mem=2000M"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.limitingAccount).toBe('child-account');
+            expect(result.hierarchy.find(acc => acc.account === 'child-account').usage.value).toBeGreaterThan(0);
+        });
+    });
+
+    describe('AssocGrpCPULimit', () => {
+        beforeEach(() => {
+            jest.resetAllMocks();
+            dataCache.getPendingReason = jest.fn().mockReturnValue(null);
+        });
+
+        it('should analyze account CPU limits for pending job', async () => {
+            const mockAccountLimits = {
+                timestamp: Date.now(),
+                accounts: {
+                    'test-account': {
+                        parent: 'root',
+                        grpMem: 100000,
+                        grpCPUs: 500,
+                        grpTRES: { mem: 100000, cpu: 500 },
+                        users: ['user1']
+                    },
+                    'root': {
+                        parent: null,
+                        grpMem: null,
+                        grpCPUs: null,
+                        grpTRES: { mem: null, cpu: null },
+                        users: []
+                    }
+                }
+            };
+
+            const mockJobs = {
+                jobs: [
+                    {
+                        job_id: 100,
+                        account: 'test-account',
+                        job_state: 'RUNNING',
+                        alloc_cpus: 495,
+                        alloc_memory: 50000
+                    }
+                ]
+            };
+
+            dataCache.getAccountLimits = jest.fn().mockReturnValue(mockAccountLimits);
+            dataCache.getData = jest.fn().mockReturnValue(mockJobs);
+            dataCache.getJobById.mockReturnValue({
+                job_id: 200,
+                account: 'test-account',
+                total_cpus: 20,
+                total_memory: 10000
+            });
+
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=AssocGrpCPULimit Account=test-account ReqTRES=cpu=20,mem=10000M"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('AssocGrpCPULimit');
+            expect(result.limitingAccount).toBe('test-account');
+            expect(result.hierarchy[0].usage.value).toBe(495);
+            expect(result.hierarchy[0].limit.value).toBe(500);
+        });
+
+        it('should handle missing account limits data for CPU', async () => {
+            dataCache.getAccountLimits = jest.fn().mockReturnValue(null);
+            dataCache.getJobById.mockReturnValue({
+                job_id: 200,
+                account: 'test-account'
+            });
+
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=AssocGrpCPULimit Account=test-account"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('Error');
+            expect(result.message).toContain('Account limits not available');
         });
     });
 });

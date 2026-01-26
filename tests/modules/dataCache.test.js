@@ -82,4 +82,57 @@ describe('DataCache', () => {
         expect(ttlTimestamp).toBeGreaterThan(now);
         expect(Math.abs(ttlTimestamp - expectedExpiry)).toBeLessThan(1000);
     });
+
+    describe('Account Limits Cache', () => {
+        test('should store and retrieve account limits', () => {
+            const testLimits = {
+                timestamp: Date.now(),
+                accounts: {
+                    'niemi-lab': {
+                        parent: 'stat',
+                        grpMem: 38000000,
+                        grpCPUs: 7200,
+                        grpTRES: { mem: 38000000, cpu: 7200 }
+                    }
+                }
+            };
+
+            dataCache.setAccountLimits(testLimits);
+            const retrieved = dataCache.getAccountLimits();
+
+            expect(retrieved).toEqual(testLimits);
+            expect(retrieved.accounts['niemi-lab'].grpMem).toBe(38000000);
+        });
+
+        test('should identify stale account limits data', () => {
+            const realDateNow = Date.now;
+            const now = 1000000000000;
+            global.Date.now = jest.fn(() => now);
+
+            const testLimits = {
+                timestamp: Date.now(),
+                accounts: {}
+            };
+
+            dataCache.setAccountLimits(testLimits);
+
+            // Within 1 hour TTL -> fresh
+            global.Date.now = jest.fn(() => now + 1800000); // 30 minutes
+            expect(dataCache.isAccountLimitsStale()).toBe(false);
+
+            // Past 1 hour TTL -> stale
+            global.Date.now = jest.fn(() => now + 3700000); // 61 minutes
+            expect(dataCache.isAccountLimitsStale()).toBe(true);
+
+            global.Date.now = realDateNow;
+        });
+
+        test('should return null for account limits when not set', () => {
+            expect(dataCache.getAccountLimits()).toBeNull();
+        });
+
+        test('should identify account limits as stale when never set', () => {
+            expect(dataCache.isAccountLimitsStale()).toBe(true);
+        });
+    });
 });

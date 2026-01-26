@@ -43,6 +43,12 @@ function formatJobsData(jobs) {
       total_memory:  getTresvalue(job.tres_req_str, "mem"),
       total_gpus: getTresvalue(job.tres_req_str, "gres/gpu"),
       
+      // Allocated resources (what Slurm actually gave the job)
+      // For RUNNING jobs, these reflect actual allocations which may exceed requests (example when --exclusive is used)
+      alloc_cpus: getTresvalue(job.tres_alloc_str, "cpu"),
+      alloc_memory: getTresvalue(job.tres_alloc_str, "mem"),
+      alloc_gpus: getTresvalue(job.tres_alloc_str, "gres/gpu"),
+      
       // GPU allocations with type breakdown
       gpu_allocations: gpuAllocations,
       
