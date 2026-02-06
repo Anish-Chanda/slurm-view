@@ -41,6 +41,8 @@ const getPendingReason = async (jobId) => {
             result = analyzeAssocGrpCPULimit(jobId, jobData);
         } else if (jobData.Reason === 'AssocGrpGRES') {
             result = analyzeAssocGrpGRES(jobId, jobData);
+        } else if (jobData.Reason === 'AssocGrpMemRunMinutes') {
+            result = analyzeAssocGrpMemRunMinutes(jobId, jobData);
         } else {
             result = { type: 'Other', message: `Pending reason: ${jobData.Reason}` };
         }
@@ -641,6 +643,215 @@ const summarizeAnalysis = (nodes, totalNodes) => {
         bottlenecks: bottleneckCounts
     };
 };
+
+/**
+ * Analyze a job pending due to AssocGrpMemRunMinutes
+ * @param {string} jobId - Job ID
+ * @param {Object} jobData - Parsed job data from scontrol
+ * @returns {Object} Memory run-minutes limit analysis result
+ */
+const analyzeAssocGrpMemRunMinutes = (jobId, jobData) => {
+    try {
+        const { buildAncestorChain, formatMemory, parseMemoryToMB } = require('../helpers/accountLimits.js');
+        const { calculateJobRunMinutes, formatRunMinutes } = require('../helpers/runMinutesUtils.js');
+        
+        // Get account limits from cache
+        const allLimits = dataCache.getAccountLimits();
+        if (!allLimits) {
+            return { type: 'Error', message: 'Account limits not available' };
+        }
+        
+        const account = jobData.Account;
+        const user = jobData.UserId ? jobData.UserId.split('(')[0] : null;
+        
+        // Get job memory request and time limit
+        const jobMemory = jobData.ReqTRES?.mem || 0;
+        const jobTimeLimit = jobData.TimeLimit;
+        
+        // Calculate job's contribution
+        // Pass memory as "XXXM" format (e.g., "4194304M") for proper parsing
+        const jobForCalc = {
+            alloc_memory: jobMemory + 'M',
+            time_limit: jobTimeLimit,
+            start_time: null
+        };
+        const jobContribution = calculateJobRunMinutes(jobForCalc, 'mem');
+        
+        if (jobContribution === null) {
+            return {
+                type: 'Info',
+                message: 'Job has UNLIMITED time limit - cannot calculate run-minutes contribution'
+            };
+        }
+        
+        // Build ancestor chain
+        const chain = buildAncestorChain(account, allLimits);
+        
+        // Find which level hit the limit
+        let limitingAccount = null;
+        let limitingLevel = null;
+        
+        for (let i = 0; i < chain.length; i++) {
+            const ancestorAccount = chain[i];
+            const ancestorData = allLimits.accounts[ancestorAccount];
+            
+            if (!ancestorData || !ancestorData.grpTRESRunMins || !ancestorData.grpTRESRunMins.mem) continue;
+            
+            // Calculate current usage for this account (including all children)
+            const usage = calculateRunMinutesUsage(ancestorAccount, 'mem', allLimits, true);
+            
+            // Check if adding this job would exceed the limit
+            if (usage.total + jobContribution > ancestorData.grpTRESRunMins.mem) {
+                limitingAccount = ancestorAccount;
+                limitingLevel = i;
+                break;
+            }
+        }
+        
+        if (!limitingAccount) {
+            return { 
+                type: 'Info', 
+                message: 'Cache shows all accounts below limit, but Slurm reports limit reached',
+                details: 'This indicates jobs recently started/completed. Cache updates every 30 seconds - check back shortly.'
+            };
+        }
+        
+        const limitingData = allLimits.accounts[limitingAccount];
+        const usage = calculateRunMinutesUsage(limitingAccount, 'mem', allLimits, true);
+        
+        // Format values
+        const limitFormatted = formatRunMinutes(limitingData.grpTRESRunMins.mem, 'mem');
+        const usageFormatted = formatRunMinutes(usage.total, 'mem');
+        const availableFormatted = formatRunMinutes(Math.max(0, limitingData.grpTRESRunMins.mem - usage.total), 'mem');
+        const jobContributionFormatted = formatRunMinutes(jobContribution, 'mem');
+        const shortfall = Math.min(0, limitingData.grpTRESRunMins.mem - usage.total - jobContribution);
+        const shortfallFormatted = formatRunMinutes(Math.abs(shortfall), 'mem');
+        
+        // Build hierarchy info
+        const hierarchy = chain.map((acc, index) => {
+            const accData = allLimits.accounts[acc];
+            const accUsage = calculateRunMinutesUsage(acc, 'mem', allLimits, true);
+            
+            return {
+                account: acc,
+                level: index,
+                hasLimit: !!accData.grpTRESRunMins?.mem,
+                isLimiting: acc === limitingAccount,
+                limit: accData.grpTRESRunMins?.mem ? {
+                    value: accData.grpTRESRunMins.mem,
+                    formatted: formatRunMinutes(accData.grpTRESRunMins.mem, 'mem').display
+                } : null,
+                usage: accData.grpTRESRunMins?.mem ? {
+                    value: accUsage.total,
+                    formatted: formatRunMinutes(accUsage.total, 'mem').display,
+                    percent: ((accUsage.total / accData.grpTRESRunMins.mem) * 100).toFixed(1),
+                    runningJobs: accUsage.jobCount
+                } : null,
+                available: accData.grpTRESRunMins?.mem ? {
+                    value: Math.max(0, accData.grpTRESRunMins.mem - accUsage.total),
+                    formatted: formatRunMinutes(Math.max(0, accData.grpTRESRunMins.mem - accUsage.total), 'mem').display
+                } : null,
+                parent: accData.parent
+            };
+        });
+        
+        return {
+            type: 'AssocGrpMemRunMinutes',
+            jobId: jobId,
+            account: account,
+            user: user,
+            limitingAccount: limitingAccount,
+            limitingLevel: limitingLevel,
+            isDirectAccount: limitingAccount === account,
+            hierarchy: hierarchy,
+            job: {
+                account: account,
+                user: user,
+                requested: {
+                    memory: jobMemory,
+                    memoryFormatted: formatMemory(jobMemory),
+                    timeLimit: jobTimeLimit,
+                    contribution: jobContribution,
+                    contributionFormatted: jobContributionFormatted.display
+                }
+            },
+            analysis: {
+                limitingAccount: limitingAccount,
+                limit: limitingData.grpTRESRunMins.mem,
+                limitFormatted: limitFormatted.display,
+                limitTooltip: limitFormatted.tooltip,
+                currentUsage: usage.total,
+                currentUsageFormatted: usageFormatted.display,
+                currentUsageTooltip: usageFormatted.tooltip,
+                percentUsed: ((usage.total / limitingData.grpTRESRunMins.mem) * 100).toFixed(1),
+                available: Math.max(0, limitingData.grpTRESRunMins.mem - usage.total),
+                availableFormatted: availableFormatted.display,
+                availableTooltip: availableFormatted.tooltip,
+                shortfall: shortfall,
+                shortfallFormatted: shortfallFormatted.display,
+                runningJobs: usage.jobCount,
+                topConsumers: usage.topConsumers || []
+            }
+        };
+        
+    } catch (error) {
+        console.error(`Error analyzing AssocGrpMemRunMinutes for job ${jobId}:`, error.message);
+        return { type: 'Error', message: error.message };
+    }
+};
+
+/**
+ * Calculate run-minutes usage for an account and resource
+ * @param {string} account - Account name
+ * @param {string} resource - Resource type ('cpu', 'mem', 'node')
+ * @param {Object} allLimits - All account limits data
+ * @param {boolean} includeChildren - Whether to include child account usage
+ * @returns {Object} - { total, jobCount, topConsumers: [] }
+ */
+function calculateRunMinutesUsage(account, resource, allLimits, includeChildren = false) {
+    const { calculateJobRunMinutes } = require('../helpers/runMinutesUtils.js');
+    
+    const jobsData = dataCache.getData('jobs');
+    const usage = { total: 0, jobCount: 0, topConsumers: [] };
+    
+    if (!jobsData || !jobsData.jobs) {
+        return usage;
+    }
+    
+    // Get list of accounts to check
+    let accountsToCheck = [account];
+    if (includeChildren) {
+        accountsToCheck = getAllDescendantAccounts(account, allLimits);
+    }
+    
+    const jobContributions = [];
+    
+    // Sum usage from RUNNING jobs
+    jobsData.jobs.forEach(job => {
+        if (job.job_state === 'RUNNING' && accountsToCheck.includes(job.account)) {
+            const contribution = calculateJobRunMinutes(job, resource);
+            
+            // Skip jobs with UNLIMITED time limit
+            if (contribution !== null && contribution > 0) {
+                usage.total += contribution;
+                usage.jobCount++;
+                
+                jobContributions.push({
+                    jobId: job.job_id,
+                    user: job.user_name,
+                    account: job.account,
+                    contribution: contribution
+                });
+            }
+        }
+    });
+    
+    // Sort by contribution and get top 10
+    jobContributions.sort((a, b) => b.contribution - a.contribution);
+    usage.topConsumers = jobContributions.slice(0, 10);
+    
+    return usage;
+}
 
 /**
  * Analyze a job pending due to AssocGrpMemLimit

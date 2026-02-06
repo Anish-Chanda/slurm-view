@@ -69,7 +69,7 @@ function parseTRESLimits(tresStr) {
 function fetchAccountLimits() {
     const cmd = createSafeCommand('sacctmgr', [
         'list', 'assoc',
-        'format=cluster,account,user,parentname,grpmem,grpcpus,grptres,grpsubmitjobs,maxjobs,maxsubmitjobs',
+        'format=cluster,account,user,parentname,grpmem,grpcpus,grptres,grptresrunmins,grpsubmitjobs,maxjobs,maxsubmitjobs',
         '-p'
     ]);
     
@@ -79,7 +79,7 @@ function fetchAccountLimits() {
     const accounts = {};
     
     lines.forEach(line => {
-        const [cluster, account, user, parentName, grpMem, grpCPUs, grpTRES, grpSubmit, maxJobs, maxSubmit] = line.split('|');
+        const [cluster, account, user, parentName, grpMem, grpCPUs, grpTRES, grpTRESRunMins, grpSubmit, maxJobs, maxSubmit] = line.split('|');
         
         // Only process account-level limits (user is empty)
         if (!user && account) {
@@ -92,6 +92,7 @@ function fetchAccountLimits() {
                     grpMem: null,
                     grpSubmitJobs: null,
                     grpTRES: { cpu: null, mem: null, node: null, gres: {} },
+                    grpTRESRunMins: { cpu: null, mem: null, node: null, gres: {} },
                     maxJobs: null,
                     maxSubmitJobs: null,
                     users: {}
@@ -105,6 +106,7 @@ function fetchAccountLimits() {
             if (maxJobs) accounts[account].maxJobs = parseInt(maxJobs);
             if (maxSubmit) accounts[account].maxSubmitJobs = parseInt(maxSubmit);
             if (grpTRES) accounts[account].grpTRES = parseTRESLimits(grpTRES);
+            if (grpTRESRunMins) accounts[account].grpTRESRunMins = parseTRESLimits(grpTRESRunMins);
         } else if (user && account) {
             // User-level limits
             if (!accounts[account]) {
@@ -115,6 +117,7 @@ function fetchAccountLimits() {
                     grpMem: null,
                     grpSubmitJobs: null,
                     grpTRES: { cpu: null, mem: null, node: null, gres: {} },
+                    grpTRESRunMins: { cpu: null, mem: null, node: null, gres: {} },
                     maxJobs: null,
                     maxSubmitJobs: null,
                     users: {}
@@ -122,12 +125,13 @@ function fetchAccountLimits() {
             }
             
             // Store user-specific limits if they exist
-            if (grpMem || grpCPUs || grpTRES) {
+            if (grpMem || grpCPUs || grpTRES || grpTRESRunMins) {
                 accounts[account].users[user] = {
                     user: user,
                     grpCPUs: grpCPUs ? parseInt(grpCPUs) : null,
                     grpMem: grpMem ? parseInt(grpMem) : null,
-                    grpTRES: grpTRES ? parseTRESLimits(grpTRES) : { cpu: null, mem: null, node: null, gres: {} }
+                    grpTRES: grpTRES ? parseTRESLimits(grpTRES) : { cpu: null, mem: null, node: null, gres: {} },
+                    grpTRESRunMins: grpTRESRunMins ? parseTRESLimits(grpTRESRunMins) : { cpu: null, mem: null, node: null, gres: {} }
                 };
             }
         }
