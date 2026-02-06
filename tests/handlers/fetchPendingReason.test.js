@@ -1092,4 +1092,233 @@ describe("getPendingReason", () => {
             expect(result.message).toContain('Account limits not available');
         });
     });
+
+    describe('AssocGrpCPURunMinutes', () => {
+        it('should analyze AssocGrpCPURunMinutes limit correctly', async () => {
+            const mockAccountLimits = {
+                timestamp: Date.now(),
+                accounts: {
+                    'test-account': {
+                        parent: 'root',
+                        grpTRESRunMins: {
+                            cpu: 2880000, // ~2000 CPU-days = 2,880,000 CPU-minutes
+                            mem: null,
+                            node: null,
+                            gres: {}
+                        }
+                    },
+                    'root': {
+                        parent: null,
+                        grpTRESRunMins: { cpu: null, mem: null, node: null, gres: {} }
+                    }
+                }
+            };
+
+            const mockJobs = {
+                jobs: [
+                    {
+                        job_id: 100,
+                        account: 'test-account',
+                        job_state: 'RUNNING',
+                        alloc_cpus: 128,
+                        time_limit: '2-00:00:00', // 2 days = 2880 minutes
+                        start_time: Math.floor(Date.now() / 1000) - 3600 // Started 1 hour ago
+                        // Contribution: 128 CPU × 2820 remaining min = 360,960 CPU-min
+                    }
+                ]
+            };
+
+            dataCache.getAccountLimits = jest.fn().mockReturnValue(mockAccountLimits);
+            dataCache.getData = jest.fn().mockReturnValue(mockJobs);
+            dataCache.getJobById.mockReturnValue({
+                job_id: 200,
+                account: 'test-account',
+                job_state: ['PENDING']
+            });
+
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=AssocGrpCPURunMinutesLimit Account=test-account UserId=user1(1000) TimeLimit=10-00:00:00 ReqTRES=cpu=256,mem=1T,node=4"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('AssocGrpCPURunMinutes');
+            expect(result.analysis).toBeDefined();
+            expect(result.analysis.limitingAccount).toBe('test-account');
+            expect(result.analysis.limit).toBe(2880000);
+            expect(result.job.requested.cpus).toBe(256);
+            expect(result.job.requested.contribution).toBeGreaterThan(0);
+        });
+
+        it('should handle AssocGrpCPURunMinutesLimit reason code', async () => {
+            const mockAccountLimits = {
+                timestamp: Date.now(),
+                accounts: {
+                    'test-account': {
+                        parent: 'root',
+                        grpTRESRunMins: {
+                            cpu: 100000, // Small limit to trigger exceeding
+                            mem: null,
+                            node: null,
+                            gres: {}
+                        }
+                    },
+                    'root': {
+                        parent: null,
+                        grpTRESRunMins: { cpu: null, mem: null, node: null, gres: {} }
+                    }
+                }
+            };
+
+            const mockJobs = {
+                jobs: [
+                    {
+                        job_id: 100,
+                        account: 'test-account',
+                        job_state: 'RUNNING',
+                        alloc_cpus: 32,
+                        time_limit: '1-00:00:00',
+                        start_time: Math.floor(Date.now() / 1000) - 3600
+                        // Contribution: 32 × 1380 ≈ 44,160 CPU-min
+                    }
+                ]
+            };
+
+            dataCache.getAccountLimits = jest.fn().mockReturnValue(mockAccountLimits);
+            dataCache.getData = jest.fn().mockReturnValue(mockJobs);
+            dataCache.getJobById.mockReturnValue({
+                job_id: 200,
+                account: 'test-account',
+                job_state: ['PENDING']
+            });
+
+            // Test the alternate reason code name
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=AssocGrpCPURunMinutesLimit Account=test-account TimeLimit=1-00:00:00 ReqTRES=cpu=64,mem=256G,node=1"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('AssocGrpCPURunMinutes');
+            expect(result.analysis).toBeDefined();
+        });
+
+        it('should handle UNLIMITED time limit', async () => {
+            const mockAccountLimits = {
+                timestamp: Date.now(),
+                accounts: {
+                    'test-account': {
+                        parent: 'root',
+                        grpTRESRunMins: {
+                            cpu: 2880000,
+                            mem: null,
+                            node: null,
+                            gres: {}
+                        }
+                    },
+                    'root': {
+                        parent: null,
+                        grpTRESRunMins: { cpu: null, mem: null, node: null, gres: {} }
+                    }
+                }
+            };
+
+            dataCache.getAccountLimits = jest.fn().mockReturnValue(mockAccountLimits);
+            dataCache.getData = jest.fn().mockReturnValue({ jobs: [] });
+            dataCache.getJobById.mockReturnValue({
+                job_id: 200,
+                account: 'test-account',
+                job_state: ['PENDING']
+            });
+
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=AssocGrpCPURunMinutesLimit Account=test-account TimeLimit=UNLIMITED ReqTRES=cpu=64,mem=256G,node=1"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('Info');
+            expect(result.message).toContain('UNLIMITED time limit');
+        });
+
+        it('should identify parent account as limiting', async () => {
+            const mockAccountLimits = {
+                timestamp: Date.now(),
+                accounts: {
+                    'child-account': {
+                        parent: 'parent-account',
+                        grpTRESRunMins: {
+                            cpu: 10000000, // Large child limit
+                            mem: null,
+                            node: null,
+                            gres: {}
+                        }
+                    },
+                    'parent-account': {
+                        parent: 'root',
+                        grpTRESRunMins: {
+                            cpu: 2880000, // Smaller parent limit
+                            mem: null,
+                            node: null,
+                            gres: {}
+                        }
+                    },
+                    'root': {
+                        parent: null,
+                        grpTRESRunMins: { cpu: null, mem: null, node: null, gres: {} }
+                    }
+                }
+            };
+
+            const mockJobs = {
+                jobs: [
+                    {
+                        job_id: 100,
+                        account: 'child-account',
+                        job_state: 'RUNNING',
+                        alloc_cpus: 128,
+                        time_limit: '2-00:00:00',
+                        start_time: Math.floor(Date.now() / 1000) - 3600
+                    }
+                ]
+            };
+
+            dataCache.getAccountLimits = jest.fn().mockReturnValue(mockAccountLimits);
+            dataCache.getData = jest.fn().mockReturnValue(mockJobs);
+            dataCache.getJobById.mockReturnValue({
+                job_id: 200,
+                account: 'child-account',
+                job_state: ['PENDING']
+            });
+
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=AssocGrpCPURunMinutesLimit Account=child-account UserId=user1(1000) TimeLimit=10-00:00:00 ReqTRES=cpu=256,mem=1T,node=4"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('AssocGrpCPURunMinutes');
+            expect(result.limitingAccount).toBe('parent-account'); // Parent should be limiting
+            expect(result.isDirectAccount).toBe(false);
+            expect(result.hierarchy.find(acc => acc.account === 'parent-account' && acc.isLimiting)).toBeDefined();
+        });
+
+        it('should handle missing account limits data', async () => {
+            dataCache.getAccountLimits = jest.fn().mockReturnValue(null);
+            dataCache.getJobById.mockReturnValue({
+                job_id: 200,
+                account: 'test-account',
+                job_state: ['PENDING']
+            });
+
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=AssocGrpCPURunMinutesLimit Account=test-account TimeLimit=1-00:00:00 ReqTRES=cpu=64,mem=256G,node=1"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('Error');
+            expect(result.message).toContain('Account limits not available');
+        });
+    });
 });

@@ -89,6 +89,8 @@ function renderPendingReason(data, container) {
       html += renderAssocGrpGRESReason(data);
   } else if (data.type === 'AssocGrpMemRunMinutes') {
       html += renderAssocGrpMemRunMinutesReason(data);
+  } else if (data.type === 'AssocGrpCPURunMinutes') {
+      html += renderAssocGrpCPURunMinutesReason(data);
   } else if (data.type === 'Status') {
       html += `
           <div class="flex items-center text-green-600">
@@ -869,6 +871,85 @@ function renderAssocGrpMemRunMinutesReason(data) {
               <div class="flex justify-between text-slate-600">
                 <span>Job ${consumer.jobId}</span>
                 <span class="font-mono" title="${consumer.contribution.toLocaleString()} MB-minutes">${consumer.formatted}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      ` : ''}
+      
+      <div class="border-t border-slate-200 pt-4">
+        <button 
+          onclick="document.getElementById('hierarchy-${data.jobId}').classList.toggle('hidden')"
+          class="text-slate-600 hover:text-slate-900 text-sm font-medium flex items-center">
+          <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+          </svg>
+          View Account Hierarchy
+        </button>
+        <div id="hierarchy-${data.jobId}" class="hidden mt-3 ml-2 font-mono text-sm text-slate-700 bg-slate-50 p-3 rounded border border-slate-200">
+          ${renderHierarchyTree(hierarchy)}
+        </div>
+      </div>
+    </div>
+  `;
+  
+  return html;
+}
+
+function renderAssocGrpCPURunMinutesReason(data) {
+  const { analysis, hierarchy, job } = data;
+  
+  let html = `
+    <div class="mb-6">
+      <h3 class="text-lg font-semibold text-slate-800 mb-2">CPU Run-Minutes Limit Reached</h3>
+      <p class="text-sm text-slate-600">Account "${analysis.limitingAccount}" has reached its CPU run-minutes limit</p>
+    </div>
+    
+    <div class="space-y-4">
+      <div class="bg-slate-50 p-4 rounded-lg border border-slate-200">
+        <div class="grid grid-cols-2 gap-4 text-sm">
+          <div>
+            <span class="text-slate-600 font-medium">Account Limit:</span>
+            <span class="ml-2 text-slate-900 font-semibold" title="${analysis.limitTooltip}">${analysis.limitFormatted}</span>
+          </div>
+          <div>
+            <span class="text-slate-600 font-medium">Current Usage:</span>
+            <span class="ml-2 text-slate-900 font-semibold" title="${analysis.currentUsageTooltip}">${analysis.currentUsageFormatted} (${analysis.percentUsed}%)</span>
+          </div>
+          <div>
+            <span class="text-slate-600 font-medium">Available:</span>
+            <span class="ml-2 ${parseFloat(analysis.percentUsed) > 95 ? 'text-red-600' : 'text-green-600'} font-semibold" title="${analysis.availableTooltip}">${analysis.availableFormatted}</span>
+          </div>
+          <div>
+            <span class="text-slate-600 font-medium">Running Jobs:</span>
+            <span class="ml-2 text-slate-900 font-semibold">${analysis.runningJobs}</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="bg-blue-50 p-4 rounded-lg border border-blue-200">
+        <div class="text-sm">
+          <span class="text-blue-800 font-medium">Your Job's Contribution:</span>
+          <span class="ml-2 text-blue-900 font-semibold" title="${job.requested.contribution.toLocaleString()} CPU-minutes">${job.requested.contributionFormatted}</span>
+        </div>
+        <div class="mt-2 text-xs text-blue-700">
+          CPUs: ${job.requested.cpus} × Time Limit: ${job.requested.timeLimit}
+        </div>
+        ${analysis.shortfall < 0 ? `
+          <div class="mt-2 text-sm text-red-700">
+            This would exceed the limit by <span class="font-semibold" title="${Math.abs(analysis.shortfall).toLocaleString()} CPU-minutes">${analysis.shortfallFormatted}</span>
+          </div>
+        ` : ''}
+      </div>
+      
+      ${analysis.topConsumers && analysis.topConsumers.length > 0 ? `
+        <div class="bg-slate-50 p-4 rounded-lg border border-slate-200">
+          <h4 class="text-sm font-semibold text-slate-700 mb-2">Top CPU Consumers</h4>
+          <div class="space-y-1 text-xs">
+            ${analysis.topConsumers.map(consumer => `
+              <div class="flex justify-between text-slate-600">
+                <span>Job ${consumer.jobId}</span>
+                <span class="font-mono" title="${consumer.contribution.toLocaleString()} CPU-minutes">${consumer.formatted}</span>
               </div>
             `).join('')}
           </div>
