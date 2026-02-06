@@ -580,4 +580,279 @@ describe("getPendingReason", () => {
             expect(result.message).toContain('Account limits not available');
         });
     });
+
+    describe('AssocGrpGRES', () => {
+        beforeEach(() => {
+            jest.resetAllMocks();
+            dataCache.getPendingReason = jest.fn().mockReturnValue(null);
+        });
+
+        it('should analyze account GRES limits for pending job', async () => {
+            const mockAccountLimits = {
+                timestamp: Date.now(),
+                accounts: {
+                    'test-account': {
+                        parent: 'root',
+                        grpMem: 100000,
+                        grpCPUs: 500,
+                        grpTRES: { 
+                            mem: 100000, 
+                            cpu: 500,
+                            gres: {
+                                gpu: 20
+                            }
+                        },
+                        users: ['user1']
+                    },
+                    'root': {
+                        parent: null,
+                        grpMem: null,
+                        grpCPUs: null,
+                        grpTRES: { mem: null, cpu: null, gres: {} },
+                        users: []
+                    }
+                }
+            };
+
+            const mockJobs = {
+                jobs: [
+                    {
+                        job_id: 100,
+                        account: 'test-account',
+                        job_state: 'RUNNING',
+                        alloc_gpus: 18,
+                        alloc_cpus: 100,
+                        alloc_memory: 50000,
+                        gpu_allocations: [
+                            { type: 'gpu', count: 18 }
+                        ]
+                    }
+                ]
+            };
+
+            dataCache.getAccountLimits = jest.fn().mockReturnValue(mockAccountLimits);
+            dataCache.getData = jest.fn().mockReturnValue(mockJobs);
+            dataCache.getJobById.mockReturnValue({
+                job_id: 200,
+                account: 'test-account',
+                total_gpus: 4,
+                total_cpus: 20,
+                total_memory: 10000
+            });
+
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=AssocGrpGRES Account=test-account UserId=user1(1000) ReqTRES=cpu=20,mem=10000M,gres/gpu=4"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('AssocGrpGRES');
+            expect(result.limitingAccount).toBe('test-account');
+            expect(result.gresType).toBe('gpu');
+            expect(result.analysis.limit).toBe(20);
+            expect(result.analysis.currentUsage).toBe(18);
+            expect(result.analysis.available).toBe(2);
+            expect(result.analysis.shortfall).toBe(-2); // Would exceed by 2
+        });
+
+        it('should handle specific GPU type limits', async () => {
+            const mockAccountLimits = {
+                timestamp: Date.now(),
+                accounts: {
+                    'test-account': {
+                        parent: 'root',
+                        grpMem: 100000,
+                        grpCPUs: 500,
+                        grpTRES: { 
+                            mem: 100000, 
+                            cpu: 500,
+                            gres: {
+                                gpu: 50,
+                                'gpu:a100': 10
+                            }
+                        },
+                        users: ['user1']
+                    },
+                    'root': {
+                        parent: null,
+                        grpMem: null,
+                        grpCPUs: null,
+                        grpTRES: { mem: null, cpu: null, gres: {} },
+                        users: []
+                    }
+                }
+            };
+
+            const mockJobs = {
+                jobs: [
+                    {
+                        job_id: 100,
+                        account: 'test-account',
+                        job_state: 'RUNNING',
+                        alloc_gpus: 8,
+                        alloc_cpus: 100,
+                        alloc_memory: 50000,
+                        gpu_allocations: [
+                            { type: 'a100', count: 8 }
+                        ]
+                    }
+                ]
+            };
+
+            dataCache.getAccountLimits = jest.fn().mockReturnValue(mockAccountLimits);
+            dataCache.getData = jest.fn().mockReturnValue(mockJobs);
+            dataCache.getJobById.mockReturnValue({
+                job_id: 200,
+                account: 'test-account',
+                total_gpus: 4,
+                gpu_allocations: [{ type: 'a100', count: 4 }]
+            });
+
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=AssocGrpGRES Account=test-account UserId=user1(1000) ReqTRES=cpu=20,mem=10000M,gres/gpu:a100=4"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('AssocGrpGRES');
+            expect(result.limitingAccount).toBe('test-account');
+            expect(result.gresType).toBe('gpu:a100');
+            expect(result.analysis.limit).toBe(10);
+            expect(result.analysis.currentUsage).toBe(8);
+        });
+
+        it('should identify parent account as limiter for GRES', async () => {
+            const mockAccountLimits = {
+                timestamp: Date.now(),
+                accounts: {
+                    'root': {
+                        parent: null,
+                        grpMem: 500000,
+                        grpCPUs: 2000,
+                        grpTRES: { 
+                            mem: 500000, 
+                            cpu: 2000,
+                            gres: {
+                                gpu: 30
+                            }
+                        },
+                        users: []
+                    },
+                    'child-account': {
+                        parent: 'root',
+                        grpMem: 100000,
+                        grpCPUs: 500,
+                        grpTRES: { 
+                            mem: 100000, 
+                            cpu: 500,
+                            gres: {
+                                gpu: 50 // More than parent, but parent is the limit
+                            }
+                        },
+                        users: ['user1']
+                    }
+                }
+            };
+
+            const mockJobs = {
+                jobs: [
+                    {
+                        job_id: 100,
+                        account: 'child-account',
+                        job_state: 'RUNNING',
+                        alloc_gpus: 28,
+                        alloc_cpus: 100,
+                        alloc_memory: 50000,
+                        gpu_allocations: [
+                            { type: 'gpu', count: 28 }
+                        ]
+                    }
+                ]
+            };
+
+            dataCache.getAccountLimits = jest.fn().mockReturnValue(mockAccountLimits);
+            dataCache.getData = jest.fn().mockReturnValue(mockJobs);
+            dataCache.getJobById.mockReturnValue({
+                job_id: 200,
+                account: 'child-account',
+                total_gpus: 4
+            });
+
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=AssocGrpGRES Account=child-account UserId=user1(1000) ReqTRES=cpu=20,mem=10000M,gres/gpu=4"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('AssocGrpGRES');
+            expect(result.limitingAccount).toBe('root');
+            expect(result.isDirectAccount).toBe(false);
+            expect(result.analysis.limit).toBe(30);
+            expect(result.analysis.currentUsage).toBe(28);
+        });
+
+        it('should handle missing GRES limits', async () => {
+            const mockAccountLimits = {
+                timestamp: Date.now(),
+                accounts: {
+                    'test-account': {
+                        parent: 'root',
+                        grpMem: 100000,
+                        grpCPUs: 500,
+                        grpTRES: { 
+                            mem: 100000, 
+                            cpu: 500,
+                            gres: {} // No GRES limits
+                        },
+                        users: ['user1']
+                    },
+                    'root': {
+                        parent: null,
+                        grpMem: null,
+                        grpCPUs: null,
+                        grpTRES: { mem: null, cpu: null, gres: {} },
+                        users: []
+                    }
+                }
+            };
+
+            const mockJobs = {
+                jobs: []
+            };
+
+            dataCache.getAccountLimits = jest.fn().mockReturnValue(mockAccountLimits);
+            dataCache.getData = jest.fn().mockReturnValue(mockJobs);
+            dataCache.getJobById.mockReturnValue({
+                job_id: 200,
+                account: 'test-account',
+                total_gpus: 4
+            });
+
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=AssocGrpGRES Account=test-account UserId=user1(1000) ReqTRES=cpu=20,mem=10000M,gres/gpu=4"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('Info');
+            expect(result.message).toContain('Cache shows all accounts below limit');
+        });
+
+        it('should handle missing account limits data for GRES', async () => {
+            dataCache.getAccountLimits = jest.fn().mockReturnValue(null);
+            dataCache.getJobById.mockReturnValue({
+                job_id: 200,
+                account: 'test-account'
+            });
+
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=AssocGrpGRES Account=test-account"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('Error');
+            expect(result.message).toContain('Account limits not available');
+        });
+    });
 });

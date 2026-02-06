@@ -39,6 +39,8 @@ const getPendingReason = async (jobId) => {
             result = analyzeAssocGrpMemLimit(jobId, jobData);
         } else if (jobData.Reason === 'AssocGrpCPULimit') {
             result = analyzeAssocGrpCPULimit(jobId, jobData);
+        } else if (jobData.Reason === 'AssocGrpGRES') {
+            result = analyzeAssocGrpGRES(jobId, jobData);
         } else {
             result = { type: 'Other', message: `Pending reason: ${jobData.Reason}` };
         }
@@ -887,6 +889,224 @@ const analyzeAssocGrpCPULimit = (jobId, jobData) => {
         return { type: 'Error', message: error.message };
     }
 };
+
+/**
+ * Analyze a job pending due to AssocGrpGRES
+ * @param {string} jobId - Job ID
+ * @param {Object} jobData - Parsed job data from scontrol
+ * @returns {Object} GRES limit analysis result
+ */
+const analyzeAssocGrpGRES = (jobId, jobData) => {
+    try {
+        const { buildAncestorChain } = require('../helpers/accountLimits.js');
+        
+        // Get account limits from cache
+        const allLimits = dataCache.getAccountLimits();
+        if (!allLimits) {
+            return { type: 'Error', message: 'Account limits not available' };
+        }
+        
+        const account = jobData.Account;
+        const user = jobData.UserId ? jobData.UserId.split('(')[0] : null;
+        
+        // Get job GRES request from parsed TRES (use ReqTRES for pending jobs)
+        const jobGres = jobData.ReqTRES?.gpu || { total: 0, types: {} };
+        
+        // Build ancestor chain
+        const chain = buildAncestorChain(account, allLimits);
+        
+        // Find which level hit the limit
+        let limitingAccount = null;
+        let limitingLevel = null;
+        let limitingGresType = 'gpu'; // Default to total GPU
+        
+        for (let i = 0; i < chain.length; i++) {
+            const ancestorAccount = chain[i];
+            const ancestorData = allLimits.accounts[ancestorAccount];
+            
+            if (!ancestorData || !ancestorData.grpTRES || !ancestorData.grpTRES.gres) continue;
+            
+            // Calculate current usage for this account (including all children)
+            const usage = calculateAccountGRESUsage(ancestorAccount, allLimits, true);
+            
+            // Check total GPU limit if it exists
+            if (ancestorData.grpTRES.gres.gpu) {
+                const limit = ancestorData.grpTRES.gres.gpu;
+                if (usage.total + jobGres.total > limit) {
+                    limitingAccount = ancestorAccount;
+                    limitingLevel = i;
+                    limitingGresType = 'gpu';
+                    break;
+                }
+            }
+            
+            // Check specific GPU type limits
+            for (const gresType in ancestorData.grpTRES.gres) {
+                if (gresType === 'gpu') continue; // Already checked total
+                
+                const limit = ancestorData.grpTRES.gres[gresType];
+                
+                // Extract the GPU type name from the key (e.g., 'gpu:a100' -> 'a100')
+                const typeName = gresType.includes(':') ? gresType.split(':')[1] : gresType;
+                const jobRequest = jobGres.types[typeName] || 0;
+                const currentUsage = usage.types[typeName] || 0;
+                
+                if (currentUsage + jobRequest > limit) {
+                    limitingAccount = ancestorAccount;
+                    limitingLevel = i;
+                    limitingGresType = gresType;
+                    break;
+                }
+            }
+            
+            if (limitingAccount) break;
+        }
+        
+        if (!limitingAccount) {
+            return { 
+                type: 'Info', 
+                message: 'Cache shows all accounts below limit, but Slurm reports limit reached',
+                details: 'This indicates jobs recently started/completed. Cache updates every 30 seconds - check back shortly.'
+            };
+        }
+        
+        const limitingData = allLimits.accounts[limitingAccount];
+        const usage = calculateAccountGRESUsage(limitingAccount, allLimits, true);
+        
+        // Determine limit and usage for the limiting GRES type
+        const limit = limitingGresType === 'gpu' 
+            ? limitingData.grpTRES.gres.gpu 
+            : limitingData.grpTRES.gres[limitingGresType];
+        
+        // Extract type name for usage/request lookup (e.g., 'gpu:a100' -> 'a100')
+        const typeName = limitingGresType.includes(':') ? limitingGresType.split(':')[1] : limitingGresType;
+        const currentUsage = limitingGresType === 'gpu' 
+            ? usage.total 
+            : (usage.types[typeName] || 0);
+        const jobRequest = limitingGresType === 'gpu' 
+            ? jobGres.total 
+            : (jobGres.types[typeName] || 0);
+        
+        // Build hierarchy info
+        const hierarchy = chain.map((acc, index) => {
+            const accData = allLimits.accounts[acc];
+            const accUsage = calculateAccountGRESUsage(acc, allLimits, true);
+            
+            // Get limit for this GRES type at this level
+            const accLimit = accData.grpTRES?.gres?.[limitingGresType] || null;
+            
+            // Extract type name for usage lookup
+            const typeName = limitingGresType.includes(':') ? limitingGresType.split(':')[1] : limitingGresType;
+            const accCurrentUsage = limitingGresType === 'gpu' 
+                ? accUsage.total 
+                : (accUsage.types[typeName] || 0);
+            
+            return {
+                account: acc,
+                level: index,
+                hasLimit: !!accLimit,
+                isLimiting: acc === limitingAccount,
+                limit: accLimit ? {
+                    value: accLimit,
+                    formatted: accLimit.toLocaleString()
+                } : null,
+                usage: accLimit ? {
+                    value: accCurrentUsage,
+                    formatted: accCurrentUsage.toLocaleString(),
+                    percent: ((accCurrentUsage / accLimit) * 100).toFixed(1),
+                    runningJobs: accUsage.jobCount
+                } : null,
+                available: accLimit ? {
+                    value: Math.max(0, accLimit - accCurrentUsage),
+                    formatted: Math.max(0, accLimit - accCurrentUsage).toLocaleString()
+                } : null,
+                parent: accData.parent
+            };
+        });
+        
+        return {
+            type: 'AssocGrpGRES',
+            jobId: jobId,
+            account: account,
+            user: user,
+            limitingAccount: limitingAccount,
+            limitingLevel: limitingLevel,
+            isDirectAccount: limitingAccount === account,
+            gresType: limitingGresType,
+            hierarchy: hierarchy,
+            job: {
+                account: account,
+                user: user,
+                requested: {
+                    gres: jobRequest,
+                    formatted: `${jobRequest} ${limitingGresType}`
+                }
+            },
+            analysis: {
+                limitingAccount: limitingAccount,
+                gresType: limitingGresType,
+                limit: limit,
+                limitFormatted: limit.toLocaleString(),
+                currentUsage: currentUsage,
+                currentUsageFormatted: currentUsage.toLocaleString(),
+                percentUsed: ((currentUsage / limit) * 100).toFixed(1),
+                available: Math.max(0, limit - currentUsage),
+                availableFormatted: Math.max(0, limit - currentUsage).toLocaleString(),
+                shortfall: Math.min(0, limit - currentUsage - jobRequest),
+                shortfallFormatted: Math.abs(Math.min(0, limit - currentUsage - jobRequest)).toLocaleString(),
+                runningJobs: usage.jobCount
+            }
+        };
+        
+    } catch (error) {
+        console.error(`Error analyzing AssocGrpGRES for job ${jobId}:`, error.message);
+        return { type: 'Error', message: error.message };
+    }
+};
+
+/**
+ * Calculate account GRES usage from cached jobs
+ * @param {string} account - Account name
+ * @param {Object} allLimits - All account limits data
+ * @param {boolean} includeChildren - Whether to include child account usage
+ * @returns {Object} - { total, types: {}, jobCount }
+ */
+function calculateAccountGRESUsage(account, allLimits, includeChildren = false) {
+    const jobsData = dataCache.getData('jobs');
+    const usage = { total: 0, types: {}, jobCount: 0 };
+    
+    if (!jobsData || !jobsData.jobs) {
+        return usage;
+    }
+    
+    // Get list of accounts to check
+    let accountsToCheck = [account];
+    if (includeChildren) {
+        accountsToCheck = getAllDescendantAccounts(account, allLimits);
+    }
+    
+    // Sum usage from RUNNING jobs
+    jobsData.jobs.forEach(job => {
+        if (job.job_state === 'RUNNING' && accountsToCheck.includes(job.account)) {
+            const gpusToUse = parseInt(job.alloc_gpus || job.total_gpus) || 0;
+            usage.total += gpusToUse;
+            
+            // Track GPU types if available
+            if (job.gpu_allocations && Array.isArray(job.gpu_allocations)) {
+                job.gpu_allocations.forEach(alloc => {
+                    const type = alloc.type || 'gpu';
+                    usage.types[type] = (usage.types[type] || 0) + (alloc.count || 0);
+                });
+            }
+            
+            if (gpusToUse > 0) {
+                usage.jobCount++;
+            }
+        }
+    });
+    
+    return usage;
+}
 
 /**
  * Calculate account usage (memory, CPUs, GPUs) from cached jobs

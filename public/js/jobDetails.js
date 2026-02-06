@@ -85,6 +85,8 @@ function renderPendingReason(data, container) {
       html += renderAssocGrpMemLimitReason(data);
   } else if (data.type === 'AssocGrpCPULimit') {
       html += renderAssocGrpCPULimitReason(data);
+  } else if (data.type === 'AssocGrpGRES') {
+      html += renderAssocGrpGRESReason(data);
   } else if (data.type === 'Status') {
       html += `
           <div class="flex items-center text-green-600">
@@ -723,6 +725,71 @@ function renderAssocGrpCPULimitReason(data) {
         ${analysis.shortfall < 0 ? `
           <div class="mt-2 text-sm text-red-700">
             This would exceed the limit by <span class="font-semibold">${analysis.shortfallFormatted} CPUs</span>
+          </div>
+        ` : ''}
+      </div>
+      
+      <div class="border-t border-slate-200 pt-4">
+        <button 
+          onclick="document.getElementById('hierarchy-${data.jobId}').classList.toggle('hidden')"
+          class="text-slate-600 hover:text-slate-900 text-sm font-medium flex items-center">
+          <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+          </svg>
+          View Account Hierarchy
+        </button>
+        <div id="hierarchy-${data.jobId}" class="hidden mt-3 ml-2 font-mono text-sm text-slate-700 bg-slate-50 p-3 rounded border border-slate-200">
+          ${renderHierarchyTree(hierarchy)}
+        </div>
+      </div>
+    </div>
+  `;
+  
+  return html;
+}
+
+function renderAssocGrpGRESReason(data) {
+  const { analysis, hierarchy, job } = data;
+  
+  // Format GRES type display name
+  const gresDisplayName = analysis.gresType === 'gpu' ? 'GPUs' : `GPU (${analysis.gresType})`;
+  
+  let html = `
+    <div class="mb-6">
+      <h3 class="text-lg font-semibold text-slate-800 mb-2">GRES Limit Reached</h3>
+      <p class="text-sm text-slate-600">Account "${analysis.limitingAccount}" has reached its ${gresDisplayName} limit</p>
+    </div>
+    
+    <div class="space-y-4">
+      <div class="bg-slate-50 p-4 rounded-lg border border-slate-200">
+        <div class="grid grid-cols-2 gap-4 text-sm">
+          <div>
+            <span class="text-slate-600 font-medium">Account Limit:</span>
+            <span class="ml-2 text-slate-900 font-semibold">${analysis.limitFormatted} ${gresDisplayName}</span>
+          </div>
+          <div>
+            <span class="text-slate-600 font-medium">Current Usage:</span>
+            <span class="ml-2 text-slate-900 font-semibold">${analysis.currentUsageFormatted} ${gresDisplayName} (${analysis.percentUsed}%)</span>
+          </div>
+          <div>
+            <span class="text-slate-600 font-medium">Available:</span>
+            <span class="ml-2 ${parseFloat(analysis.percentUsed) > 95 ? 'text-red-600' : 'text-green-600'} font-semibold">${analysis.availableFormatted} ${gresDisplayName}</span>
+          </div>
+          <div>
+            <span class="text-slate-600 font-medium">Running Jobs:</span>
+            <span class="ml-2 text-slate-900 font-semibold">${analysis.runningJobs}</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="bg-blue-50 p-4 rounded-lg border border-blue-200">
+        <div class="text-sm">
+          <span class="text-blue-800 font-medium">Your Job Needs:</span>
+          <span class="ml-2 text-blue-900 font-semibold">${job.requested.formatted}</span>
+        </div>
+        ${analysis.shortfall < 0 ? `
+          <div class="mt-2 text-sm text-red-700">
+            This would exceed the limit by <span class="font-semibold">${analysis.shortfallFormatted} ${gresDisplayName}</span>
           </div>
         ` : ''}
       </div>
