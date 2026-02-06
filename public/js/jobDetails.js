@@ -83,7 +83,7 @@ function renderPendingReason(data, container) {
       html += renderDependencyNeverSatisfiedReason(data);
   } else if (data.type === 'AssocGrpMemLimit') {
       html += renderAssocGrpMemLimitReason(data);
-  } else if (data.type === 'AssocGrpCPULimit') {
+  } else if (data.type === 'AssocGrpCpuLimit') {
       html += renderAssocGrpCPULimitReason(data);
   } else if (data.type === 'AssocGrpGRES') {
       html += renderAssocGrpGRESReason(data);

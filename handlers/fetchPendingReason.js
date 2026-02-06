@@ -37,7 +37,7 @@ const getPendingReason = async (jobId) => {
             result = analyzeDependencyNeverSatisfied(jobId, jobData);
         } else if (jobData.Reason === 'AssocGrpMemLimit') {
             result = analyzeAssocGrpMemLimit(jobId, jobData);
-        } else if (jobData.Reason === 'AssocGrpCPULimit') {
+        } else if (jobData.Reason === 'AssocGrpCpuLimit') {
             result = analyzeAssocGrpCPULimit(jobId, jobData);
         } else if (jobData.Reason === 'AssocGrpGRES') {
             result = analyzeAssocGrpGRES(jobId, jobData);
@@ -853,7 +853,7 @@ const analyzeAssocGrpCPULimit = (jobId, jobData) => {
         });
         
         return {
-            type: 'AssocGrpCPULimit',
+            type: 'AssocGrpCpuLimit',
             jobId: jobId,
             account: account,
             user: user,
@@ -885,7 +885,7 @@ const analyzeAssocGrpCPULimit = (jobId, jobData) => {
         };
         
     } catch (error) {
-        console.error(`Error analyzing AssocGrpCPULimit for job ${jobId}:`, error.message);
+        console.error(`Error analyzing AssocGrpCpuLimit for job ${jobId}:`, error.message);
         return { type: 'Error', message: error.message };
     }
 };

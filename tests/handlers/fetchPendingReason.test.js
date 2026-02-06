@@ -503,7 +503,7 @@ describe("getPendingReason", () => {
         });
     });
 
-    describe('AssocGrpCPULimit', () => {
+    describe('AssocGrpCpuLimit', () => {
         beforeEach(() => {
             jest.resetAllMocks();
             dataCache.getPendingReason = jest.fn().mockReturnValue(null);
@@ -552,12 +552,12 @@ describe("getPendingReason", () => {
             });
 
             executeCommand.mockReturnValue(
-                "JobId=200 JobState=PENDING Reason=AssocGrpCPULimit Account=test-account ReqTRES=cpu=20,mem=10000M"
+                "JobId=200 JobState=PENDING Reason=AssocGrpCpuLimit Account=test-account ReqTRES=cpu=20,mem=10000M"
             );
 
             const result = await getPendingReason('200');
 
-            expect(result.type).toBe('AssocGrpCPULimit');
+            expect(result.type).toBe('AssocGrpCpuLimit');
             expect(result.limitingAccount).toBe('test-account');
             expect(result.hierarchy[0].usage.value).toBe(495);
             expect(result.hierarchy[0].limit.value).toBe(500);
@@ -571,7 +571,7 @@ describe("getPendingReason", () => {
             });
 
             executeCommand.mockReturnValue(
-                "JobId=200 JobState=PENDING Reason=AssocGrpCPULimit Account=test-account"
+                "JobId=200 JobState=PENDING Reason=AssocGrpCpuLimit Account=test-account"
             );
 
             const result = await getPendingReason('200');
