@@ -1321,4 +1321,239 @@ describe("getPendingReason", () => {
             expect(result.message).toContain('Account limits not available');
         });
     });
+
+    describe('BeginTime', () => {
+        it('should analyze job with future start time', async () => {
+            const futureTime = new Date(Date.now() + 3600000).toISOString(); // 1 hour from now
+            
+            executeCommand.mockReturnValue(
+                `JobId=123 JobState=PENDING Reason=BeginTime StartTime=${futureTime} Partition=gpu`
+            );
+
+            const result = await getPendingReason('123');
+
+            expect(result.type).toBe('BeginTime');
+            expect(result.jobId).toBe('123');
+            expect(result.scheduledStartTime).toBe(futureTime);
+            expect(result.waitTimeSeconds).toBeGreaterThan(0);
+            expect(result.message).toContain('Job scheduled to start');
+        });
+    });
+
+    describe('JobHeldUser', () => {
+        it('should analyze job held by user', async () => {
+            executeCommand.mockReturnValue(
+                "JobId=123 JobState=PENDING Reason=JobHeldUser UserId=testuser(1001) Partition=gpu"
+            );
+
+            const result = await getPendingReason('123');
+
+            expect(result.type).toBe('JobHeldUser');
+            expect(result.jobId).toBe('123');
+            expect(result.message).toBe('Job is held by user');
+            expect(result.action).toContain('scontrol release');
+        });
+    });
+
+    describe('JobHeldAdmin', () => {
+        it('should analyze job held by admin', async () => {
+            executeCommand.mockReturnValue(
+                "JobId=123 JobState=PENDING Reason=JobHeldAdmin UserId=testuser(1001) Partition=gpu"
+            );
+
+            const result = await getPendingReason('123');
+
+            expect(result.type).toBe('JobHeldAdmin');
+            expect(result.jobId).toBe('123');
+            expect(result.message).toBe('Job is held by system administrator');
+            expect(result.action).toContain('Contact your system administrator');
+        });
+    });
+
+    describe('ReqNodeNotAvail', () => {
+        it('should analyze unavailable required nodes', async () => {
+            executeCommand
+                .mockReturnValueOnce(
+                    "JobId=123 JobState=PENDING Reason=ReqNodeNotAvail ReqNodeList=node01 Partition=gpu"
+                )
+                .mockReturnValueOnce(
+                    "NodeName=node01 State=DOWN Reason=Not responding"
+                );
+
+            const result = await getPendingReason('123');
+
+            expect(result.type).toBe('ReqNodeNotAvail');
+            expect(result.jobId).toBe('123');
+            expect(result.requestedNodes).toBe('node01');
+            expect(result.nodeStates).toHaveLength(1);
+            expect(result.nodeStates[0].name).toBe('node01');
+            expect(result.nodeStates[0].state).toBe('DOWN');
+        });
+
+        it('should handle node query failure gracefully', async () => {
+            executeCommand
+                .mockReturnValueOnce(
+                    "JobId=123 JobState=PENDING Reason=ReqNodeNotAvail ReqNodeList=node01 Partition=gpu"
+                )
+                .mockImplementationOnce(() => {
+                    throw new Error('Node not found');
+                });
+
+            const result = await getPendingReason('123');
+
+            expect(result.type).toBe('ReqNodeNotAvail');
+            expect(result.nodeStates).toHaveLength(0);
+            expect(result.message).toContain('not available');
+        });
+    });
+
+    describe('PartitionDown', () => {
+        it('should analyze partition down state', async () => {
+            executeCommand
+                .mockReturnValueOnce(
+                    "JobId=123 JobState=PENDING Reason=PartitionDown Partition=maintenance"
+                )
+                .mockReturnValueOnce(
+                    "PartitionName=maintenance State=DOWN TotalNodes=10"
+                );
+
+            const result = await getPendingReason('123');
+
+            expect(result.type).toBe('PartitionDown');
+            expect(result.jobId).toBe('123');
+            expect(result.partition).toBe('maintenance');
+            expect(result.partitionState).toBe('DOWN');
+            expect(result.message).toContain('DOWN state');
+        });
+    });
+
+    describe('PartitionInactive', () => {
+        it('should analyze inactive partition', async () => {
+            executeCommand.mockReturnValue(
+                "JobId=123 JobState=PENDING Reason=PartitionInactive Partition=reserved"
+            );
+
+            const result = await getPendingReason('123');
+
+            expect(result.type).toBe('PartitionInactive');
+            expect(result.jobId).toBe('123');
+            expect(result.partition).toBe('reserved');
+            expect(result.message).toContain('Inactive');
+            expect(result.action).toContain('Contact your system administrator');
+        });
+    });
+
+    describe('PartitionTimeLimit', () => {
+        it('should analyze partition time limit exceeded', async () => {
+            executeCommand
+                .mockReturnValueOnce(
+                    "JobId=123 JobState=PENDING Reason=PartitionTimeLimit Partition=short TimeLimit=2-00:00:00"
+                )
+                .mockReturnValueOnce(
+                    "PartitionName=short State=UP MaxTime=1-00:00:00"
+                );
+
+            const result = await getPendingReason('123');
+
+            expect(result.type).toBe('PartitionTimeLimit');
+            expect(result.jobId).toBe('123');
+            expect(result.partition).toBe('short');
+            expect(result.jobTimeLimit).toBe('2-00:00:00');
+            expect(result.partitionMaxTime).toBe('1-00:00:00');
+            expect(result.message).toContain('exceeds partition');
+        });
+    });
+
+    describe('PartitionNodeLimit', () => {
+        it('should analyze partition node limit exceeded', async () => {
+            executeCommand
+                .mockReturnValueOnce(
+                    "JobId=123 JobState=PENDING Reason=PartitionNodeLimit Partition=small NumNodes=50"
+                )
+                .mockReturnValueOnce(
+                    "PartitionName=small State=UP MaxNodes=32 TotalNodes=32"
+                );
+
+            const result = await getPendingReason('123');
+
+            expect(result.type).toBe('PartitionNodeLimit');
+            expect(result.jobId).toBe('123');
+            expect(result.partition).toBe('small');
+            expect(result.requestedNodes).toBe('50');
+            expect(result.partitionMaxNodes).toBe('32');
+            expect(result.partitionTotalNodes).toBe('32');
+            expect(result.message).toContain('exceed partition');
+        });
+    });
+
+    describe('Reservation', () => {
+        it('should analyze reservation waiting', async () => {
+            executeCommand
+                .mockReturnValueOnce(
+                    "JobId=123 JobState=PENDING Reason=Reservation Reservation=maint_2024"
+                )
+                .mockReturnValueOnce(
+                    "ReservationName=maint_2024 StartTime=2024-12-25T00:00:00 EndTime=2024-12-26T00:00:00 State=INACTIVE"
+                );
+
+            const result = await getPendingReason('123');
+
+            expect(result.type).toBe('Reservation');
+            expect(result.jobId).toBe('123');
+            expect(result.reservationName).toBe('maint_2024');
+            expect(result.reservationDetails).toBeDefined();
+            expect(result.reservationDetails.startTime).toBe('2024-12-25T00:00:00');
+            expect(result.reservationDetails.state).toBe('INACTIVE');
+        });
+
+        it('should handle reservation query failure', async () => {
+            executeCommand
+                .mockReturnValueOnce(
+                    "JobId=123 JobState=PENDING Reason=Reservation Reservation=maint_2024"
+                )
+                .mockImplementationOnce(() => {
+                    throw new Error('Reservation not found');
+                });
+
+            const result = await getPendingReason('123');
+
+            expect(result.type).toBe('Reservation');
+            expect(result.reservationDetails).toBeNull();
+            expect(result.message).toContain('advanced reservation');
+        });
+    });
+
+    describe('InvalidQOS', () => {
+        it('should analyze invalid QOS', async () => {
+            executeCommand.mockReturnValue(
+                "JobId=123 JobState=PENDING Reason=InvalidQOS QOS=premium Account=basic-account Partition=gpu"
+            );
+
+            const result = await getPendingReason('123');
+
+            expect(result.type).toBe('InvalidQOS');
+            expect(result.jobId).toBe('123');
+            expect(result.requestedQOS).toBe('premium');
+            expect(result.account).toBe('basic-account');
+            expect(result.partition).toBe('gpu');
+            expect(result.message).toContain('invalid or not allowed');
+            expect(result.action).toContain('sacctmgr show assoc');
+        });
+    });
+
+    describe('JobArrayTaskLimit', () => {
+        it('should analyze job array task limit', async () => {
+            executeCommand.mockReturnValue(
+                "JobId=9785691 JobState=PENDING Reason=JobArrayTaskLimit ArrayJobId=9785691 ArrayTaskId=15-22%4 ArrayTaskThrottle=4 Partition=nova"
+            );
+
+            const result = await getPendingReason('9785691');
+
+            expect(result.type).toBe('JobArrayTaskLimit');
+            expect(result.jobId).toBe('9785691');
+            expect(result.pendingTasks).toBe('15-22%4');
+            expect(result.maxSimultaneous).toBe('4');
+            expect(result.message).toContain('max 4 tasks running simultaneously');
+        });
+    });
 });

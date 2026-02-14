@@ -27,26 +27,70 @@ const getPendingReason = async (jobId) => {
         
         // Route to appropriate handler based on pending reason
         let result;
-        if (jobData.Reason === 'Resources') {
-            result = analyzeResourcesPending(jobId, jobData);
-        } else if (jobData.Reason === 'Priority') {
-            result = analyzePriorityPending(jobId, jobData);
-        } else if (jobData.Reason === 'Dependency') {
-            result = analyzeDependencyPending(jobId, jobData);
-        } else if (jobData.Reason === 'DependencyNeverSatisfied') {
-            result = analyzeDependencyNeverSatisfied(jobId, jobData);
-        } else if (jobData.Reason === 'AssocGrpMemLimit') {
-            result = analyzeAssocGrpMemLimit(jobId, jobData);
-        } else if (jobData.Reason === 'AssocGrpCpuLimit') {
-            result = analyzeAssocGrpCPULimit(jobId, jobData);
-        } else if (jobData.Reason === 'AssocGrpGRES') {
-            result = analyzeAssocGrpGRES(jobId, jobData);
-        } else if (jobData.Reason === 'AssocGrpMemRunMinutes') {
-            result = analyzeAssocGrpMemRunMinutes(jobId, jobData);
-        } else if (jobData.Reason === 'AssocGrpCPURunMinutesLimit') {
-            result = analyzeAssocGrpCPURunMinutes(jobId, jobData);
-        } else {
-            result = { type: 'Other', message: `Pending reason: ${jobData.Reason}` };
+        switch (jobData.Reason) {
+            case 'Resources':
+                result = analyzeResourcesPending(jobId, jobData);
+                break;
+            case 'Priority':
+                result = analyzePriorityPending(jobId, jobData);
+                break;
+            case 'Dependency':
+                result = analyzeDependencyPending(jobId, jobData);
+                break;
+            case 'DependencyNeverSatisfied':
+                result = analyzeDependencyNeverSatisfied(jobId, jobData);
+                break;
+            case 'AssocGrpMemLimit':
+                result = analyzeAssocGrpMemLimit(jobId, jobData);
+                break;
+            case 'AssocGrpCpuLimit':
+                result = analyzeAssocGrpCPULimit(jobId, jobData);
+                break;
+            case 'AssocGrpGRES':
+                result = analyzeAssocGrpGRES(jobId, jobData);
+                break;
+            case 'AssocGrpMemRunMinutes':
+                result = analyzeAssocGrpMemRunMinutes(jobId, jobData);
+                break;
+            case 'AssocGrpCPURunMinutesLimit':
+                result = analyzeAssocGrpCPURunMinutes(jobId, jobData);
+                break;
+            case 'BeginTime':
+                result = analyzeBeginTime(jobId, jobData);
+                break;
+            case 'JobHeldUser':
+                result = analyzeJobHeldUser(jobId, jobData);
+                break;
+            case 'JobHeldAdmin':
+                result = analyzeJobHeldAdmin(jobId, jobData);
+                break;
+            case 'ReqNodeNotAvail':
+                result = analyzeReqNodeNotAvail(jobId, jobData);
+                break;
+            case 'PartitionDown':
+                result = analyzePartitionDown(jobId, jobData);
+                break;
+            case 'PartitionInactive':
+                result = analyzePartitionInactive(jobId, jobData);
+                break;
+            case 'PartitionTimeLimit':
+                result = analyzePartitionTimeLimit(jobId, jobData);
+                break;
+            case 'PartitionNodeLimit':
+                result = analyzePartitionNodeLimit(jobId, jobData);
+                break;
+            case 'Reservation':
+                result = analyzeReservation(jobId, jobData);
+                break;
+            case 'InvalidQOS':
+                result = analyzeInvalidQOS(jobId, jobData);
+                break;
+            case 'JobArrayTaskLimit':
+                result = analyzeJobArrayTaskLimit(jobId, jobData);
+                break;
+            default:
+                result = { type: 'Other', message: `Pending reason: ${jobData.Reason}` };
+                break;
         }
 
         // Cache result (short TTL as resources/priorities change)
@@ -553,24 +597,41 @@ const parseJobData = (output) => {
     const data = {};
     const lines = output.split('\n');
     
+    // For job arrays, scontrol returns multiple job records.
+    // We only want the first record (the master job array with pending tasks)
+    let jobRecordCount = 0;
+    
     // Simple parser for key=value pairs
-    lines.forEach(line => {
-        const pairs = line.trim().split(/\s+/);
-        pairs.forEach(pair => {
+    for (const line of lines) {
+        const trimmedLine = line.trim();
+        
+        // Detect start of new job record
+        if (trimmedLine.startsWith('JobId=')) {
+            jobRecordCount++;
+            // Stop after parsing the first job record
+            if (jobRecordCount > 1) {
+                break;
+            }
+        }
+        
+        const pairs = trimmedLine.split(/\s+/);
+        for (const pair of pairs) {
             const [key, val] = pair.split('=');
             if (key && val) {
                 data[key] = val;
             }
-        });
-    });
+        }
+    }
 
-    // Extract TRES
-    const reqTresMatch = output.match(/ReqTRES=([^\s]+)/);
+    // Extract TRES from the first job record only
+    const firstJobRecord = output.split(/\nJobId=/)[0];
+    
+    const reqTresMatch = firstJobRecord.match(/ReqTRES=([^\s]+)/);
     if (reqTresMatch) {
         data.ReqTRES = parseTres(reqTresMatch[1]);
     }
     
-    const allocTresMatch = output.match(/AllocTRES=([^\s]+)/);
+    const allocTresMatch = firstJobRecord.match(/AllocTRES=([^\s]+)/);
     if (allocTresMatch) {
         data.AllocTRES = parseTres(allocTresMatch[1]);
     }
@@ -1543,6 +1604,334 @@ function getAllDescendantAccounts(parentAccount, allLimits) {
     
     return descendants;
 }
+
+/**
+ * Analyze a job array with task limit reached
+ * @param {string} jobId - Job ID
+ * @param {Object} jobData - Parsed job data from scontrol
+ * @returns {Object} JobArrayTaskLimit analysis result
+ */
+const analyzeJobArrayTaskLimit = (jobId, jobData) => {
+    const arrayTaskId = jobData.ArrayTaskId || 'Unknown';
+    const throttle = jobData.ArrayTaskThrottle || 'Unknown';
+    
+    return {
+        type: 'JobArrayTaskLimit',
+        jobId: jobId,
+        arrayJobId: jobData.ArrayJobId || jobId,
+        pendingTasks: arrayTaskId,
+        maxSimultaneous: throttle,
+        message: `Job array task limit reached (max ${throttle} tasks running simultaneously)`,
+        explanation: `This job array is configured to run at most ${throttle} tasks simultaneously. Remaining tasks will start as running tasks complete.`
+    };
+};
+
+/**
+ * Analyze a job pending due to BeginTime
+ * @param {string} jobId - Job ID
+ * @param {Object} jobData - Parsed job data from scontrol
+ * @returns {Object} BeginTime analysis result
+ */
+const analyzeBeginTime = (jobId, jobData) => {
+    const beginTime = jobData.StartTime || jobData.start_time;
+    const currentTime = Date.now() / 1000;
+    
+    // Parse the time if it's in string format
+    let beginTimestamp;
+    if (typeof beginTime === 'string') {
+        beginTimestamp = new Date(beginTime).getTime() / 1000;
+    } else {
+        beginTimestamp = beginTime;
+    }
+    
+    const waitTimeSeconds = beginTimestamp - currentTime;
+    
+    return {
+        type: 'BeginTime',
+        jobId: jobId,
+        scheduledStartTime: beginTime,
+        scheduledStartTimestamp: beginTimestamp,
+        currentTime: Math.floor(currentTime),
+        waitTimeSeconds: Math.max(0, waitTimeSeconds),
+        message: `Job scheduled to start at ${beginTime}`
+    };
+};
+
+/**
+ * Analyze a job held by user
+ * @param {string} jobId - Job ID
+ * @param {Object} jobData - Parsed job data from scontrol
+ * @returns {Object} JobHeldUser analysis result
+ */
+const analyzeJobHeldUser = (jobId, jobData) => {
+    return {
+        type: 'JobHeldUser',
+        jobId: jobId,
+        user: jobData.UserId || jobData.user_name,
+        message: 'Job is held by user',
+        action: 'Release with: scontrol release ' + jobId
+    };
+};
+
+/**
+ * Analyze a job held by admin
+ * @param {string} jobId - Job ID
+ * @param {Object} jobData - Parsed job data from scontrol
+ * @returns {Object} JobHeldAdmin analysis result
+ */
+const analyzeJobHeldAdmin = (jobId, jobData) => {
+    return {
+        type: 'JobHeldAdmin',
+        jobId: jobId,
+        user: jobData.UserId || jobData.user_name,
+        message: 'Job is held by system administrator',
+        action: 'Contact your system administrator to release this job'
+    };
+};
+
+/**
+ * Analyze a job pending due to required node not available
+ * @param {string} jobId - Job ID
+ * @param {Object} jobData - Parsed job data from scontrol
+ * @returns {Object} ReqNodeNotAvail analysis result
+ */
+const analyzeReqNodeNotAvail = (jobId, jobData) => {
+    const reqNodes = jobData.ReqNodeList || jobData.req_nodes;
+    
+    // Try to get node states if nodes are specified
+    let nodeStates = [];
+    if (reqNodes && reqNodes !== '(null)') {
+        try {
+            const nodesCmd = createSafeCommand('scontrol', ['show', 'node', reqNodes]);
+            const nodesOutput = executeCommand(nodesCmd);
+            
+            const blocks = nodesOutput.split('\n\n');
+            blocks.forEach(block => {
+                if (!block.trim()) return;
+                
+                const nodeNameMatch = block.match(/NodeName=([^\s]+)/);
+                const stateMatch = block.match(/State=([^\s]+)/);
+                const reasonMatch = block.match(/Reason=([^\n]+)/);
+                
+                if (nodeNameMatch) {
+                    nodeStates.push({
+                        name: nodeNameMatch[1],
+                        state: stateMatch ? stateMatch[1] : 'UNKNOWN',
+                        reason: reasonMatch ? reasonMatch[1].trim() : 'none'
+                    });
+                }
+            });
+        } catch (error) {
+            console.error(`Error fetching node states: ${error.message}`);
+        }
+    }
+    
+    return {
+        type: 'ReqNodeNotAvail',
+        jobId: jobId,
+        requestedNodes: reqNodes && reqNodes !== '(null)' ? reqNodes : 'Unknown',
+        nodeStates: nodeStates,
+        message: nodeStates.length > 0 
+            ? 'Required node(s) are not currently available'
+            : 'Some required node is not available (DOWN, DRAINED, or not responding)'
+    };
+};
+
+/**
+ * Analyze a job pending due to partition being down
+ * @param {string} jobId - Job ID
+ * @param {Object} jobData - Parsed job data from scontrol
+ * @returns {Object} PartitionDown analysis result
+ */
+const analyzePartitionDown = (jobId, jobData) => {
+    const partition = jobData.Partition || jobData.partition;
+    
+    // Try to get partition state
+    let partitionState = null;
+    try {
+        const partCmd = createSafeCommand('scontrol', ['show', 'partition', partition]);
+        const partOutput = executeCommand(partCmd);
+        
+        const stateMatch = partOutput.match(/State=([^\s]+)/);
+        if (stateMatch) {
+            partitionState = stateMatch[1];
+        }
+    } catch (error) {
+        console.error(`Error fetching partition state: ${error.message}`);
+    }
+    
+    return {
+        type: 'PartitionDown',
+        jobId: jobId,
+        partition: partition,
+        partitionState: partitionState,
+        message: `Partition '${partition}' is in DOWN state`,
+        action: 'Contact your system administrator - the partition is unavailable'
+    };
+};
+
+/**
+ * Analyze a job pending due to partition being inactive
+ * @param {string} jobId - Job ID
+ * @param {Object} jobData - Parsed job data from scontrol
+ * @returns {Object} PartitionInactive analysis result
+ */
+const analyzePartitionInactive = (jobId, jobData) => {
+    const partition = jobData.Partition || jobData.partition;
+    
+    return {
+        type: 'PartitionInactive',
+        jobId: jobId,
+        partition: partition,
+        message: `Partition '${partition}' is Inactive and cannot start jobs`,
+        action: 'Contact your system administrator or select a different partition'
+    };
+};
+
+/**
+ * Analyze a job pending due to partition time limit
+ * @param {string} jobId - Job ID
+ * @param {Object} jobData - Parsed job data from scontrol
+ * @returns {Object} PartitionTimeLimit analysis result
+ */
+const analyzePartitionTimeLimit = (jobId, jobData) => {
+    const partition = jobData.Partition || jobData.partition;
+    const jobTimeLimit = jobData.TimeLimit || jobData.time_limit;
+    
+    // Try to get partition time limit
+    let partitionTimeLimit = null;
+    try {
+        const partCmd = createSafeCommand('scontrol', ['show', 'partition', partition]);
+        const partOutput = executeCommand(partCmd);
+        
+        const maxTimeMatch = partOutput.match(/MaxTime=([^\s]+)/);
+        if (maxTimeMatch) {
+            partitionTimeLimit = maxTimeMatch[1];
+        }
+    } catch (error) {
+        console.error(`Error fetching partition limits: ${error.message}`);
+    }
+    
+    return {
+        type: 'PartitionTimeLimit',
+        jobId: jobId,
+        partition: partition,
+        jobTimeLimit: jobTimeLimit,
+        partitionMaxTime: partitionTimeLimit,
+        message: `Job time limit (${jobTimeLimit}) exceeds partition '${partition}' maximum`,
+        action: partitionTimeLimit 
+            ? `Reduce time limit to ${partitionTimeLimit} or less` 
+            : 'Reduce job time limit or select a different partition'
+    };
+};
+
+/**
+ * Analyze a job pending due to partition node limit
+ * @param {string} jobId - Job ID
+ * @param {Object} jobData - Parsed job data from scontrol
+ * @returns {Object} PartitionNodeLimit analysis result
+ */
+const analyzePartitionNodeLimit = (jobId, jobData) => {
+    const partition = jobData.Partition || jobData.partition;
+    const reqNodes = jobData.NumNodes || jobData.node_count;
+    
+    // Try to get partition node limits
+    let partitionMaxNodes = null;
+    let partitionTotalNodes = null;
+    try {
+        const partCmd = createSafeCommand('scontrol', ['show', 'partition', partition]);
+        const partOutput = executeCommand(partCmd);
+        
+        const maxNodesMatch = partOutput.match(/MaxNodes=([^\s]+)/);
+        const totalNodesMatch = partOutput.match(/TotalNodes=([^\s]+)/);
+        
+        if (maxNodesMatch && maxNodesMatch[1] !== 'UNLIMITED') {
+            partitionMaxNodes = maxNodesMatch[1];
+        }
+        if (totalNodesMatch) {
+            partitionTotalNodes = totalNodesMatch[1];
+        }
+    } catch (error) {
+        console.error(`Error fetching partition limits: ${error.message}`);
+    }
+    
+    return {
+        type: 'PartitionNodeLimit',
+        jobId: jobId,
+        partition: partition,
+        requestedNodes: reqNodes,
+        partitionMaxNodes: partitionMaxNodes,
+        partitionTotalNodes: partitionTotalNodes,
+        message: `Requested nodes (${reqNodes}) exceed partition '${partition}' limits`,
+        action: partitionMaxNodes 
+            ? `Reduce nodes to ${partitionMaxNodes} or less` 
+            : 'Required nodes are DOWN/DRAINED or exceed partition limits'
+    };
+};
+
+/**
+ * Analyze a job waiting for reservation
+ * @param {string} jobId - Job ID
+ * @param {Object} jobData - Parsed job data from scontrol
+ * @returns {Object} Reservation analysis result
+ */
+const analyzeReservation = (jobId, jobData) => {
+    const reservationName = jobData.Reservation || jobData.reservation;
+    
+    // Try to get reservation details
+    let reservationDetails = null;
+    if (reservationName && reservationName !== '(null)') {
+        try {
+            const resCmd = createSafeCommand('scontrol', ['show', 'reservation', reservationName]);
+            const resOutput = executeCommand(resCmd);
+            
+            const startTimeMatch = resOutput.match(/StartTime=([^\s]+)/);
+            const endTimeMatch = resOutput.match(/EndTime=([^\s]+)/);
+            const stateMatch = resOutput.match(/State=([^\s]+)/);
+            
+            reservationDetails = {
+                name: reservationName,
+                startTime: startTimeMatch ? startTimeMatch[1] : 'Unknown',
+                endTime: endTimeMatch ? endTimeMatch[1] : 'Unknown',
+                state: stateMatch ? stateMatch[1] : 'Unknown'
+            };
+        } catch (error) {
+            console.error(`Error fetching reservation details: ${error.message}`);
+        }
+    }
+    
+    return {
+        type: 'Reservation',
+        jobId: jobId,
+        reservationName: reservationName && reservationName !== '(null)' ? reservationName : 'Unknown',
+        reservationDetails: reservationDetails,
+        message: reservationDetails 
+            ? `Waiting for reservation '${reservationName}' starting at ${reservationDetails.startTime}`
+            : `Waiting for advanced reservation to become available`
+    };
+};
+
+/**
+ * Analyze a job with invalid QOS
+ * @param {string} jobId - Job ID
+ * @param {Object} jobData - Parsed job data from scontrol
+ * @returns {Object} InvalidQOS analysis result
+ */
+const analyzeInvalidQOS = (jobId, jobData) => {
+    const qos = jobData.QOS || jobData.qos;
+    const account = jobData.Account || jobData.account;
+    const partition = jobData.Partition || jobData.partition;
+    
+    return {
+        type: 'InvalidQOS',
+        jobId: jobId,
+        requestedQOS: qos && qos !== '(null)' ? qos : 'Not specified',
+        account: account,
+        partition: partition,
+        message: `QOS '${qos}' is invalid or not allowed`,
+        action: 'Check available QOS for your account with: sacctmgr show assoc where user=$USER format=account,qos'
+    };
+};
 
 module.exports = {
     getPendingReason

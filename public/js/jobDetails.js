@@ -91,6 +91,28 @@ function renderPendingReason(data, container) {
       html += renderAssocGrpMemRunMinutesReason(data);
   } else if (data.type === 'AssocGrpCPURunMinutes') {
       html += renderAssocGrpCPURunMinutesReason(data);
+  } else if (data.type === 'BeginTime') {
+      html += renderBeginTimeReason(data);
+  } else if (data.type === 'JobHeldUser') {
+      html += renderJobHeldUserReason(data);
+  } else if (data.type === 'JobHeldAdmin') {
+      html += renderJobHeldAdminReason(data);
+  } else if (data.type === 'ReqNodeNotAvail') {
+      html += renderReqNodeNotAvailReason(data);
+  } else if (data.type === 'PartitionDown') {
+      html += renderPartitionDownReason(data);
+  } else if (data.type === 'PartitionInactive') {
+      html += renderPartitionInactiveReason(data);
+  } else if (data.type === 'PartitionTimeLimit') {
+      html += renderPartitionTimeLimitReason(data);
+  } else if (data.type === 'PartitionNodeLimit') {
+      html += renderPartitionNodeLimitReason(data);
+  } else if (data.type === 'Reservation') {
+      html += renderReservationReason(data);
+  } else if (data.type === 'InvalidQOS') {
+      html += renderInvalidQOSReason(data);
+  } else if (data.type === 'JobArrayTaskLimit') {
+      html += renderJobArrayTaskLimitReason(data);
   } else if (data.type === 'Status') {
       html += `
           <div class="flex items-center text-green-600">
@@ -973,6 +995,369 @@ function renderAssocGrpCPURunMinutesReason(data) {
   `;
   
   return html;
+}
+
+function renderBeginTimeReason(data) {
+  const currentTime = new Date();
+  const scheduledTime = new Date(data.scheduledStartTimestamp * 1000);
+  const hoursWait = (data.waitTimeSeconds / 3600).toFixed(1);
+  
+  return `
+    <div class="space-y-3">
+      <div class="flex items-center text-blue-600">
+        <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+        </svg>
+        <span class="font-semibold">Job Scheduled for Future Start</span>
+      </div>
+      
+      <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2">
+        <div class="flex justify-between items-center">
+          <span class="text-slate-600">Scheduled Start:</span>
+          <span class="font-semibold text-slate-900">${data.scheduledStartTime}</span>
+        </div>
+        <div class="flex justify-between items-center">
+          <span class="text-slate-600">Time Until Start:</span>
+          <span class="font-semibold text-blue-600">${hoursWait} hours</span>
+        </div>
+      </div>
+      
+      <div class="text-sm text-slate-600">
+        <p>This job has been scheduled to start at a specific time using the <code class="bg-slate-100 px-1 rounded">--begin</code> option.</p>
+      </div>
+    </div>
+  `;
+}
+
+function renderJobHeldUserReason(data) {
+  return `
+    <div class="space-y-3">
+      <div class="flex items-center text-amber-600">
+        <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+        </svg>
+        <span class="font-semibold">Job Held by User</span>
+      </div>
+      
+      <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+        <p class="text-slate-700">This job is on hold and will not run until released.</p>
+      </div>
+      
+      <div class="bg-slate-50 border border-slate-200 rounded-lg p-4">
+        <div class="text-sm font-medium text-slate-700 mb-2">To release this job:</div>
+        <code class="block bg-slate-800 text-green-400 px-3 py-2 rounded font-mono text-sm">${data.action}</code>
+      </div>
+    </div>
+  `;
+}
+
+function renderJobHeldAdminReason(data) {
+  return `
+    <div class="space-y-3">
+      <div class="flex items-center text-red-600">
+        <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+        </svg>
+        <span class="font-semibold">Job Held by Administrator</span>
+      </div>
+      
+      <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+        <p class="text-slate-700">This job has been held by a system administrator and cannot run until they release it.</p>
+      </div>
+      
+      <div class="bg-slate-50 border border-slate-200 rounded-lg p-4">
+        <p class="text-sm text-slate-700">${data.action}</p>
+      </div>
+    </div>
+  `;
+}
+
+function renderReqNodeNotAvailReason(data) {
+  let nodesHtml = '';
+  if (data.nodeStates && data.nodeStates.length > 0) {
+    nodesHtml = `
+      <div class="mt-4 space-y-2">
+        <div class="text-sm font-medium text-slate-700">Node Status:</div>
+        <div class="space-y-1">
+          ${data.nodeStates.map(node => `
+            <div class="bg-slate-50 border border-slate-200 rounded px-3 py-2 flex justify-between items-center">
+              <span class="font-mono text-sm">${node.name}</span>
+              <div class="text-right">
+                <span class="text-xs font-semibold text-red-600">${node.state}</span>
+                ${node.reason !== 'none' ? `<div class="text-xs text-slate-500">${node.reason}</div>` : ''}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  } else if (data.requestedNodes !== 'Unknown') {
+    nodesHtml = `
+      <div class="mt-4 bg-slate-50 border border-slate-200 rounded-lg p-3">
+        <div class="text-sm text-slate-600">Requested nodes: <span class="font-mono font-semibold text-slate-900">${data.requestedNodes}</span></div>
+      </div>
+    `;
+  }
+  
+  return `
+    <div class="space-y-3">
+      <div class="flex items-center text-red-600">
+        <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+        </svg>
+        <span class="font-semibold">Required Node Not Available</span>
+      </div>
+      
+      <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+        <p class="text-slate-700">${data.message}</p>
+      </div>
+      ${nodesHtml}
+      
+      <div class="text-sm text-slate-600">
+        <p>The node(s) you specifically requested are currently DOWN, DRAINED, or not responding. Contact your system administrator if this persists.</p>
+      </div>
+    </div>
+  `;
+}
+
+function renderPartitionDownReason(data) {
+  return `
+    <div class="space-y-3">
+      <div class="flex items-center text-red-600">
+        <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
+        </svg>
+        <span class="font-semibold">Partition Down</span>
+      </div>
+      
+      <div class="bg-red-50 border border-red-200 rounded-lg p-4 space-y-2">
+        <div class="flex justify-between items-center">
+          <span class="text-slate-600">Partition:</span>
+          <span class="font-semibold text-slate-900">${data.partition}</span>
+        </div>
+        ${data.partitionState ? `
+          <div class="flex justify-between items-center">
+            <span class="text-slate-600">State:</span>
+            <span class="font-semibold text-red-600">${data.partitionState}</span>
+          </div>
+        ` : ''}
+      </div>
+      
+      <div class="bg-slate-50 border border-slate-200 rounded-lg p-4">
+        <p class="text-sm text-slate-700">${data.action}</p>
+      </div>
+    </div>
+  `;
+}
+
+function renderPartitionInactiveReason(data) {
+  return `
+    <div class="space-y-3">
+      <div class="flex items-center text-amber-600">
+        <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
+        </svg>
+        <span class="font-semibold">Partition Inactive</span>
+      </div>
+      
+      <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+        <p class="text-slate-700">${data.message}</p>
+      </div>
+      
+      <div class="bg-slate-50 border border-slate-200 rounded-lg p-4">
+        <p class="text-sm text-slate-700">${data.action}</p>
+      </div>
+    </div>
+  `;
+}
+
+function renderPartitionTimeLimitReason(data) {
+  return `
+    <div class="space-y-3">
+      <div class="flex items-center text-red-600">
+        <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+        </svg>
+        <span class="font-semibold">Partition Time Limit Exceeded</span>
+      </div>
+      
+      <div class="bg-red-50 border border-red-200 rounded-lg p-4 space-y-2">
+        <div class="flex justify-between items-center">
+          <span class="text-slate-600">Partition:</span>
+          <span class="font-semibold text-slate-900">${data.partition}</span>
+        </div>
+        <div class="flex justify-between items-center">
+          <span class="text-slate-600">Your Time Limit:</span>
+          <span class="font-semibold text-red-600">${data.jobTimeLimit}</span>
+        </div>
+        ${data.partitionMaxTime ? `
+          <div class="flex justify-between items-center">
+            <span class="text-slate-600">Partition Max:</span>
+            <span class="font-semibold text-green-600">${data.partitionMaxTime}</span>
+          </div>
+        ` : ''}
+      </div>
+      
+      <div class="bg-slate-50 border border-slate-200 rounded-lg p-4">
+        <div class="text-sm font-medium text-slate-700 mb-2">To fix this:</div>
+        <p class="text-sm text-slate-700">${data.action}</p>
+      </div>
+    </div>
+  `;
+}
+
+function renderPartitionNodeLimitReason(data) {
+  return `
+    <div class="space-y-3">
+      <div class="flex items-center text-red-600">
+        <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"></path>
+        </svg>
+        <span class="font-semibold">Partition Node Limit Exceeded</span>
+      </div>
+      
+      <div class="bg-red-50 border border-red-200 rounded-lg p-4 space-y-2">
+        <div class="flex justify-between items-center">
+          <span class="text-slate-600">Partition:</span>
+          <span class="font-semibold text-slate-900">${data.partition}</span>
+        </div>
+        <div class="flex justify-between items-center">
+          <span class="text-slate-600">Requested Nodes:</span>
+          <span class="font-semibold text-red-600">${data.requestedNodes}</span>
+        </div>
+        ${data.partitionMaxNodes ? `
+          <div class="flex justify-between items-center">
+            <span class="text-slate-600">Partition Max:</span>
+            <span class="font-semibold text-green-600">${data.partitionMaxNodes}</span>
+          </div>
+        ` : ''}
+        ${data.partitionTotalNodes ? `
+          <div class="flex justify-between items-center">
+            <span class="text-slate-600">Total Nodes Available:</span>
+            <span class="font-semibold text-slate-600">${data.partitionTotalNodes}</span>
+          </div>
+        ` : ''}
+      </div>
+      
+      <div class="bg-slate-50 border border-slate-200 rounded-lg p-4">
+        <div class="text-sm font-medium text-slate-700 mb-2">To fix this:</div>
+        <p class="text-sm text-slate-700">${data.action}</p>
+      </div>
+    </div>
+  `;
+}
+
+function renderReservationReason(data) {
+  return `
+    <div class="space-y-3">
+      <div class="flex items-center text-blue-600">
+        <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+        </svg>
+        <span class="font-semibold">Waiting for Reservation</span>
+      </div>
+      
+      <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2">
+        <div class="flex justify-between items-center">
+          <span class="text-slate-600">Reservation:</span>
+          <span class="font-semibold text-slate-900">${data.reservationName}</span>
+        </div>
+        ${data.reservationDetails ? `
+          <div class="flex justify-between items-center">
+            <span class="text-slate-600">Start Time:</span>
+            <span class="font-semibold text-slate-900">${data.reservationDetails.startTime}</span>
+          </div>
+          <div class="flex justify-between items-center">
+            <span class="text-slate-600">End Time:</span>
+            <span class="font-semibold text-slate-900">${data.reservationDetails.endTime}</span>
+          </div>
+          <div class="flex justify-between items-center">
+            <span class="text-slate-600">State:</span>
+            <span class="font-semibold text-blue-600">${data.reservationDetails.state}</span>
+          </div>
+        ` : ''}
+      </div>
+      
+      <div class="text-sm text-slate-600">
+        <p>${data.message}</p>
+      </div>
+    </div>
+  `;
+}
+
+function renderInvalidQOSReason(data) {
+  return `
+    <div class="space-y-3">
+      <div class="flex items-center text-red-600">
+        <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+        </svg>
+        <span class="font-semibold">Invalid QOS</span>
+      </div>
+      
+      <div class="bg-red-50 border border-red-200 rounded-lg p-4 space-y-2">
+        <div class="flex justify-between items-center">
+          <span class="text-slate-600">Requested QOS:</span>
+          <span class="font-semibold text-red-600">${data.requestedQOS}</span>
+        </div>
+        <div class="flex justify-between items-center">
+          <span class="text-slate-600">Account:</span>
+          <span class="font-semibold text-slate-900">${data.account}</span>
+        </div>
+        <div class="flex justify-between items-center">
+          <span class="text-slate-600">Partition:</span>
+          <span class="font-semibold text-slate-900">${data.partition}</span>
+        </div>
+      </div>
+      
+      <div class="bg-slate-50 border border-slate-200 rounded-lg p-4">
+        <div class="text-sm font-medium text-slate-700 mb-2">To check available QOS:</div>
+        <code class="block bg-slate-800 text-green-400 px-3 py-2 rounded font-mono text-sm">${data.action}</code>
+      </div>
+      
+      <div class="text-sm text-slate-600">
+        <p>The QOS you specified is not available for your account or partition. Resubmit the job with a valid QOS or omit the QOS option.</p>
+      </div>
+    </div>
+  `;
+}
+
+function renderJobArrayTaskLimitReason(data) {
+  // Parse the task range (e.g., "15-22%4" -> "8 tasks (IDs 15-22)")
+  let taskDisplay = data.pendingTasks;
+  const taskMatch = data.pendingTasks.match(/^(\d+)-(\d+)(%\d+)?$/);
+  if (taskMatch) {
+    const startTask = parseInt(taskMatch[1]);
+    const endTask = parseInt(taskMatch[2]);
+    const taskCount = endTask - startTask + 1;
+    taskDisplay = `${taskCount} tasks (IDs ${startTask}-${endTask})`;
+  }
+  
+  return `
+    <div class="space-y-3">
+      <div class="flex items-center text-blue-600">
+        <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+        </svg>
+        <span class="font-semibold">Job Array Task Limit</span>
+      </div>
+      
+      <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2">
+        <div class="flex justify-between items-center">
+          <span class="text-slate-600">Pending Tasks:</span>
+          <span class="font-semibold text-slate-900">${taskDisplay}</span>
+        </div>
+        <div class="flex justify-between items-center">
+          <span class="text-slate-600">Max Simultaneous:</span>
+          <span class="font-semibold text-blue-600">${data.maxSimultaneous}</span>
+        </div>
+      </div>
+      
+      <div class="bg-slate-50 border border-slate-200 rounded-lg p-4">
+        <p class="text-sm text-slate-700">${data.explanation}</p>
+      </div>
+    </div>
+  `;
 }
 
 function renderHierarchyTree(hierarchy) {
