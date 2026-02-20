@@ -1556,4 +1556,101 @@ describe("getPendingReason", () => {
             expect(result.message).toContain('max 4 tasks running simultaneously');
         });
     });
+
+    describe('QOSGrpCpuLimit', () => {
+        beforeEach(() => {
+            // Mock QOS limits
+            dataCache.getQOSLimits = jest.fn().mockReturnValue({
+                timestamp: Date.now(),
+                qos: {
+                    'normal': {
+                        name: 'normal',
+                        grpCPUs: 200,
+                        grpMem: null,
+                        grpNodes: null
+                    },
+                    'premium': {
+                        name: 'premium',
+                        grpCPUs: null,
+                        grpTRES: {
+                            cpu: 500
+                        }
+                    }
+                }
+            });
+
+            // Mock running jobs in QOS
+            dataCache.getData = jest.fn().mockReturnValue({
+                jobs: [
+                    { job_id: 100, job_state: 'RUNNING', account: 'test-account', alloc_cpus: 50, user_name: 'user1', qos: 'normal' },
+                    { job_id: 101, job_state: 'RUNNING', account: 'test-account', alloc_cpus: 80, user_name: 'user2', qos: 'normal' },
+                    { job_id: 102, job_state: 'RUNNING', account: 'other-account', alloc_cpus: 40, user_name: 'user3', qos: 'premium' }
+                ]
+            });
+        });
+
+        it('should analyze QOS CPU limit reached', async () => {
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=QOSGrpCpuLimit Account=test-account QOS=normal ReqTRES=cpu=100,mem=64G,node=1"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('QOSGrpCpuLimit');
+            expect(result.qosName).toBe('normal');
+            expect(result.analysis.limit).toBe(200);
+            expect(result.analysis.currentUsage).toBe(130); // 50 + 80 from running jobs in normal QOS
+            expect(result.analysis.runningJobs).toBe(2);
+            expect(result.job.requested.cpus).toBe(100);
+        });
+
+        it('should use grpTRES.cpu if grpCPUs not set', async () => {
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=QOSGrpCpuLimit Account=other-account QOS=premium ReqTRES=cpu=50,mem=64G,node=1"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('QOSGrpCpuLimit');
+            expect(result.qosName).toBe('premium');
+            expect(result.analysis.limit).toBe(500); // From grpTRES.cpu
+            expect(result.analysis.currentUsage).toBe(40); // 40 from premium QOS
+        });
+
+        it('should return error if QOS limits not available', async () => {
+            dataCache.getQOSLimits = jest.fn().mockReturnValue(null);
+
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=QOSGrpCpuLimit Account=test-account QOS=normal ReqTRES=cpu=100,mem=64G,node=1"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('Error');
+            expect(result.message).toContain('QOS limits not available');
+        });
+
+        it('should return error if QOS not found', async () => {
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=QOSGrpCpuLimit Account=test-account QOS=nonexistent ReqTRES=cpu=100,mem=64G,node=1"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('Error');
+            expect(result.message).toContain('not found in limits');
+        });
+
+        it('should include top consumers', async () => {
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=QOSGrpCpuLimit Account=test-account QOS=normal ReqTRES=cpu=100,mem=64G,node=1"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.analysis.topConsumers).toHaveLength(2);
+            expect(result.analysis.topConsumers[0].cpus).toBe(80); // user2's job (highest)
+            expect(result.analysis.topConsumers[1].cpus).toBe(50); // user1's job
+        });
+    });
 });

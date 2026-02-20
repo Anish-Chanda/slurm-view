@@ -361,6 +361,9 @@ const server = app.listen(port, () => {
   
   // Initialize account limits on startup
   initializeAccountLimits();
+  
+  // Initialize QOS limits on startup
+  initializeQOSLimits();
 });
 
 /**
@@ -388,5 +391,33 @@ async function initializeAccountLimits() {
     
   } catch (error) {
     console.error('[Startup] Failed to initialize account limits:', error.message);
+  }
+}
+
+/**
+ * Initialize QOS limits cache on startup
+ */
+async function initializeQOSLimits() {
+  try {
+    const { fetchQOSLimits } = require('./helpers/accountLimits.js');
+    const qosData = fetchQOSLimits();
+    dataCache.setQOSLimits(qosData);
+    console.log('[Startup] QOS limits initialized');
+    
+    // Refresh hourly
+    setInterval(() => {
+      try {
+        if (dataCache.isQOSLimitsStale()) {
+          const updatedQOS = fetchQOSLimits();
+          dataCache.setQOSLimits(updatedQOS);
+          console.log('[Background] QOS limits refreshed');
+        }
+      } catch (error) {
+        console.error('[Background] Failed to refresh QOS limits:', error.message);
+      }
+    }, 3600000); // 1 hour
+    
+  } catch (error) {
+    console.error('[Startup] Failed to initialize QOS limits:', error.message);
   }
 }

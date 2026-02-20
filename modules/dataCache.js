@@ -23,6 +23,10 @@ class DataCache {
         this.accountLimitsCache = new NodeCache({ stdTTL: 3600, checkperiod: 600 }); // 1 hour TTL
         this.accountLimitsLastUpdated = 0;
 
+        // QOS limits cache (very long TTL - updated hourly)
+        this.qosLimitsCache = new NodeCache({ stdTTL: 3600, checkperiod: 600 }); // 1 hour TTL
+        this.qosLimitsLastUpdated = 0;
+
         // General purpose cache for stats and other data
         this.cache = new NodeCache({ stdTTL: 5, checkperiod: 120 }); // 5 sec TTL for stats
 
@@ -223,6 +227,36 @@ class DataCache {
     }
 
     /**
+     * Get QOS limits from cache
+     * @returns {Object|null} QOS limits data or null
+     */
+    getQOSLimits() {
+        return this.qosLimitsCache.get('qos') || null;
+    }
+
+    /**
+     * Set QOS limits in cache
+     * @param {Object} data - QOS limits data with timestamp
+     * @param {number} ttl - TTL in seconds (default: 1 hour)
+     */
+    setQOSLimits(data, ttl = 3600) {
+        this.qosLimitsCache.set('qos', data, ttl);
+        this.qosLimitsLastUpdated = data.timestamp || Date.now();
+        console.log('[DataCache] QOS limits cached:', Object.keys(data.qos || {}).length, 'QOS definitions');
+    }
+
+    /**
+     * Check if QOS limits need refresh
+     * @param {number} threshold - Time in ms (default: 1 hour)
+     * @returns {boolean} - True if stale
+     */
+    isQOSLimitsStale(threshold = 3600000) {
+        if (!this.qosLimitsCache.get('qos')) return true;
+        const age = Date.now() - this.qosLimitsLastUpdated;
+        return age > threshold;
+    }
+
+    /**
      * Clear all caches
      */
     clearAll() {
@@ -230,9 +264,11 @@ class DataCache {
         this.seffCache.flushAll();
         this.pendingReasonCache.flushAll();
         this.accountLimitsCache.flushAll();
+        this.qosLimitsCache.flushAll();
         this.cache.flushAll();
         this.jobsLastUpdated = 0;
         this.accountLimitsLastUpdated = 0;
+        this.qosLimitsLastUpdated = 0;
     }
 
     /**
@@ -244,6 +280,7 @@ class DataCache {
             seff: this.seffCache.getStats(),
             pendingReason: this.pendingReasonCache.getStats(),
             accountLimits: this.accountLimitsCache.getStats(),
+            qosLimits: this.qosLimitsCache.getStats(),
             general: this.cache.getStats()
         });
     }

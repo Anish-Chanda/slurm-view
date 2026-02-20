@@ -207,8 +207,53 @@ function formatMemory(memMB) {
     }
 }
 
+/**
+ * Fetch QOS limits from Slurm
+ * @returns {Object} - { timestamp, qos: {qosName: {...limits}} }
+ */
+function fetchQOSLimits() {
+    const cmd = createSafeCommand('sacctmgr', [
+        '-n', '-P',
+        'show', 'qos',
+        'format=Name,Priority,GrpCPUs,GrpMem,GrpNodes,GrpJobs,GrpSubmitJobs,GrpWall,GrpTRES,GrpTRESRunMins'
+    ]);
+    
+    const output = executeCommand(cmd);
+    const lines = output.trim().split('\n');
+    
+    const qos = {};
+    
+    lines.forEach(line => {
+        if (!line.trim()) return;
+        
+        const fields = line.split('|');
+        const name = fields[0];
+        
+        if (!name) return;
+        
+        qos[name] = {
+            name: name,
+            priority: fields[1] ? parseInt(fields[1]) : 0,
+            grpCPUs: fields[2] ? parseInt(fields[2]) : null,
+            grpMem: fields[3] ? parseMemoryToMB(fields[3]) : null,
+            grpNodes: fields[4] ? parseInt(fields[4]) : null,
+            grpJobs: fields[5] ? parseInt(fields[5]) : null,
+            grpSubmitJobs: fields[6] ? parseInt(fields[6]) : null,
+            grpWall: fields[7] || null,
+            grpTRES: parseTRESLimits(fields[8]),
+            grpTRESRunMins: parseTRESLimits(fields[9])
+        };
+    });
+    
+    return {
+        timestamp: Date.now(),
+        qos: qos
+    };
+}
+
 module.exports = {
     fetchAccountLimits,
+    fetchQOSLimits,
     parseTRESLimits,
     parseMemoryToMB,
     buildAncestorChain,

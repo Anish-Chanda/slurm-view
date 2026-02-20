@@ -88,6 +88,9 @@ const getPendingReason = async (jobId) => {
             case 'JobArrayTaskLimit':
                 result = analyzeJobArrayTaskLimit(jobId, jobData);
                 break;
+            case 'QOSGrpCpuLimit':
+                result = analyzeQOSGrpCpuLimit(jobId, jobData);
+                break;
             default:
                 result = { type: 'Other', message: `Pending reason: ${jobData.Reason}` };
                 break;
@@ -1604,6 +1607,108 @@ function getAllDescendantAccounts(parentAccount, allLimits) {
     
     return descendants;
 }
+
+/**
+ * Analyze a job pending due to QOS CPU limit
+ * @param {string} jobId - Job ID
+ * @param {Object} jobData - Parsed job data from scontrol
+ * @returns {Object} QOSGrpCpuLimit analysis result
+ */
+const analyzeQOSGrpCpuLimit = (jobId, jobData) => {
+    try {
+        // Get QOS limits from cache
+        const qosLimitsData = dataCache.getQOSLimits();
+        if (!qosLimitsData) {
+            return { type: 'Error', message: 'QOS limits not available' };
+        }
+        
+        const qosName = jobData.QOS || 'normal';
+        const qosLimits = qosLimitsData.qos[qosName];
+        
+        if (!qosLimits) {
+            return { type: 'Error', message: `QOS '${qosName}' not found in limits` };
+        }
+        
+        if (!qosLimits.grpCPUs && (!qosLimits.grpTRES || !qosLimits.grpTRES.cpu)) {
+            return { type: 'Error', message: `QOS '${qosName}' has no CPU limit configured` };
+        }
+        
+        // Get the limit value (prefer grpCPUs, fall back to grpTRES.cpu)
+        const cpuLimit = qosLimits.grpCPUs || qosLimits.grpTRES.cpu;
+        
+        // Get job CPU request
+        const jobCPUs = jobData.ReqTRES?.cpu || 0;
+        
+        // Calculate current QOS usage from all running jobs
+        const jobsData = dataCache.getData('jobs');
+        let currentUsage = 0;
+        let runningJobsCount = 0;
+        const topConsumers = [];
+        
+        if (jobsData && jobsData.jobs) {
+            jobsData.jobs.forEach(job => {
+                // Only count running jobs in this QOS
+                if (job.job_state === 'RUNNING' && job.account === jobData.Account) {
+                    const jobQOS = job.qos || 'normal';
+                    if (jobQOS === qosName) {
+                        const cpus = parseInt(job.alloc_cpus || job.total_cpus) || 0;
+                        currentUsage += cpus;
+                        runningJobsCount++;
+                        
+                        // Track top consumers
+                        topConsumers.push({
+                            jobId: job.job_id,
+                            cpus: cpus,
+                            user: job.user_name
+                        });
+                    }
+                }
+            });
+        }
+        
+        // Sort and limit to top 5 consumers
+        topConsumers.sort((a, b) => b.cpus - a.cpus);
+        const top5 = topConsumers.slice(0, 5).map(j => ({
+            jobId: j.jobId,
+            cpus: j.cpus,
+            formatted: j.cpus.toLocaleString(),
+            user: j.user
+        }));
+        
+        const available = Math.max(0, cpuLimit - currentUsage);
+        const shortfall = Math.min(0, cpuLimit - currentUsage - jobCPUs);
+        
+        return {
+            type: 'QOSGrpCpuLimit',
+            jobId: jobId,
+            qosName: qosName,
+            job: {
+                requested: {
+                    cpus: jobCPUs,
+                    formatted: jobCPUs.toLocaleString()
+                }
+            },
+            analysis: {
+                qosName: qosName,
+                limit: cpuLimit,
+                limitFormatted: cpuLimit.toLocaleString(),
+                currentUsage: currentUsage,
+                currentUsageFormatted: currentUsage.toLocaleString(),
+                percentUsed: ((currentUsage / cpuLimit) * 100).toFixed(1),
+                available: available,
+                availableFormatted: available.toLocaleString(),
+                shortfall: shortfall,
+                shortfallFormatted: Math.abs(shortfall).toLocaleString(),
+                runningJobs: runningJobsCount,
+                topConsumers: top5
+            }
+        };
+        
+    } catch (error) {
+        console.error(`Error analyzing QOSGrpCpuLimit for job ${jobId}:`, error.message);
+        return { type: 'Error', message: error.message };
+    }
+};
 
 /**
  * Analyze a job array with task limit reached

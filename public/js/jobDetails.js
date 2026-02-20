@@ -113,6 +113,8 @@ function renderPendingReason(data, container) {
       html += renderInvalidQOSReason(data);
   } else if (data.type === 'JobArrayTaskLimit') {
       html += renderJobArrayTaskLimitReason(data);
+  } else if (data.type === 'QOSGrpCpuLimit') {
+      html += renderQOSGrpCpuLimitReason(data);
   } else if (data.type === 'Status') {
       html += `
           <div class="flex items-center text-green-600">
@@ -1356,6 +1358,89 @@ function renderJobArrayTaskLimitReason(data) {
       <div class="bg-slate-50 border border-slate-200 rounded-lg p-4">
         <p class="text-sm text-slate-700">${data.explanation}</p>
       </div>
+    </div>
+  `;
+}
+
+function renderQOSGrpCpuLimitReason(data) {
+  const analysis = data.analysis;
+  const isNearLimit = parseFloat(analysis.percentUsed) > 95;
+  const wouldExceed = analysis.shortfall < 0;
+  
+  return `
+    <div class="space-y-3">
+      <div class="flex items-center text-red-600">
+        <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path>
+        </svg>
+        <span class="font-semibold">QOS CPU Limit Reached</span>
+      </div>
+      
+      <div class="bg-red-50 border border-red-200 rounded-lg p-4 space-y-3">
+        <div class="text-sm font-medium text-slate-700 mb-2">QOS: <span class="font-semibold text-slate-900">${analysis.qosName}</span></div>
+        
+        <div class="space-y-2">
+          <div class="flex justify-between items-center">
+            <span class="text-slate-600">Limit:</span>
+            <span class="font-semibold text-slate-900">${analysis.limitFormatted} CPUs</span>
+          </div>
+          <div class="flex justify-between items-center">
+            <span class="text-slate-600">Current Usage:</span>
+            <span class="font-semibold ${isNearLimit ? 'text-red-600' : 'text-slate-900'}">${analysis.currentUsageFormatted} CPUs (${analysis.percentUsed}%)</span>
+          </div>
+          <div class="flex justify-between items-center">
+            <span class="text-slate-600">Available:</span>
+            <span class="font-semibold ${analysis.available === 0 ? 'text-red-600' : 'text-green-600'}">${analysis.availableFormatted} CPUs</span>
+          </div>
+          <div class="flex justify-between items-center">
+            <span class="text-slate-600">Running Jobs:</span>
+            <span class="font-semibold text-slate-900">${analysis.runningJobs}</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <div class="text-sm font-medium text-slate-700 mb-2">Your Job Request:</div>
+        <div class="flex justify-between items-center">
+          <span class="text-slate-600">CPUs Requested:</span>
+          <span class="font-semibold text-slate-900">${data.job.requested.formatted} CPUs</span>
+        </div>
+      </div>
+      
+      ${wouldExceed ? `
+        <div class="bg-amber-50 border border-amber-300 rounded-lg p-4">
+          <div class="flex items-start">
+            <svg class="w-5 h-5 text-amber-600 mr-2 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+            </svg>
+            <div class="flex-1">
+              <div class="text-sm font-medium text-amber-900">Job Would Exceed Limit</div>
+              <p class="text-xs text-amber-700 mt-1">Your job needs ${analysis.shortfallFormatted} more CPUs than the QOS has available.</p>
+            </div>
+          </div>
+        </div>
+      ` : ''}
+      
+      ${analysis.topConsumers && analysis.topConsumers.length > 0 ? `
+        <div class="border-t border-slate-200 pt-4">
+          <button 
+            onclick="document.getElementById('consumers-${data.jobId}').classList.toggle('hidden')"
+            class="text-slate-600 hover:text-slate-900 text-sm font-medium flex items-center">
+            <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+            </svg>
+            Top CPU Consumers in ${analysis.qosName} QOS
+          </button>
+          <div id="consumers-${data.jobId}" class="hidden mt-3 space-y-1">
+            ${analysis.topConsumers.map(consumer => `
+              <div class="flex justify-between text-sm bg-slate-50 px-3 py-2 rounded">
+                <span class="text-slate-600">Job ${consumer.jobId} (${consumer.user})</span>
+                <span class="font-mono font-semibold text-slate-900">${consumer.formatted} CPUs</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      ` : ''}
     </div>
   `;
 }
