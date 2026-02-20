@@ -848,8 +848,8 @@ function renderAssocMaxJobsLimitReason(data) {
   
   let html = `
     <div class="mb-6">
-      <h3 class="text-lg font-semibold text-slate-800 mb-2">User Job Limit Reached</h3>
-      <p class="text-sm text-slate-600">User "${job.user}" has reached the job limit for account "${analysis.limitingAccount}"</p>
+      <h3 class="text-lg font-semibold text-slate-800 mb-2">Per-User Job Limit Reached</h3>
+      <p class="text-sm text-slate-600">User "${job.user}" has reached the per-user running job limit</p>
     </div>
     
     <div class="space-y-4">
