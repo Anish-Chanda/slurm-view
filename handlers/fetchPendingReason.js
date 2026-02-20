@@ -49,6 +49,9 @@ const getPendingReason = async (jobId) => {
             case 'AssocGrpGRES':
                 result = analyzeAssocGrpGRES(jobId, jobData);
                 break;
+            case 'AssocMaxJobsLimit':
+                result = analyzeAssocMaxJobsLimit(jobId, jobData);
+                break;
             case 'AssocGrpMemRunMinutes':
                 result = analyzeAssocGrpMemRunMinutes(jobId, jobData);
                 break;
@@ -1496,6 +1499,157 @@ const analyzeAssocGrpGRES = (jobId, jobData) => {
 };
 
 /**
+ * Analyze a job pending due to per-user job limit (AssocMaxJobsLimit)
+ * 
+ * Note: AssocMaxJobsLimit is enforced per user within an account. This means
+ * each user has their own maxJobs limit that restricts how many jobs they can
+ * run simultaneously. The limit can be set at the user-association level or
+ * inherited from the account-level settings.
+ * 
+ * @param {string} jobId - Job ID
+ * @param {Object} jobData - Parsed job data from scontrol
+ * @returns {Object} AssocMaxJobsLimit analysis result
+ */
+const analyzeAssocMaxJobsLimit = (jobId, jobData) => {
+    try {
+        // Get account limits from cache
+        const allLimits = dataCache.getAccountLimits();
+        if (!allLimits) {
+            return { type: 'Error', message: 'Account limits not available' };
+        }
+        
+        const account = jobData.Account;
+        const user = jobData.UserId ? jobData.UserId.split('(')[0] : null;
+        
+        if (!user) {
+            return { type: 'Error', message: 'User information not available' };
+        }
+        
+        // Build ancestor chain
+        const { buildAncestorChain } = require('../helpers/accountLimits');
+        const chain = buildAncestorChain(account, allLimits);
+        
+        // Find which level hit the limit
+        let limitingAccount = null;
+        let limitingLevel = null;
+        let limitingLimit = null;
+        
+        for (let i = 0; i < chain.length; i++) {
+            const ancestorAccount = chain[i];
+            const ancestorData = allLimits.accounts[ancestorAccount];
+            
+            if (!ancestorData) continue;
+            
+            // Check for user-specific limit first, then fall back to account-level limit
+            let maxJobsLimit = null;
+            
+            // User-specific limit takes precedence
+            if (ancestorData.users && ancestorData.users[user] && ancestorData.users[user].maxJobs) {
+                maxJobsLimit = ancestorData.users[user].maxJobs;
+            } else if (ancestorData.maxJobs) {
+                // Fall back to account-level limit
+                maxJobsLimit = ancestorData.maxJobs;
+            }
+            
+            if (!maxJobsLimit) continue;
+            
+            // Calculate current job count for this user in this account
+            // For hierarchical accounts, we need to include jobs from all descendant accounts
+            const userJobCount = calculateUserJobCount(user, ancestorAccount, allLimits, true);
+            
+            // Check if user has hit or exceeded the maxJobs limit
+            // Note: maxJobs is the limit on running jobs per user
+            // Slurm blocks when count >= limit (not just when exceeding)
+            if (userJobCount >= maxJobsLimit) {
+                limitingAccount = ancestorAccount;
+                limitingLevel = i;
+                limitingLimit = maxJobsLimit;
+                break;
+            }
+        }
+        
+        if (!limitingAccount) {
+            return { 
+                type: 'Info', 
+                message: 'Cache shows user below job limit, but Slurm reports limit reached',
+                details: 'This indicates jobs recently started/completed. Cache updates every 30 seconds - check back shortly.'
+            };
+        }
+        
+        const limitingData = allLimits.accounts[limitingAccount];
+        const currentJobCount = calculateUserJobCount(user, limitingAccount, allLimits, true);
+        
+        // Get list of user's running jobs in this account for display
+        const userJobs = getUserRunningJobs(user, limitingAccount, allLimits, true);
+        
+        // Build hierarchy info
+        const hierarchy = chain.map((acc, index) => {
+            const accData = allLimits.accounts[acc];
+            const accJobCount = calculateUserJobCount(user, acc, allLimits, true);
+            
+            // Check for user-specific limit first, then account-level
+            let maxJobsLimit = null;
+            if (accData.users && accData.users[user] && accData.users[user].maxJobs) {
+                maxJobsLimit = accData.users[user].maxJobs;
+            } else if (accData.maxJobs) {
+                maxJobsLimit = accData.maxJobs;
+            }
+            
+            return {
+                account: acc,
+                level: index,
+                hasLimit: !!maxJobsLimit,
+                isLimiting: acc === limitingAccount,
+                limit: maxJobsLimit ? {
+                    value: maxJobsLimit,
+                    formatted: maxJobsLimit.toLocaleString()
+                } : null,
+                usage: maxJobsLimit ? {
+                    value: accJobCount,
+                    formatted: accJobCount.toLocaleString(),
+                    percent: ((accJobCount / maxJobsLimit) * 100).toFixed(1)
+                } : null,
+                available: maxJobsLimit ? {
+                    value: Math.max(0, maxJobsLimit - accJobCount),
+                    formatted: Math.max(0, maxJobsLimit - accJobCount).toLocaleString()
+                } : null,
+                parent: accData.parent
+            };
+        });
+        
+        return {
+            type: 'AssocMaxJobsLimit',
+            jobId: jobId,
+            account: account,
+            user: user,
+            limitingAccount: limitingAccount,
+            limitingLevel: limitingLevel,
+            isDirectAccount: limitingAccount === account,
+            hierarchy: hierarchy,
+            job: {
+                account: account,
+                user: user
+            },
+            analysis: {
+                limitingAccount: limitingAccount,
+                limit: limitingLimit,
+                limitFormatted: limitingLimit.toLocaleString(),
+                currentJobs: currentJobCount,
+                currentJobsFormatted: currentJobCount.toLocaleString(),
+                percentUsed: ((currentJobCount / limitingLimit) * 100).toFixed(1),
+                available: Math.max(0, limitingLimit - currentJobCount),
+                availableFormatted: Math.max(0, limitingLimit - currentJobCount).toLocaleString()
+            },
+            userJobs: userJobs.slice(0, 10) // Show top 10 jobs
+        };
+        
+    } catch (error) {
+        console.error(`Error analyzing AssocMaxJobsLimit for job ${jobId}:`, error.message);
+        return { type: 'Error', message: error.message };
+    }
+};
+
+/**
  * Calculate account GRES usage from cached jobs
  * @param {string} account - Account name
  * @param {Object} allLimits - All account limits data
@@ -1606,6 +1760,125 @@ function getAllDescendantAccounts(parentAccount, allLimits) {
     });
     
     return descendants;
+}
+
+/**
+ * Calculate the number of running jobs for a specific user in an account
+ * @param {string} user - Username
+ * @param {string} account - Account name
+ * @param {Object} allLimits - All account limits data
+ * @param {boolean} includeChildren - Whether to include child account jobs
+ * @returns {number} - Count of running jobs
+ */
+function calculateUserJobCount(user, account, allLimits, includeChildren = false) {
+    const jobsData = dataCache.getData('jobs');
+    
+    if (!jobsData || !jobsData.jobs) {
+        return 0;
+    }
+    
+    // Get list of accounts to check
+    let accountsToCheck = [account];
+    if (includeChildren) {
+        accountsToCheck = getAllDescendantAccounts(account, allLimits);
+    }
+    
+    // Count RUNNING jobs for this user in the specified account(s)
+    let count = 0;
+    jobsData.jobs.forEach(job => {
+        if (job.job_state === 'RUNNING' && 
+            accountsToCheck.includes(job.account) && 
+            job.user_name === user) {
+            count++;
+        }
+    });
+    
+    return count;
+}
+
+/**
+ * Get list of running jobs for a specific user in an account
+ * @param {string} user - Username
+ * @param {string} account - Account name
+ * @param {Object} allLimits - All account limits data
+ * @param {boolean} includeChildren - Whether to include child account jobs
+ * @returns {Array} - Array of job objects
+ */
+function getUserRunningJobs(user, account, allLimits, includeChildren = false) {
+    const jobsData = dataCache.getData('jobs');
+    const jobs = [];
+    
+    if (!jobsData || !jobsData.jobs) {
+        return jobs;
+    }
+    
+    // Get list of accounts to check
+    let accountsToCheck = [account];
+    if (includeChildren) {
+        accountsToCheck = getAllDescendantAccounts(account, allLimits);
+    }
+    
+    // Get RUNNING jobs for this user in the specified account(s)
+    jobsData.jobs.forEach(job => {
+        if (job.job_state === 'RUNNING' && 
+            accountsToCheck.includes(job.account) && 
+            job.user_name === user) {
+            jobs.push({
+                jobId: job.job_id,
+                account: job.account,
+                partition: job.partition,
+                name: job.name || job.job_name || 'N/A',
+                startTime: formatJobStartTime(job)
+            });
+        }
+    });
+    
+    // Sort by start time (most recent first)
+    jobs.sort((a, b) => {
+        if (a.startTime === 'N/A') return 1;
+        if (b.startTime === 'N/A') return -1;
+        return new Date(b.startTime) - new Date(a.startTime);
+    });
+    
+    return jobs;
+}
+
+/**
+ * Format job start time for display
+ * @param {Object} job - Job object
+ * @returns {string} - Formatted start time
+ */
+function formatJobStartTime(job) {
+    // Try pre-formatted field first
+    if (job.start_time_formatted) {
+        return job.start_time_formatted;
+    }
+    
+    // Try Unix timestamp
+    if (job.start_time && typeof job.start_time === 'number') {
+        try {
+            const date = new Date(job.start_time * 1000);
+            if (!isNaN(date.getTime())) {
+                return date.toISOString().replace('T', ' ').split('.')[0];
+            }
+        } catch (e) {
+            // Fall through
+        }
+    }
+    
+    // Try ISO date string
+    if (job.start_time && typeof job.start_time === 'string') {
+        try {
+            const date = new Date(job.start_time);
+            if (!isNaN(date.getTime())) {
+                return date.toISOString().replace('T', ' ').split('.')[0];
+            }
+        } catch (e) {
+            // Fall through
+        }
+    }
+    
+    return 'N/A';
 }
 
 /**

@@ -856,6 +856,448 @@ describe("getPendingReason", () => {
         });
     });
 
+    describe('AssocMaxJobsLimit', () => {
+        beforeEach(() => {
+            jest.resetAllMocks();
+            dataCache.getPendingReason = jest.fn().mockReturnValue(null);
+        });
+
+        it('should analyze user job limit for pending job', async () => {
+            const mockAccountLimits = {
+                timestamp: Date.now(),
+                accounts: {
+                    'test-account': {
+                        parent: 'root',
+                        grpMem: 100000,
+                        grpCPUs: 500,
+                        grpTRES: { mem: 100000, cpu: 500, node: null, gres: {} },
+                        grpTRESRunMins: { mem: null, cpu: null, node: null, gres: {} },
+                        maxJobs: null,
+                        maxSubmitJobs: null,
+                        users: {
+                            'testuser': {
+                                user: 'testuser',
+                                grpCPUs: null,
+                                grpMem: null,
+                                grpTRES: { mem: null, cpu: null, node: null, gres: {} },
+                                grpTRESRunMins: { mem: null, cpu: null, node: null, gres: {} },
+                                maxJobs: 10,
+                                maxSubmitJobs: null
+                            }
+                        }
+                    },
+                    'root': {
+                        parent: null,
+                        grpMem: null,
+                        grpCPUs: null,
+                        grpTRES: { mem: null, cpu: null, node: null, gres: {} },
+                        grpTRESRunMins: { mem: null, cpu: null, node: null, gres: {} },
+                        maxJobs: null,
+                        maxSubmitJobs: null,
+                        users: {}
+                    }
+                }
+            };
+
+            const mockJobs = {
+                jobs: [
+                    {
+                        job_id: 100,
+                        account: 'test-account',
+                        job_state: 'RUNNING',
+                        user_name: 'testuser',
+                        job_name: 'job1',
+                        partition: 'debug',
+                        start_time_formatted: '2024-01-15 10:00:00'
+                    },
+                    {
+                        job_id: 101,
+                        account: 'test-account',
+                        job_state: 'RUNNING',
+                        user_name: 'testuser',
+                        job_name: 'job2',
+                        partition: 'debug',
+                        start_time_formatted: '2024-01-15 10:05:00'
+                    },
+                    {
+                        job_id: 102,
+                        account: 'test-account',
+                        job_state: 'RUNNING',
+                        user_name: 'testuser',
+                        job_name: 'job3',
+                        partition: 'debug',
+                        start_time_formatted: '2024-01-15 10:10:00'
+                    },
+                    {
+                        job_id: 103,
+                        account: 'test-account',
+                        job_state: 'RUNNING',
+                        user_name: 'testuser',
+                        job_name: 'job4',
+                        partition: 'debug',
+                        start_time_formatted: '2024-01-15 10:15:00'
+                    },
+                    {
+                        job_id: 104,
+                        account: 'test-account',
+                        job_state: 'RUNNING',
+                        user_name: 'testuser',
+                        job_name: 'job5',
+                        partition: 'debug',
+                        start_time_formatted: '2024-01-15 10:20:00'
+                    },
+                    {
+                        job_id: 105,
+                        account: 'test-account',
+                        job_state: 'RUNNING',
+                        user_name: 'testuser',
+                        job_name: 'job6',
+                        partition: 'debug',
+                        start_time_formatted: '2024-01-15 10:25:00'
+                    },
+                    {
+                        job_id: 106,
+                        account: 'test-account',
+                        job_state: 'RUNNING',
+                        user_name: 'testuser',
+                        job_name: 'job7',
+                        partition: 'debug',
+                        start_time_formatted: '2024-01-15 10:30:00'
+                    },
+                    {
+                        job_id: 107,
+                        account: 'test-account',
+                        job_state: 'RUNNING',
+                        user_name: 'testuser',
+                        job_name: 'job8',
+                        partition: 'debug',
+                        start_time_formatted: '2024-01-15 10:35:00'
+                    },
+                    {
+                        job_id: 108,
+                        account: 'test-account',
+                        job_state: 'RUNNING',
+                        user_name: 'testuser',
+                        job_name: 'job9',
+                        partition: 'debug',
+                        start_time_formatted: '2024-01-15 10:40:00'
+                    },
+                    {
+                        job_id: 109,
+                        account: 'test-account',
+                        job_state: 'RUNNING',
+                        user_name: 'testuser',
+                        job_name: 'job10',
+                        partition: 'debug',
+                        start_time_formatted: '2024-01-15 10:45:00'
+                    },
+                    {
+                        job_id: 110,
+                        account: 'test-account',
+                        job_state: 'RUNNING',
+                        user_name: 'otheruser',
+                        job_name: 'other-job',
+                        partition: 'debug',
+                        start_time_formatted: '2024-01-15 11:00:00'
+                    }
+                ]
+            };
+
+            dataCache.getAccountLimits = jest.fn().mockReturnValue(mockAccountLimits);
+            dataCache.getData = jest.fn().mockReturnValue(mockJobs);
+            dataCache.getJobById.mockReturnValue({
+                job_id: 200,
+                account: 'test-account',
+                job_state: ['PENDING']
+            });
+
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=AssocMaxJobsLimit Account=test-account UserId=testuser(1000)"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('AssocMaxJobsLimit');
+            expect(result.limitingAccount).toBe('test-account');
+            expect(result.user).toBe('testuser');
+            expect(result.analysis.limit).toBe(10);
+            expect(result.analysis.currentJobs).toBe(10);
+            expect(result.analysis.percentUsed).toBe('100.0');
+            expect(result.analysis.available).toBe(0);
+            expect(result.userJobs).toBeDefined();
+            expect(result.userJobs.length).toBe(10);
+        });
+
+        it('should handle hierarchical account limits', async () => {
+            const mockAccountLimits = {
+                timestamp: Date.now(),
+                accounts: {
+                    'child-account': {
+                        parent: 'parent-account',
+                        grpMem: null,
+                        grpCPUs: null,
+                        grpTRES: { mem: null, cpu: null, node: null, gres: {} },
+                        grpTRESRunMins: { mem: null, cpu: null, node: null, gres: {} },
+                        maxJobs: null,
+                        maxSubmitJobs: null,
+                        users: {}
+                    },
+                    'parent-account': {
+                        parent: 'root',
+                        grpMem: null,
+                        grpCPUs: null,
+                        grpTRES: { mem: null, cpu: null, node: null, gres: {} },
+                        grpTRESRunMins: { mem: null, cpu: null, node: null, gres: {} },
+                        maxJobs: null,
+                        maxSubmitJobs: null,
+                        users: {
+                            'testuser': {
+                                user: 'testuser',
+                                grpCPUs: null,
+                                grpMem: null,
+                                grpTRES: { mem: null, cpu: null, node: null, gres: {} },
+                                grpTRESRunMins: { mem: null, cpu: null, node: null, gres: {} },
+                                maxJobs: 5,
+                                maxSubmitJobs: null
+                            }
+                        }
+                    },
+                    'root': {
+                        parent: null,
+                        grpMem: null,
+                        grpCPUs: null,
+                        grpTRES: { mem: null, cpu: null, node: null, gres: {} },
+                        grpTRESRunMins: { mem: null, cpu: null, node: null, gres: {} },
+                        maxJobs: null,
+                        maxSubmitJobs: null,
+                        users: {}
+                    }
+                }
+            };
+
+            const mockJobs = {
+                jobs: [
+                    {
+                        job_id: 100,
+                        account: 'child-account',
+                        job_state: 'RUNNING',
+                        user_name: 'testuser',
+                        job_name: 'job1',
+                        partition: 'debug',
+                        start_time_formatted: '2024-01-15 10:00:00'
+                    },
+                    {
+                        job_id: 101,
+                        account: 'child-account',
+                        job_state: 'RUNNING',
+                        user_name: 'testuser',
+                        job_name: 'job2',
+                        partition: 'debug',
+                        start_time_formatted: '2024-01-15 10:05:00'
+                    },
+                    {
+                        job_id: 102,
+                        account: 'child-account',
+                        job_state: 'RUNNING',
+                        user_name: 'testuser',
+                        job_name: 'job3',
+                        partition: 'debug',
+                        start_time_formatted: '2024-01-15 10:10:00'
+                    },
+                    {
+                        job_id: 103,
+                        account: 'child-account',
+                        job_state: 'RUNNING',
+                        user_name: 'testuser',
+                        job_name: 'job4',
+                        partition: 'debug',
+                        start_time_formatted: '2024-01-15 10:15:00'
+                    },
+                    {
+                        job_id: 104,
+                        account: 'child-account',
+                        job_state: 'RUNNING',
+                        user_name: 'testuser',
+                        job_name: 'job5',
+                        partition: 'debug',
+                        start_time_formatted: '2024-01-15 10:20:00'
+                    }
+                ]
+            };
+
+            dataCache.getAccountLimits = jest.fn().mockReturnValue(mockAccountLimits);
+            dataCache.getData = jest.fn().mockReturnValue(mockJobs);
+            dataCache.getJobById.mockReturnValue({
+                job_id: 200,
+                account: 'child-account',
+                job_state: ['PENDING']
+            });
+
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=AssocMaxJobsLimit Account=child-account UserId=testuser(1000)"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('AssocMaxJobsLimit');
+            expect(result.limitingAccount).toBe('parent-account');
+            expect(result.isDirectAccount).toBe(false);
+            expect(result.analysis.limit).toBe(5);
+            expect(result.analysis.currentJobs).toBe(5);
+        });
+
+        it('should handle missing account limits data', async () => {
+            dataCache.getAccountLimits = jest.fn().mockReturnValue(null);
+            dataCache.getJobById.mockReturnValue({
+                job_id: 200,
+                account: 'test-account',
+                job_state: ['PENDING']
+            });
+
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=AssocMaxJobsLimit Account=test-account UserId=testuser(1000)"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('Error');
+            expect(result.message).toContain('Account limits not available');
+        });
+
+        it('should handle missing user information', async () => {
+            const mockAccountLimits = {
+                timestamp: Date.now(),
+                accounts: {
+                    'test-account': {
+                        parent: 'root',
+                        maxJobs: 10,
+                        users: {}
+                    },
+                    'root': {
+                        parent: null,
+                        maxJobs: null,
+                        users: {}
+                    }
+                }
+            };
+
+            dataCache.getAccountLimits = jest.fn().mockReturnValue(mockAccountLimits);
+            dataCache.getData = jest.fn().mockReturnValue({ jobs: [] });
+            dataCache.getJobById.mockReturnValue({
+                job_id: 200,
+                account: 'test-account',
+                job_state: ['PENDING']
+            });
+
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=AssocMaxJobsLimit Account=test-account"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('Error');
+            expect(result.message).toContain('User information not available');
+        });
+
+        it('should only count running jobs, not pending jobs', async () => {
+            const mockAccountLimits = {
+                timestamp: Date.now(),
+                accounts: {
+                    'test-account': {
+                        parent: 'root',
+                        maxJobs: null,
+                        grpTRES: { mem: null, cpu: null, node: null, gres: {} },
+                        grpTRESRunMins: { mem: null, cpu: null, node: null, gres: {} },
+                        users: {
+                            'testuser': {
+                                user: 'testuser',
+                                grpCPUs: null,
+                                grpMem: null,
+                                grpTRES: { mem: null, cpu: null, node: null, gres: {} },
+                                grpTRESRunMins: { mem: null, cpu: null, node: null, gres: {} },
+                                maxJobs: 3,
+                                maxSubmitJobs: null
+                            }
+                        }
+                    },
+                    'root': {
+                        parent: null,
+                        maxJobs: null,
+                        grpTRES: { mem: null, cpu: null, node: null, gres: {} },
+                        grpTRESRunMins: { mem: null, cpu: null, node: null, gres: {} },
+                        users: {}
+                    }
+                }
+            };
+
+            const mockJobs = {
+                jobs: [
+                    {
+                        job_id: 100,
+                        account: 'test-account',
+                        job_state: 'RUNNING',
+                        user_name: 'testuser',
+                        job_name: 'job1',
+                        partition: 'debug',
+                        start_time_formatted: '2024-01-15 10:00:00'
+                    },
+                    {
+                        job_id: 101,
+                        account: 'test-account',
+                        job_state: 'RUNNING',
+                        user_name: 'testuser',
+                        job_name: 'job2',
+                        partition: 'debug',
+                        start_time_formatted: '2024-01-15 10:05:00'
+                    },
+                    {
+                        job_id: 102,
+                        account: 'test-account',
+                        job_state: 'RUNNING',
+                        user_name: 'testuser',
+                        job_name: 'job3',
+                        partition: 'debug',
+                        start_time_formatted: '2024-01-15 10:10:00'
+                    },
+                    {
+                        job_id: 103,
+                        account: 'test-account',
+                        job_state: 'PENDING',
+                        user_name: 'testuser',
+                        job_name: 'pending-job',
+                        partition: 'debug'
+                    },
+                    {
+                        job_id: 104,
+                        account: 'test-account',
+                        job_state: 'COMPLETED',
+                        user_name: 'testuser',
+                        job_name: 'completed-job',
+                        partition: 'debug'
+                    }
+                ]
+            };
+
+            dataCache.getAccountLimits = jest.fn().mockReturnValue(mockAccountLimits);
+            dataCache.getData = jest.fn().mockReturnValue(mockJobs);
+            dataCache.getJobById.mockReturnValue({
+                job_id: 200,
+                account: 'test-account',
+                job_state: ['PENDING']
+            });
+
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=AssocMaxJobsLimit Account=test-account UserId=testuser(1000)"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('AssocMaxJobsLimit');
+            expect(result.analysis.currentJobs).toBe(3);  // Only RUNNING jobs
+            expect(result.userJobs.length).toBe(3);
+        });
+    });
+
     describe('AssocGrpMemRunMinutes', () => {
         it('should analyze AssocGrpMemRunMinutes limit correctly', async () => {
             const mockAccountLimits = {

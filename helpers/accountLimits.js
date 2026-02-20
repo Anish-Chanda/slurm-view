@@ -125,13 +125,15 @@ function fetchAccountLimits() {
             }
             
             // Store user-specific limits if they exist
-            if (grpMem || grpCPUs || grpTRES || grpTRESRunMins) {
+            if (grpMem || grpCPUs || grpTRES || grpTRESRunMins || maxJobs || maxSubmit) {
                 accounts[account].users[user] = {
                     user: user,
                     grpCPUs: grpCPUs ? parseInt(grpCPUs) : null,
                     grpMem: grpMem ? parseInt(grpMem) : null,
                     grpTRES: grpTRES ? parseTRESLimits(grpTRES) : { cpu: null, mem: null, node: null, gres: {} },
-                    grpTRESRunMins: grpTRESRunMins ? parseTRESLimits(grpTRESRunMins) : { cpu: null, mem: null, node: null, gres: {} }
+                    grpTRESRunMins: grpTRESRunMins ? parseTRESLimits(grpTRESRunMins) : { cpu: null, mem: null, node: null, gres: {} },
+                    maxJobs: maxJobs ? parseInt(maxJobs) : null,
+                    maxSubmitJobs: maxSubmit ? parseInt(maxSubmit) : null
                 };
             }
         }

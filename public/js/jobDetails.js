@@ -87,6 +87,8 @@ function renderPendingReason(data, container) {
       html += renderAssocGrpCPULimitReason(data);
   } else if (data.type === 'AssocGrpGRES') {
       html += renderAssocGrpGRESReason(data);
+  } else if (data.type === 'AssocMaxJobsLimit') {
+      html += renderAssocMaxJobsLimitReason(data);
   } else if (data.type === 'AssocGrpMemRunMinutes') {
       html += renderAssocGrpMemRunMinutesReason(data);
   } else if (data.type === 'AssocGrpCPURunMinutes') {
@@ -835,6 +837,88 @@ function renderAssocGrpGRESReason(data) {
           ${renderHierarchyTree(hierarchy)}
         </div>
       </div>
+    </div>
+  `;
+  
+  return html;
+}
+
+function renderAssocMaxJobsLimitReason(data) {
+  const { analysis, hierarchy, job, userJobs } = data;
+  
+  let html = `
+    <div class="mb-6">
+      <h3 class="text-lg font-semibold text-slate-800 mb-2">User Job Limit Reached</h3>
+      <p class="text-sm text-slate-600">User "${job.user}" has reached the job limit for account "${analysis.limitingAccount}"</p>
+    </div>
+    
+    <div class="space-y-4">
+      <div class="bg-slate-50 p-4 rounded-lg border border-slate-200">
+        <div class="grid grid-cols-2 gap-4 text-sm">
+          <div>
+            <span class="text-slate-600 font-medium">Per-User Job Limit:</span>
+            <span class="ml-2 text-slate-900 font-semibold">${analysis.limitFormatted} jobs</span>
+          </div>
+          <div>
+            <span class="text-slate-600 font-medium">Currently Running:</span>
+            <span class="ml-2 text-slate-900 font-semibold">${analysis.currentJobsFormatted} jobs (${analysis.percentUsed}%)</span>
+          </div>
+          <div>
+            <span class="text-slate-600 font-medium">Available:</span>
+            <span class="ml-2 ${parseFloat(analysis.percentUsed) >= 100 ? 'text-red-600' : 'text-green-600'} font-semibold">${analysis.availableFormatted} jobs</span>
+          </div>
+          <div>
+            <span class="text-slate-600 font-medium">User:</span>
+            <span class="ml-2 text-slate-900 font-semibold">${job.user}</span>
+          </div>
+        </div>
+      </div>
+      
+      ${userJobs && userJobs.length > 0 ? `
+        <div class="border-t border-slate-200 pt-4">
+          <button 
+            onclick="document.getElementById('user-jobs-${data.jobId}').classList.toggle('hidden')"
+            class="text-slate-600 hover:text-slate-900 text-sm font-medium flex items-center">
+            <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+            </svg>
+            View Your Running Jobs (${userJobs.length > 10 ? 'Top 10' : userJobs.length})
+          </button>
+          <div id="user-jobs-${data.jobId}" class="hidden mt-3">
+            <div class="bg-slate-50 rounded-lg border border-slate-200 overflow-hidden">
+              <div class="overflow-x-auto">
+                <table class="min-w-full text-sm">
+                  <thead class="bg-slate-100 border-b border-slate-200">
+                    <tr>
+                      <th class="px-3 py-2 text-left font-medium text-slate-700">Job ID</th>
+                      <th class="px-3 py-2 text-left font-medium text-slate-700">Name</th>
+                      <th class="px-3 py-2 text-left font-medium text-slate-700">Account</th>
+                      <th class="px-3 py-2 text-left font-medium text-slate-700">Partition</th>
+                      <th class="px-3 py-2 text-left font-medium text-slate-700">Start Time</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-200">
+                    ${userJobs.map(j => `
+                      <tr class="hover:bg-slate-100">
+                        <td class="px-3 py-2 font-mono text-slate-900">${j.jobId}</td>
+                        <td class="px-3 py-2 text-slate-700">${j.name}</td>
+                        <td class="px-3 py-2 text-slate-700">${j.account}</td>
+                        <td class="px-3 py-2 text-slate-700">${j.partition}</td>
+                        <td class="px-3 py-2 text-slate-600">${j.startTime}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+              ${userJobs.length === 10 && analysis.currentJobs > 10 ? `
+                <div class="px-3 py-2 bg-slate-100 border-t border-slate-200 text-sm text-slate-600 text-center">
+                  ... ${analysis.currentJobs - 10} more jobs
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        </div>
+      ` : ''}
     </div>
   `;
   
