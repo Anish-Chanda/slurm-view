@@ -21,6 +21,9 @@ function parseGpuAllocations(gresDetail) {
     // Handle gres_detail array format: ["gpu:a100:2(IDX:2-3)"]
     if (Array.isArray(gresDetail)) {
         gresDetail.forEach(entry => {
+            // Skip null or undefined entries
+            if (!entry) return;
+            
             // Match patterns like "gpu:a100:2(IDX:...)" or "gpu:v100:1"
             const match = entry.match(/gpu:([^:]+):(\d+)/);
             if (match) {
