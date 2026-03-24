@@ -270,9 +270,11 @@ NodeName=node3 Gres=gpu:a40:4 State=ALLOCATED
 
     // Check structure
     expect(result.name).toBe("GPU Utilization");
-    expect(result.children).toHaveLength(2); // Used and Available categories
+    expect(result.children).toHaveLength(4); // Used, Available, Down and Unknown categories
     expect(result.children[0].name).toBe("Used");
     expect(result.children[1].name).toBe("Available");
+    expect(result.children[2].name).toBe("Down");
+    expect(result.children[3].name).toBe("Unknown");
     expect(result.totalGPUs).toBe(10); // 4 + 2 + 4 = 10 total GPUs
 
     // Check data
@@ -448,6 +450,52 @@ NodeName=compute-node1 Gres=gpu:a100:8 Partitions=compute State=IDLE RealMemory=
     // Verify commands were called with correct partition filter
     expect(executeCommandStreaming).toHaveBeenCalledWith("scontrol 'show' 'node' '-o'");
     expect(executeCommand).not.toHaveBeenCalled(); // Using cached jobs
+  });
+
+  it("should exclude DOWN and DRAINED GPUs from available totals", async () => {
+    executeCommandStreaming.mockResolvedValue(`
+NodeName=node1 Gres=gpu:a100:8 Partitions=gpu State=IDLE
+NodeName=node2 Gres=gpu:a100:8 Partitions=gpu State=DOWN
+NodeName=node3 Gres=gpu:v100:4 Partitions=gpu State=DRAINED
+`);
+
+    const dataCache = require("../../modules/dataCache");
+    dataCache.getData.mockReturnValue({ jobs: [] });
+
+    const result = await getGPUByState("gpu");
+
+    const availableA100 = result.children[1].children.find(gpu => gpu.name === "a100");
+    const downA100 = result.children[2].children.find(gpu => gpu.name === "a100");
+    const downV100 = result.children[2].children.find(gpu => gpu.name === "v100");
+
+    expect(result.totalGPUs).toBe(20);
+    expect(availableA100).toBeDefined();
+    expect(availableA100.value).toBe(8);
+    expect(downA100).toBeDefined();
+    expect(downA100.value).toBe(8);
+    expect(downV100).toBeDefined();
+    expect(downV100.value).toBe(4);
+  });
+
+  it("should treat UNKNOWN nodes as unavailable", async () => {
+    executeCommandStreaming.mockResolvedValue(`
+NodeName=node1 Gres=gpu:a100:4 Partitions=gpu State=UNKNOWN
+NodeName=node2 Gres=gpu:a100:4 Partitions=gpu State=IDLE
+`);
+
+    const dataCache = require("../../modules/dataCache");
+    dataCache.getData.mockReturnValue({ jobs: [] });
+
+    const result = await getGPUByState("gpu");
+
+    const availableA100 = result.children[1].children.find(gpu => gpu.name === "a100");
+    const unknownA100 = result.children[3].children.find(gpu => gpu.name === "a100");
+
+    expect(result.totalGPUs).toBe(8);
+    expect(availableA100).toBeDefined();
+    expect(availableA100.value).toBe(4);
+    expect(unknownA100).toBeDefined();
+    expect(unknownA100.value).toBe(4);
   });
 
   it("should correctly handle mixed GPU allocation formats (with and without explicit count)", async () => {

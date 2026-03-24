@@ -2,6 +2,27 @@ const { executeCommand, executeCommandStreaming } = require("../helpers/executeC
 const { validatePartitionName, createSafeCommand } = require("../helpers/inputValidation");
 const dataCache = require("../modules/dataCache.js");
 
+const UNAVAILABLE_NODE_STATE_TOKENS = [
+    "DOWN",
+    "DRAIN",
+    "NOT_RESPONDING",
+    "POWERED_DOWN",
+    "POWERING_DOWN",
+    "FAIL",
+    "FAILING",
+    "UNKNOWN"
+];
+
+const isNodeUnavailable = (nodeState = "") => {
+    const normalizedState = nodeState.toUpperCase();
+    return UNAVAILABLE_NODE_STATE_TOKENS.some(token => normalizedState.includes(token));
+};
+
+const isNodeDownState = (nodeState = "") => {
+    const normalizedState = nodeState.toUpperCase();
+    return normalizedState.includes("DOWN") || normalizedState.includes("DRAIN");
+};
+
 // Fetches the number of CPUs by state
 function getCPUsByState(partition = null) {
     const key = `stats:cpu:${partition || 'all'}`;
@@ -91,7 +112,7 @@ function getMemByState(partition = null) {
                 distribution.total += realMem;
 
                 // Categorize memory based on node state
-                if (nodeState.includes("DOWN") || nodeState.includes("DRAIN")) {
+                if (isNodeUnavailable(nodeState)) {
                     distribution.down += realMem;
                 } else {
                     distribution.allocated += allocMem;
@@ -138,6 +159,8 @@ async function getGPUByState(partition = null) {
         const nodeLines = scontrolOutput.trim().split("\n");
 
         const gpuTotals = {};
+        const gpuDownTotals = {};
+        const gpuUnknownTotals = {};
         const gresRegex = /gpu:([^:]+):(\d+)/g;
 
         nodeLines.forEach(line => {
@@ -154,15 +177,27 @@ async function getGPUByState(partition = null) {
                 }
             }
 
+            const stateMatch = line.match(/State=(\S+)/);
+            const nodeState = stateMatch ? stateMatch[1] : "";
+
             const gresMatch = line.match(/Gres=([^\s]+)/);
             if (gresMatch) {
                 const gresString = gresMatch[1];
+                gresRegex.lastIndex = 0;
                 let match;
                 // Loop through all gpu entries in the gres string (e.g., "gpu:a100:8,gpu:v100:4")
                 while ((match = gresRegex.exec(gresString)) !== null) {
                     const gpuType = match[1];
                     const count = Number(match[2]);
-                    gpuTotals[gpuType] = (gpuTotals[gpuType] || 0) + count;
+                    if (isNodeUnavailable(nodeState)) {
+                        if (isNodeDownState(nodeState)) {
+                            gpuDownTotals[gpuType] = (gpuDownTotals[gpuType] || 0) + count;
+                        } else {
+                            gpuUnknownTotals[gpuType] = (gpuUnknownTotals[gpuType] || 0) + count;
+                        }
+                    } else {
+                        gpuTotals[gpuType] = (gpuTotals[gpuType] || 0) + count;
+                    }
                 }
             }
         });
@@ -201,20 +236,36 @@ async function getGPUByState(partition = null) {
 
         // combine totals and used
         const gpuTypes = {};
-        Object.keys(gpuTotals).forEach(gpuType => {
+        const allGpuTypes = new Set([
+            ...Object.keys(gpuTotals),
+            ...Object.keys(gpuDownTotals),
+            ...Object.keys(gpuUnknownTotals),
+            ...Object.keys(gpuUsed)
+        ]);
+
+        allGpuTypes.forEach(gpuType => {
             gpuTypes[gpuType] = {
-                total: gpuTotals[gpuType],
+                total: gpuTotals[gpuType] || 0,
+                down: gpuDownTotals[gpuType] || 0,
+                unknown: gpuUnknownTotals[gpuType] || 0,
                 used: gpuUsed[gpuType] || 0, // Default to 0 if no GPUs of this type are currently in use.
             };
         });
 
-        // Calculate total GPU count
-        const totalGPUCount = Object.values(gpuTotals).reduce((sum, count) => sum + count, 0);
+        // Calculate total GPU count (available + unavailable nodes)
+        const totalGPUCount = Object.values(gpuTypes).reduce((sum, typeData) => {
+            return sum + typeData.total + typeData.down + typeData.unknown;
+        }, 0);
 
         // genreate response
         const gpuStats = {
             name: "GPU Utilization",
-            children: [{ name: "Used", children: [] }, { name: "Available", children: [] }],
+            children: [
+                { name: "Used", children: [] },
+                { name: "Available", children: [] },
+                { name: "Down", children: [] },
+                { name: "Unknown", children: [] }
+            ],
             totalGPUs: totalGPUCount
         };
 
@@ -230,12 +281,20 @@ async function getGPUByState(partition = null) {
             const used = typeData.used;
             // Ensure 'available' is not negative due to any transient mis-sync in Slurm states.
             const available = Math.max(0, typeData.total - used);
+            const down = Math.max(0, typeData.down);
+            const unknown = Math.max(0, typeData.unknown);
 
             if (used > 0) {
                 gpuStats.children[0].children.push({ name: gpuType, value: used });
             }
             if (available > 0) {
                 gpuStats.children[1].children.push({ name: gpuType, value: available });
+            }
+            if (down > 0) {
+                gpuStats.children[2].children.push({ name: gpuType, value: down });
+            }
+            if (unknown > 0) {
+                gpuStats.children[3].children.push({ name: gpuType, value: unknown });
             }
         });
 

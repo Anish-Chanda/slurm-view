@@ -20,7 +20,11 @@ function drawSunburstChart(data, containerId, titleText, totalSuffix) {
       }
       // First level: Used vs Available
       if (d.depth === 1) {
-        return d.data.name === "Used" ? "#e63946" : "#2a9d8f"; // Red for used, Green for available
+        if (d.data.name === "Used") return "#e63946"; // Red for used
+        if (d.data.name === "Available") return "#2a9d8f"; // Green for available
+        if (d.data.name === "Down") return "#f4a261"; // Orange for down nodes
+        if (d.data.name === "Unknown") return "#9aa3ad"; // Gray for unknown states
+        return "#888888";
       } 
       // Second level: Different GPU types get different shades based on parent
       else if (d.depth === 2) {
@@ -29,10 +33,18 @@ function drawSunburstChart(data, containerId, titleText, totalSuffix) {
           // Different shades of red/orange for used GPUs
           const usedColors = ["#e63946", "#f94144", "#f3722c", "#f8961e", "#f9844a"];
           return usedColors[d.parent.children.indexOf(d) % usedColors.length];
-        } else {
+        } else if (parentName === "Available") {
           // Different shades of green/blue for available GPUs
           const availableColors = ["#2a9d8f", "#52b788", "#76c893", "#99d98c", "#b5e48c"];
           return availableColors[d.parent.children.indexOf(d) % availableColors.length];
+        } else if (parentName === "Down") {
+          // Orange shades for GPUs on down nodes
+          const downColors = ["#f4a261", "#f1a66b", "#edae74", "#e7b57f", "#e1bc8b"];
+          return downColors[d.parent.children.indexOf(d) % downColors.length];
+        } else if (parentName === "Unknown") {
+          // Gray shades for GPUs on unknown/unreachable states
+          const unknownColors = ["#9aa3ad", "#a6aeb7", "#b1b8c0", "#bcc3ca", "#c8ced4"];
+          return unknownColors[d.parent.children.indexOf(d) % unknownColors.length];
         }
       }
       return "#888888"; // Fallback gray color
@@ -45,8 +57,8 @@ function drawSunburstChart(data, containerId, titleText, totalSuffix) {
         switch (d.data.name) {
           case "Allocated": return "#e63946"; // Red for allocated/used
           case "Idle": return "#2a9d8f"; // Green for idle/available  
-          case "Down": return "#6c757d"; // Gray for down/unavailable
-          case "Other": return "#ffc107"; // Yellow for other/mixed states
+          case "Down": return "#f4a261"; // Orange for down/unavailable
+          case "Other": return "#9aa3ad"; // Gray for other/mixed states
           default: return "#888888"; // Fallback gray
         }
       }
