@@ -16,7 +16,7 @@ const parseSprioOutput = (output) => {
     }
 
     const fields = dataLine.trim().split(/\s+/);
-    
+    // Default sprio output columns are weighted component contributions.
     // Expected format: JOBID PARTITION PRIORITY SITE AGE FAIRSHARE JOBSIZE PARTITION QOS
     const result = {
         jobId: fields[0],
@@ -183,15 +183,16 @@ const getRunningJobsCount = (partition) => {
 };
 
 /**
- * Calculate contribution percentage of each priority component
- * @param {Object} components - Priority components
- * @param {Object} weights - Priority weights
+ * Calculate contribution percentage of each priority component.
+ * Components from default sprio output are already weighted values.
+ * @param {Object} components - Weighted priority components
+ * @param {Object} _weights - Priority weights (unused for contribution math)
  * @returns {Object} Percentage contributions
  */
-const calculateContributions = (components, weights) => {
+const calculateContributions = (components, _weights) => {
     const contributions = {};
     const total = Object.keys(components).reduce((sum, key) => {
-        return sum + (components[key] * (weights[key] || 0));
+        return sum + (components[key] || 0);
     }, 0);
 
     if (total === 0) {
@@ -202,7 +203,7 @@ const calculateContributions = (components, weights) => {
     }
 
     Object.keys(components).forEach(key => {
-        const weightedValue = components[key] * (weights[key] || 0);
+        const weightedValue = components[key] || 0;
         contributions[key] = ((weightedValue / total) * 100).toFixed(1);
     });
 

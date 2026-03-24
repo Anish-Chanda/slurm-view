@@ -223,15 +223,49 @@ describe("priorityUtils", () => {
 
             const result = calculateContributions(components, weights);
 
-            // Total = (1000*1000) + (24923*100000) + (17*10000) + (10000*100000) + 0 + 0
-            //       = 1000000 + 2492300000 + 170000 + 1000000000 = 3493470000
-            // age contribution = (1000000 / 3493470000) * 100 ≈ 0.03%
-            // fairshare contribution = (2492300000 / 3493470000) * 100 ≈ 71.3%
+            // Components parsed from default sprio output are already weighted.
+            // Total = 1000 + 24923 + 17 + 10000 = 35940
+            // age contribution = (1000 / 35940) * 100 ≈ 2.8%
+            // fairshare contribution = (24923 / 35940) * 100 ≈ 69.3%
 
-            expect(parseFloat(result.age)).toBeCloseTo(0.0, 1);
-            expect(parseFloat(result.fairshare)).toBeGreaterThan(70);
+            expect(parseFloat(result.age)).toBeCloseTo(2.8, 1);
+            expect(parseFloat(result.fairshare)).toBeGreaterThan(69);
             expect(parseFloat(result.partition)).toBeGreaterThan(25);
             expect(parseFloat(result.jobsize)).toBeCloseTo(0.0, 1);
+        });
+
+        it("should ignore weights for weighted sprio component contributions", () => {
+            const components = {
+                age: 1000,
+                fairshare: 24923,
+                jobsize: 17,
+                partition: 10000,
+                qos: 0,
+                site: 0
+            };
+
+            const fullWeights = {
+                age: 1000,
+                fairshare: 100000,
+                jobsize: 10000,
+                partition: 100000,
+                qos: 1,
+                site: 1
+            };
+
+            const zeroWeights = {
+                age: 0,
+                fairshare: 0,
+                jobsize: 0,
+                partition: 0,
+                qos: 0,
+                site: 0
+            };
+
+            const resultWithFullWeights = calculateContributions(components, fullWeights);
+            const resultWithZeroWeights = calculateContributions(components, zeroWeights);
+
+            expect(resultWithFullWeights).toEqual(resultWithZeroWeights);
         });
 
         it("should handle zero total gracefully", () => {
