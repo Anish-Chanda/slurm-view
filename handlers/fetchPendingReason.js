@@ -169,10 +169,7 @@ const analyzePriorityPending = (jobId, jobData) => {
         const runningCount = getRunningJobsCount(jobData.Partition);
         
         // Calculate percentage contributions
-        const contributions = calculateContributions(
-            priorityData.components, 
-            priorityData.weights
-        );
+        const contributions = calculateContributions(priorityData.components);
 
         // Calculate estimated position in queue
         const queuePosition = competition.higherPriorityCount + 1;
@@ -184,6 +181,7 @@ const analyzePriorityPending = (jobId, jobData) => {
             priority: {
                 total: priorityData.priority,
                 components: priorityData.components,
+                normalizedComponents: priorityData.normalizedComponents,
                 weights: priorityData.weights,
                 contributions: contributions
             },

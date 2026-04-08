@@ -5,6 +5,19 @@ function formatNumberWithCommas(num) {
   return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
+// Format normalized sprio factors with enough precision.
+function formatPriorityFactor(value) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+      return '0';
+  }
+
+  return numericValue
+      .toFixed(6)
+      .replace(/\.0+$/, '')
+      .replace(/(\.\d*?)0+$/, '$1');
+}
+
 function handleExpandClick(e) {
   const button = e.target.closest('.expand-btn');
   if (!button) return;
@@ -293,15 +306,17 @@ function renderPriorityPendingReason(data) {
   html += '<div class="space-y-2">';
   Object.keys(componentLabels).forEach(key => {
       if (priority.weights[key] > 0 || priority.components[key] > 0) {
-          const value = priority.components[key];
+        const value = priority.components[key];
           const weight = priority.weights[key];
+        const normalizedValue = priority.normalizedComponents?.[key];
           const contribution = priority.contributions[key];
           const percentage = parseFloat(contribution) || 0;
-          
-          const multipliedValue = (value * weight).toFixed(2);
-          const formattedValue = formatNumberWithCommas(value);
+
+        const displayFactor = Number(normalizedValue) || 0;
+
+        const formattedValue = formatPriorityFactor(displayFactor);
           const formattedWeight = formatNumberWithCommas(weight);
-          const formattedMultiplied = formatNumberWithCommas(multipliedValue);
+        const formattedMultiplied = formatNumberWithCommas(value);
           
           html += `
               <div>

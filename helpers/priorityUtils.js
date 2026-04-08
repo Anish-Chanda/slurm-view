@@ -1,38 +1,93 @@
 const { executeCommand } = require("./executeCmd");
 const { createSafeCommand } = require("./inputValidation");
 
+const parseIntOrZero = (value) => parseInt(value, 10) || 0;
+
+const parseFloatOrZero = (value) => {
+    const parsed = parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const getComponentKey = (header) => {
+    const normalizedHeader = header.toUpperCase();
+    const headerToKeyMap = {
+        SITE: 'site',
+        AGE: 'age',
+        FAIRSHARE: 'fairshare',
+        JOBSIZE: 'jobsize',
+        PARTITION: 'partition',
+        QOS: 'qos'
+    };
+
+    return headerToKeyMap[normalizedHeader] || null;
+};
+
+const createEmptyComponents = () => ({
+    site: 0,
+    age: 0,
+    fairshare: 0,
+    jobsize: 0,
+    partition: 0,
+    qos: 0
+});
+
+const parseSprioRow = (output, parseValue) => {
+    const lines = output
+        .trim()
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line);
+
+    const headerLine = lines.find(line => line.startsWith('JOBID'));
+    const dataLine = lines.find(line => !line.startsWith('JOBID') && !line.startsWith('Weights'));
+
+    // Find the data line (skip header)
+    if (!headerLine || !dataLine) {
+        throw new Error('No priority data found in sprio output');
+    }
+
+    const headerFields = headerLine.split(/\s+/);
+    const dataFields = dataLine.split(/\s+/);
+
+    const components = createEmptyComponents();
+    const factorHeaders = headerFields.slice(3);
+    const factorValues = dataFields.slice(3);
+
+    factorHeaders.forEach((header, index) => {
+        const componentKey = getComponentKey(header);
+        if (!componentKey) {
+            return;
+        }
+
+        components[componentKey] = parseValue(factorValues[index]);
+    });
+
+    return {
+        jobId: dataFields[0],
+        partition: dataFields[1],
+        priority: parseValue(dataFields[2]),
+        components
+    };
+};
+
 /**
  * Parse sprio output for a specific job
  * @param {string} output - Raw output from sprio command
  * @returns {Object} Parsed priority components
  */
 const parseSprioOutput = (output) => {
-    const lines = output.trim().split('\n');
-    
-    // Find the data line (skip header)
-    const dataLine = lines.find(line => !line.trim().startsWith('JOBID'));
-    if (!dataLine) {
-        throw new Error('No priority data found in sprio output');
-    }
-
-    const fields = dataLine.trim().split(/\s+/);
     // Default sprio output columns are weighted component contributions.
-    // Expected format: JOBID PARTITION PRIORITY SITE AGE FAIRSHARE JOBSIZE PARTITION QOS
-    const result = {
-        jobId: fields[0],
-        partition: fields[1],
-        priority: parseInt(fields[2], 10) || 0,
-        components: {
-            site: parseInt(fields[3], 10) || 0,
-            age: parseInt(fields[4], 10) || 0,
-            fairshare: parseInt(fields[5], 10) || 0,
-            jobsize: parseInt(fields[6], 10) || 0,
-            partition: parseInt(fields[7], 10) || 0,
-            qos: parseInt(fields[8], 10) || 0
-        }
-    };
+    return parseSprioRow(output, parseIntOrZero);
+};
 
-    return result;
+/**
+ * Parse sprio normalized output for a specific job
+ * @param {string} output - Raw output from sprio -n command
+ * @returns {Object} Parsed normalized priority components
+ */
+const parseSprioNormalizedOutput = (output) => {
+    // sprio -n columns are normalized factors in floating-point form.
+    return parseSprioRow(output, parseFloatOrZero);
 };
 
 /**
@@ -41,25 +96,35 @@ const parseSprioOutput = (output) => {
  * @returns {Object} Priority weights configuration
  */
 const parseSprioWeights = (output) => {
-    const lines = output.trim().split('\n');
-    
-    const dataLine = lines.find(line => line.trim().startsWith('Weights'));
-    if (!dataLine) {
+    const lines = output
+        .trim()
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line);
+
+    const headerLine = lines.find(line => line.startsWith('JOBID'));
+    const dataLine = lines.find(line => line.startsWith('Weights'));
+
+    if (!headerLine || !dataLine) {
         throw new Error('No weights data found in sprio output');
     }
 
-    const fields = dataLine.trim().split(/\s+/);
-    
-    // Expected format: Weights SITE AGE FAIRSHARE JOBSIZE PARTITION QOS
-    // Fields array: ['Weights', '1', '1000', '100000', '10000', '100000', '1']
-    return {
-        site: parseInt(fields[1], 10) || 0,
-        age: parseInt(fields[2], 10) || 0,
-        fairshare: parseInt(fields[3], 10) || 0,
-        jobsize: parseInt(fields[4], 10) || 0,
-        partition: parseInt(fields[5], 10) || 0,
-        qos: parseInt(fields[6], 10) || 0
-    };
+    const headerFields = headerLine.split(/\s+/);
+    const dataFields = dataLine.split(/\s+/);
+    const weights = createEmptyComponents();
+
+    const factorHeaders = headerFields.slice(3);
+
+    factorHeaders.forEach((header, index) => {
+        const componentKey = getComponentKey(header);
+        if (!componentKey) {
+            return;
+        }
+
+        weights[componentKey] = parseInt(dataFields[index + 1], 10) || 0;
+    });
+
+    return weights;
 };
 
 /**
@@ -79,8 +144,13 @@ const getJobPriority = (jobId) => {
         const weightsOutput = executeCommand(weightsCmd);
         const weights = parseSprioWeights(weightsOutput);
 
+        const normalizedCmd = createSafeCommand('sprio', ['-n', '-j', jobId]);
+        const normalizedOutput = executeCommand(normalizedCmd);
+        const normalizedData = parseSprioNormalizedOutput(normalizedOutput);
+
         return {
             ...priorityData,
+            normalizedComponents: normalizedData.components,
             weights
         };
     } catch (error) {
@@ -186,10 +256,9 @@ const getRunningJobsCount = (partition) => {
  * Calculate contribution percentage of each priority component.
  * Components from default sprio output are already weighted values.
  * @param {Object} components - Weighted priority components
- * @param {Object} _weights - Priority weights (unused for contribution math)
  * @returns {Object} Percentage contributions
  */
-const calculateContributions = (components, _weights) => {
+const calculateContributions = (components) => {
     const contributions = {};
     const total = Object.keys(components).reduce((sum, key) => {
         return sum + (components[key] || 0);
@@ -212,6 +281,7 @@ const calculateContributions = (components, _weights) => {
 
 module.exports = {
     parseSprioOutput,
+    parseSprioNormalizedOutput,
     parseSprioWeights,
     getJobPriority,
     parseCompetingJobs,

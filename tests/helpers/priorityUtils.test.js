@@ -1,5 +1,6 @@
 const {
     parseSprioOutput,
+    parseSprioNormalizedOutput,
     parseSprioWeights,
     getJobPriority,
     parseCompetingJobs,
@@ -69,13 +70,38 @@ describe("priorityUtils", () => {
         });
     });
 
+    describe("parseSprioNormalizedOutput", () => {
+        it("should parse normalized sprio output correctly", () => {
+            const output = `          JOBID PARTITION PRIORITY   AGE        FAIRSHARE  JOBSIZE    PARTITION  QOS
+        10230912 nova      0.00000567 0.5331366  0.1383310  0.0022389  0.1000000  0.0000000`;
+
+            const result = parseSprioNormalizedOutput(output);
+
+            expect(result).toEqual({
+                jobId: '10230912',
+                partition: 'nova',
+                priority: 0.00000567,
+                components: {
+                    site: 0,
+                    age: 0.5331366,
+                    fairshare: 0.138331,
+                    jobsize: 0.0022389,
+                    partition: 0.1,
+                    qos: 0
+                }
+            });
+        });
+    });
+
     describe("getJobPriority", () => {
         it("should fetch and combine priority data and weights", () => {
             executeCommand
                 .mockReturnValueOnce(`          JOBID PARTITION   PRIORITY       SITE        AGE  FAIRSHARE    JOBSIZE  PARTITION        QOS
         9156162 nova           35940          0       1000      24923         17      10000          0`)
                 .mockReturnValueOnce(`          JOBID PARTITION   PRIORITY       SITE        AGE  FAIRSHARE    JOBSIZE  PARTITION        QOS
-        Weights                               1       1000     100000      10000     100000          1`);
+        Weights                               1       1000     100000      10000     100000          1`)
+                .mockReturnValueOnce(`          JOBID PARTITION PRIORITY   AGE        FAIRSHARE  JOBSIZE    PARTITION  QOS
+            9156162 nova      0.00000567 0.5331366  0.1383310  0.0022389  0.1000000  0.0000000`);
 
             const result = getJobPriority('9156162');
 
@@ -83,7 +109,15 @@ describe("priorityUtils", () => {
             expect(result.priority).toBe(35940);
             expect(result.weights).toBeDefined();
             expect(result.weights.fairshare).toBe(100000);
-            expect(executeCommand).toHaveBeenCalledTimes(2);
+            expect(result.normalizedComponents).toEqual({
+                site: 0,
+                age: 0.5331366,
+                fairshare: 0.138331,
+                jobsize: 0.0022389,
+                partition: 0.1,
+                qos: 0
+            });
+            expect(executeCommand).toHaveBeenCalledTimes(3);
         });
 
         it("should handle errors gracefully", () => {
@@ -212,16 +246,7 @@ describe("priorityUtils", () => {
                 site: 0
             };
 
-            const weights = {
-                age: 1000,
-                fairshare: 100000,
-                jobsize: 10000,
-                partition: 100000,
-                qos: 1,
-                site: 1
-            };
-
-            const result = calculateContributions(components, weights);
+            const result = calculateContributions(components);
 
             // Components parsed from default sprio output are already weighted.
             // Total = 1000 + 24923 + 17 + 10000 = 35940
@@ -234,40 +259,6 @@ describe("priorityUtils", () => {
             expect(parseFloat(result.jobsize)).toBeCloseTo(0.0, 1);
         });
 
-        it("should ignore weights for weighted sprio component contributions", () => {
-            const components = {
-                age: 1000,
-                fairshare: 24923,
-                jobsize: 17,
-                partition: 10000,
-                qos: 0,
-                site: 0
-            };
-
-            const fullWeights = {
-                age: 1000,
-                fairshare: 100000,
-                jobsize: 10000,
-                partition: 100000,
-                qos: 1,
-                site: 1
-            };
-
-            const zeroWeights = {
-                age: 0,
-                fairshare: 0,
-                jobsize: 0,
-                partition: 0,
-                qos: 0,
-                site: 0
-            };
-
-            const resultWithFullWeights = calculateContributions(components, fullWeights);
-            const resultWithZeroWeights = calculateContributions(components, zeroWeights);
-
-            expect(resultWithFullWeights).toEqual(resultWithZeroWeights);
-        });
-
         it("should handle zero total gracefully", () => {
             const components = {
                 age: 0,
@@ -278,16 +269,7 @@ describe("priorityUtils", () => {
                 site: 0
             };
 
-            const weights = {
-                age: 1000,
-                fairshare: 100000,
-                jobsize: 10000,
-                partition: 100000,
-                qos: 1,
-                site: 1
-            };
-
-            const result = calculateContributions(components, weights);
+            const result = calculateContributions(components);
 
             expect(result.age).toBe(0);
             expect(result.fairshare).toBe(0);
