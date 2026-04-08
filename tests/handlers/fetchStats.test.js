@@ -105,12 +105,14 @@ NodeName=node4 State=MIXED RealMemory=50000 AllocMem=25000 FreeMem=20000 Partiti
     // Calculate expected values
     const totalMem = 200000;
     const allocatedMem = 40000 + 25000; // node2 + node4
+    const allocatedUsedMem = 40000 + 25000; // sum(min(AllocMem, RealMemory-FreeMem)) per active node
     const idleMem = 48000 + 8000 + 20000; // node1 + node2 + node4
     const downMem = 50000; // node3
     const otherMem = 2000 + 2000 + 5000; // node1 + node2 + node4 (RealMemory - AllocMem - FreeMem)
     
     expect(result).toEqual({
       allocated: parseFloat((allocatedMem / 1024).toFixed(2)),
+      allocatedUsed: parseFloat((allocatedUsedMem / 1024).toFixed(2)),
       idle: parseFloat((idleMem / 1024).toFixed(2)),
       down: parseFloat((downMem / 1024).toFixed(2)),
       other: parseFloat((otherMem / 1024).toFixed(2)),
@@ -134,12 +136,14 @@ NodeName=node4 State=MIXED RealMemory=50000 AllocMem=25000 FreeMem=20000 Partiti
     // Only node3 and node4 should be included (gpu partition)
     const totalMem = 100000; // node3 + node4
     const allocatedMem = 25000; // node4
+    const allocatedUsedMem = 25000; // node4 min(AllocMem, RealMemory-FreeMem)
     const idleMem = 20000; // node4
     const downMem = 50000; // node3
     const otherMem = 5000; // node4 (RealMemory - AllocMem - FreeMem)
     
     expect(result).toEqual({
       allocated: parseFloat((allocatedMem / 1024).toFixed(2)),
+      allocatedUsed: parseFloat((allocatedUsedMem / 1024).toFixed(2)),
       idle: parseFloat((idleMem / 1024).toFixed(2)),
       down: parseFloat((downMem / 1024).toFixed(2)),
       other: parseFloat((otherMem / 1024).toFixed(2)),
@@ -166,10 +170,29 @@ NodeName=node3 RealMemory=50000 AllocMem=0 FreeMem=48000 Partitions=compute
     
     expect(result).toEqual({
       allocated: parseFloat((allocatedMem / 1024).toFixed(2)),
+      allocatedUsed: 0,
       idle: parseFloat((idleMem / 1024).toFixed(2)),
       down: 0,
       other: parseFloat((otherMem / 1024).toFixed(2)),
       total: parseFloat((totalMem / 1024).toFixed(2)),
+    });
+  });
+
+  it("should compute allocatedUsed from FreeMem-reported OS usage", () => {
+    executeCommand.mockReturnValue(`
+NodeName=node1 State=MIXED RealMemory=100000 AllocMem=60000 FreeMem=70000 Partitions=compute
+    `);
+
+    const result = getMemByState("compute");
+
+    // OS reports 30,000 MB used (RealMemory - FreeMem), so only that amount is counted as in-use allocated memory.
+    expect(result).toEqual({
+      allocated: parseFloat((60000 / 1024).toFixed(2)),
+      allocatedUsed: parseFloat((30000 / 1024).toFixed(2)),
+      idle: parseFloat((70000 / 1024).toFixed(2)),
+      down: 0,
+      other: 0,
+      total: parseFloat((100000 / 1024).toFixed(2)),
     });
   });
 
@@ -189,6 +212,7 @@ NodeName=node3 RealMemory=50000 AllocMem=0 FreeMem=48000 Partitions=compute
     // The function now returns a map with zero values when an error occurs
     expect(result).toEqual({
       allocated: 0,
+      allocatedUsed: 0,
       down: 0,
       idle: 0,
       other: 0,

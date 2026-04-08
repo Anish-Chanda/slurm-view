@@ -344,7 +344,7 @@ router.get('/', async (req, res) => {
       jobs: [],
       pagination: { page: 1, pageSize: DEFAULT_PAGE_SIZE, totalItems: 0, totalPages: 0 },
       cpuStats: { allocated: 0, idle: 0, other: 0, total: 0 },
-      memStats: { allocated: 0, idle: 0, down: 0, other: 0, total: 0 },
+      memStats: { allocated: 0, allocatedUsed: 0, idle: 0, down: 0, other: 0, total: 0 },
       gpuStats: { name: "GPU Utilization", children: [], totalGPUs: 0 },
       lastUpdated: { jobs: 'N/A' },
       partitions: [{ id: 'all', name: 'All Partitions' }],

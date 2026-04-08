@@ -23,6 +23,11 @@ const isNodeDownState = (nodeState = "") => {
     return normalizedState.includes("DOWN") || normalizedState.includes("DRAIN");
 };
 
+const getAllocatedMemoryInUse = (realMem, allocMem, freeMem) => {
+    const usedByOs = Math.max(0, realMem - freeMem);
+    return Math.min(allocMem, usedByOs);
+};
+
 // Fetches the number of CPUs by state
 function getCPUsByState(partition = null) {
     const key = `stats:cpu:${partition || 'all'}`;
@@ -77,6 +82,7 @@ function getMemByState(partition = null) {
 
         let distribution = {
             allocated: 0,
+            allocatedUsed: 0,
             idle: 0,
             down: 0,
             other: 0,
@@ -116,6 +122,7 @@ function getMemByState(partition = null) {
                     distribution.down += realMem;
                 } else {
                     distribution.allocated += allocMem;
+                    distribution.allocatedUsed += getAllocatedMemoryInUse(realMem, allocMem, freeMem);
                     distribution.idle += freeMem;
 
                     // Calculate other memory (difference between total, allocated and free)
@@ -136,6 +143,7 @@ function getMemByState(partition = null) {
         console.error('Error in getMemByState:', error.message);
         return {
             allocated: 0,
+            allocatedUsed: 0,
             idle: 0,
             down: 0,
             other: 0,

@@ -1,5 +1,43 @@
 // D3.js Sunburst Chart functionality
 
+function buildMemoryChartData(memStats) {
+  const allocatedUsed = Math.min(memStats.allocatedUsed, memStats.allocated);
+  const allocatedReserved = Math.max(0, memStats.allocated - allocatedUsed);
+  const allocatedChildren = [];
+
+  if (allocatedUsed > 0) {
+    allocatedChildren.push({ name: "Used", value: allocatedUsed });
+  }
+
+  if (allocatedReserved > 0) {
+    allocatedChildren.push({ name: "Un Used", value: allocatedReserved });
+  }
+
+  return {
+    name: "Memory Utilization",
+    children: [
+      { name: "Allocated", children: allocatedChildren },
+      { name: "Idle", value: memStats.idle },
+      { name: "Down", value: memStats.down },
+      { name: "Other", value: memStats.other }
+    ]
+  };
+}
+
+function formatChartTotal(total, totalSuffix, containerId) {
+  if (containerId === "sunburst-chart-mem" && totalSuffix === "GB" && total >= 1024) {
+    const totalTb = total / 1024;
+    const roundedTb = totalTb >= 100 ? Math.round(totalTb) : Number(totalTb.toFixed(1));
+    return `${roundedTb} TB`;
+  }
+
+  if (totalSuffix) {
+    return `${Math.round(total)} ${totalSuffix}`;
+  }
+
+  return `${Math.round(total)}`;
+}
+
 function drawSunburstChart(data, containerId, titleText, totalSuffix) {
   document.getElementById(containerId).innerHTML = '';
   const width = 500;
@@ -62,6 +100,12 @@ function drawSunburstChart(data, containerId, titleText, totalSuffix) {
           default: return "#888888"; // Fallback gray
         }
       }
+
+      if (containerId === "sunburst-chart-mem" && d.depth === 2 && d.parent.data.name === "Allocated") {
+        if (d.data.name === "Used") return "#c1121f";
+        if (d.data.name === "Un Used") return "#f28482";
+      }
+
       return "#888888"; // Fallback for deeper levels
     };
   }
@@ -100,7 +144,7 @@ function drawSunburstChart(data, containerId, titleText, totalSuffix) {
     .attr("dy", "0.35em")
     .style("font-size", "16px")
     .style("font-weight", "bold")
-    .text(titleText + " Total: " + Math.round(total) + (totalSuffix ? " " + totalSuffix : ""));
+    .text(titleText + " Total: " + formatChartTotal(total, totalSuffix, containerId));
 
   // Draw arcs.
   svg.append("g")
@@ -168,15 +212,7 @@ function updateChartsForPartition(partition) {
           ]
         };
         
-        const newMemData = {
-          name: "Memory Utilization",
-          children: [
-            { name: "Allocated", value: data.memStats.allocated },
-            { name: "Idle", value: data.memStats.idle },
-            { name: "Down", value: data.memStats.down },
-            { name: "Other", value: data.memStats.other }
-          ]
-        };
+        const newMemData = buildMemoryChartData(data.memStats);
         
         // Redraw charts with new data
         drawSunburstChart(newCpuData, "sunburst-chart-cpu", "CPU");
@@ -203,15 +239,7 @@ function initializeCharts() {
   };
 
   // Data for Memory sunburst chart
-  const memData = {
-    name: "Memory Utilization",
-    children: [
-      { name: "Allocated", value: window.SLURM_CONFIG.memStats.allocated },
-      { name: "Idle", value: window.SLURM_CONFIG.memStats.idle },
-      { name: "Down", value: window.SLURM_CONFIG.memStats.down },
-      { name: "Other", value: window.SLURM_CONFIG.memStats.other }
-    ]
-  };
+  const memData = buildMemoryChartData(window.SLURM_CONFIG.memStats);
 
   // Render all charts
   drawSunburstChart(cpuData, "sunburst-chart-cpu", "CPU");
