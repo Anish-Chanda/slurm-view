@@ -10,7 +10,7 @@ function buildMemoryChartData(memStats) {
   }
 
   if (allocatedReserved > 0) {
-    allocatedChildren.push({ name: "Un Used", value: allocatedReserved });
+    allocatedChildren.push({ name: "Unused", value: allocatedReserved });
   }
 
   return {
@@ -103,7 +103,7 @@ function drawSunburstChart(data, containerId, titleText, totalSuffix) {
 
       if (containerId === "sunburst-chart-mem" && d.depth === 2 && d.parent.data.name === "Allocated") {
         if (d.data.name === "Used") return "#c1121f";
-        if (d.data.name === "Un Used") return "#f28482";
+        if (d.data.name === "Unused") return "#f28482";
       }
 
       return "#888888"; // Fallback for deeper levels
