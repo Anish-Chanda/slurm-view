@@ -1,4 +1,4 @@
-const { getTresvalue, parseGpuAllocations } = require("../../helpers/getTresValue");
+const { getTresvalue, parseGpuAllocations, parsePerNodeCpuAllocations } = require("../../helpers/getTresValue");
 
 describe("getTresvalue", () => {
     test("should extract cpu value", () => {
@@ -131,5 +131,27 @@ describe("parseGpuAllocations", () => {
             expect(result.total).toBe(2);
             expect(result.types).toEqual({ a100: 2 });
         });
+    });
+});
+
+describe("parsePerNodeCpuAllocations", () => {
+    test("should parse one allocation per entry", () => {
+        const tresPerNode = ["cpu=4,mem=8G", "cpu=2,mem=4G"];
+        expect(parsePerNodeCpuAllocations(tresPerNode)).toEqual([4, 2]);
+    });
+
+    test("should parse repeated cpu syntax", () => {
+        const tresPerNode = ["cpu=3*2,mem=8G"];
+        expect(parsePerNodeCpuAllocations(tresPerNode)).toEqual([3, 3]);
+    });
+
+    test("should ignore malformed entries", () => {
+        const tresPerNode = ["cpu=abc", "mem=8G", "cpu=5,mem=4G"];
+        expect(parsePerNodeCpuAllocations(tresPerNode)).toEqual([5]);
+    });
+
+    test("should return empty array for missing values", () => {
+        expect(parsePerNodeCpuAllocations(null)).toEqual([]);
+        expect(parsePerNodeCpuAllocations(undefined)).toEqual([]);
     });
 });

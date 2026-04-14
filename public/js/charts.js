@@ -24,6 +24,40 @@ function buildMemoryChartData(memStats) {
   };
 }
 
+function buildCpuChartData(cpuStats) {
+  const loadGroups = cpuStats && cpuStats.loadGroups ? cpuStats.loadGroups : {};
+  const lowLoad = Number(loadGroups.low) || 0;
+  const mediumLoad = Number(loadGroups.medium) || 0;
+  const highLoad = Number(loadGroups.high) || 0;
+
+  const allocatedChildren = [];
+
+  if (lowLoad > 0) {
+    allocatedChildren.push({ name: "Low", value: lowLoad });
+  }
+
+  if (mediumLoad > 0) {
+    allocatedChildren.push({ name: "Medium", value: mediumLoad });
+  }
+
+  if (highLoad > 0) {
+    allocatedChildren.push({ name: "High", value: highLoad });
+  }
+
+  const allocatedNode = allocatedChildren.length > 0
+    ? { name: "Allocated", children: allocatedChildren }
+    : { name: "Allocated", value: cpuStats.allocated };
+
+  return {
+    name: "CPU Utilization",
+    children: [
+      allocatedNode,
+      { name: "Idle", value: cpuStats.idle },
+      { name: "Other", value: cpuStats.other }
+    ]
+  };
+}
+
 function formatChartTotal(total, totalSuffix, containerId) {
   if (containerId === "sunburst-chart-mem" && totalSuffix === "GB" && total >= 1024) {
     const totalTb = total / 1024;
@@ -104,6 +138,12 @@ function drawSunburstChart(data, containerId, titleText, totalSuffix) {
       if (containerId === "sunburst-chart-mem" && d.depth === 2 && d.parent.data.name === "Allocated") {
         if (d.data.name === "Used") return "#c1121f";
         if (d.data.name === "Unused") return "#f28482";
+      }
+
+      if (containerId === "sunburst-chart-cpu" && d.depth === 2 && d.parent.data.name === "Allocated") {
+        if (d.data.name === "Low") return "#8ecf7b";
+        if (d.data.name === "Medium") return "#f6bd60";
+        if (d.data.name === "High") return "#e76f51";
       }
 
       return "#888888"; // Fallback for deeper levels
@@ -203,14 +243,7 @@ function updateChartsForPartition(partition) {
     .then(data => {
       if (data.success) {
         // Create updated chart data
-        const newCpuData = {
-          name: "CPU Utilization",
-          children: [
-            { name: "Allocated", value: data.cpuStats.allocated },
-            { name: "Idle", value: data.cpuStats.idle },
-            { name: "Other", value: data.cpuStats.other }
-          ]
-        };
+        const newCpuData = buildCpuChartData(data.cpuStats);
         
         const newMemData = buildMemoryChartData(data.memStats);
         
@@ -229,14 +262,7 @@ function updateChartsForPartition(partition) {
 
 function initializeCharts() {
   // Data for CPU sunburst chart
-  const cpuData = {
-    name: "CPU Utilization",
-    children: [
-      { name: "Allocated", value: window.SLURM_CONFIG.cpuStats.allocated },
-      { name: "Idle", value: window.SLURM_CONFIG.cpuStats.idle },
-      { name: "Other", value: window.SLURM_CONFIG.cpuStats.other }
-    ]
-  };
+  const cpuData = buildCpuChartData(window.SLURM_CONFIG.cpuStats);
 
   // Data for Memory sunburst chart
   const memData = buildMemoryChartData(window.SLURM_CONFIG.memStats);

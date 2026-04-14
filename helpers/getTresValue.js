@@ -58,7 +58,52 @@ function parseGpuAllocations(gresDetail) {
     return result;
 }
 
+function parsePerNodeCpuAllocations(tresPerNode) {
+    if (!tresPerNode) return [];
+
+    const entries = Array.isArray(tresPerNode) ? tresPerNode : [tresPerNode];
+    const perNodeAllocations = [];
+
+    entries.forEach((entry) => {
+        if (typeof entry !== 'string') return;
+
+        const cpuToken = entry
+            .split(',')
+            .map(token => token.trim())
+            .find(token => token.startsWith('cpu='));
+
+        if (!cpuToken) return;
+
+        const rawCpuValue = cpuToken.split('=')[1];
+        if (!rawCpuValue) return;
+
+        const repeatedMatch = rawCpuValue.match(/^(\d+(?:\.\d+)?)\*(\d+)$/);
+        if (repeatedMatch) {
+            const perNodeValue = Number(repeatedMatch[1]);
+            const repeatCount = Number(repeatedMatch[2]);
+
+            if (!Number.isFinite(perNodeValue) || !Number.isFinite(repeatCount)) return;
+
+            for (let i = 0; i < repeatCount; i += 1) {
+                perNodeAllocations.push(perNodeValue);
+            }
+            return;
+        }
+
+        const numericMatch = rawCpuValue.match(/^(\d+(?:\.\d+)?)/);
+        if (!numericMatch) return;
+
+        const parsed = Number(numericMatch[1]);
+        if (!Number.isFinite(parsed)) return;
+
+        perNodeAllocations.push(parsed);
+    });
+
+    return perNodeAllocations;
+}
+
 module.exports = {
     getTresvalue,
-    parseGpuAllocations
+    parseGpuAllocations,
+    parsePerNodeCpuAllocations
 }

@@ -2,7 +2,7 @@ const { DEFAULT_PAGE_SIZE } = require("../constants.js");
 const { executeCommand, executeCommandStreaming } = require("../helpers/executeCmd.js");
 const { formatTimeLeft } = require("../helpers/formatTimeLeft.js");
 const { formatTime, formatUnixTimestamp } = require("../helpers/formatTime.js");
-const { getTresvalue, parseGpuAllocations } = require("../helpers/getTresValue.js");
+const { getTresvalue, parseGpuAllocations, parsePerNodeCpuAllocations } = require("../helpers/getTresValue.js");
 
 function parseJobsData(data) {
   try {
@@ -13,14 +13,53 @@ function parseJobsData(data) {
   }
 }
 
+function extractNodeListExpression(job) {
+  const nodeExpression = job.nodes;
+
+  if (Array.isArray(nodeExpression)) {
+      const stringValues = nodeExpression
+        .map((entry) => String(entry || '').trim())
+        .filter(Boolean);
+
+      if (stringValues.length > 0) {
+        return stringValues.join(',');
+      }
+  }
+
+  if (typeof nodeExpression === 'string' && nodeExpression.trim()) {
+    return nodeExpression.trim();
+  }
+
+  return null;
+}
+
+function normalizeNodeNames(nodeListExpression) {
+  if (!nodeListExpression || typeof nodeListExpression !== 'string') {
+    return [];
+  }
+
+  // Hostlist expressions are expanded later where needed to avoid per-job command overhead.
+  if (nodeListExpression.includes('[') || nodeListExpression.includes(']')) {
+    return [];
+  }
+
+  return nodeListExpression
+    .split(',')
+    .map((nodeName) => nodeName.trim())
+    .filter(Boolean);
+}
+
 function formatJobsData(jobs) {
   return jobs.map(job => {
 
     //extract job state
     const jobState = Array.isArray(job.job_state) ? job.job_state[0] : job.job_state;
+    const nodeListExpression = extractNodeListExpression(job);
+    const nodeNames = normalizeNodeNames(nodeListExpression);
 
     // Parse GPU allocations from gres_detail or tres_req_str
     const gpuAllocations = parseGpuAllocations(job.gres_detail || job.tres_req_str);
+    const perNodeCpuAllocations = parsePerNodeCpuAllocations(job.tres_per_node);
 
     return {
       job_id: job.job_id || 'N/A',
@@ -31,6 +70,9 @@ function formatJobsData(jobs) {
       time_limit: formatTime(job.time_limit?.number * 60), // Convert from minutes to seconds
       time_left: formatTimeLeft(job.time_limit?.number, job.start_time?.number, jobState),
       nodes: job.node_count?.number || 'N/A',
+      node_list: nodeListExpression || 'N/A',
+      node_names: nodeNames,
+      per_node_cpu_allocations: perNodeCpuAllocations,
 
 
       // data for job details

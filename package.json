@@ -12,7 +12,9 @@
   "dependencies": {
     "express": "^4.22.1",
     "express-handlebars": "^8.0.1",
-    "node-cache": "^5.1.2"
+    "node-cache": "^5.1.2",
+    "yaml": "^2.8.3",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@babel/core": "^7.29.0",

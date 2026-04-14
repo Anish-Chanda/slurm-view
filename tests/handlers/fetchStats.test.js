@@ -4,6 +4,19 @@ const { executeCommand, executeCommandStreaming } = require("../../helpers/execu
 // Mock the executeCommand dependency
 jest.mock("../../helpers/executeCmd");
 
+jest.mock("../../modules/runtimeConfig", () => ({
+  getRuntimeConfig: jest.fn(() => ({
+    stats: {
+      cpuLoad: {
+        thresholds: {
+          lowMax: 0.33,
+          mediumMax: 0.66
+        }
+      }
+    }
+  }))
+}));
+
 // Mock dataCache to prevent caching interference in tests
 jest.mock("../../modules/dataCache", () => ({
     cache: {
@@ -26,12 +39,14 @@ describe("getCPUsByState", () => {
 
     const result = getCPUsByState();
 
-    expect(executeCommand).toHaveBeenCalledWith("sinfo '-o' '%C' '--noheader'");
+    expect(executeCommand).toHaveBeenNthCalledWith(1, "sinfo '-o' '%C' '--noheader'");
+    expect(executeCommand).toHaveBeenNthCalledWith(2, "scontrol 'show' 'node' '-o'");
     expect(result).toEqual({
       allocated: 500,
       idle: 1500,
       other: 200,
       total: 2200,
+      loadGroups: { low: 0, medium: 500, high: 0 }
     });
   });
 
@@ -42,7 +57,13 @@ describe("getCPUsByState", () => {
     
     const result = getCPUsByState();
     
-    expect(result).toEqual(cachedData);
+    expect(result).toEqual({
+      allocated: 100,
+      idle: 100,
+      other: 0,
+      total: 200,
+      loadGroups: { low: 0, medium: 100, high: 0 }
+    });
     expect(executeCommand).not.toHaveBeenCalled();
   });
 
@@ -64,7 +85,8 @@ describe("getCPUsByState", () => {
       allocated: 0,
       idle: 0,
       other: 0,
-      total: 0
+      total: 0,
+      loadGroups: { low: 0, medium: 0, high: 0 }
     });
   });
 
@@ -73,12 +95,47 @@ describe("getCPUsByState", () => {
 
     const result = getCPUsByState("partition");
 
-    expect(executeCommand).toHaveBeenCalledWith("sinfo '-p' 'partition' '-o' '%C' '--noheader'");
+    expect(executeCommand).toHaveBeenNthCalledWith(1, "sinfo '-p' 'partition' '-o' '%C' '--noheader'");
+    expect(executeCommand).toHaveBeenNthCalledWith(2, "scontrol 'show' 'node' '-o'");
     expect(result).toEqual({
       allocated: 100,
       idle: 200,
       other: 30,
       total: 330,
+      loadGroups: { low: 0, medium: 100, high: 0 }
+    });
+  });
+
+  it("should classify allocated CPUs into low medium and high load groups", () => {
+    executeCommand
+      .mockReturnValueOnce("12/10/0/22")
+      .mockReturnValueOnce(`
+NodeName=node-a State=ALLOCATED CPULoad=0.8 Partitions=partition
+NodeName=node-b State=MIXED CPULoad=2.0 Partitions=partition
+NodeName=node-c State=ALLOCATED CPULoad=3.6 Partitions=partition
+      `);
+
+    const dataCache = require("../../modules/dataCache");
+    dataCache.getData.mockReturnValue({
+      jobs: [
+        {
+          job_state: "RUNNING",
+          partition: "partition",
+          node_names: ["node-a", "node-b", "node-c"],
+          per_node_cpu_allocations: [4, 4, 4],
+          alloc_cpus: "12"
+        }
+      ]
+    });
+
+    const result = getCPUsByState("partition");
+
+    expect(result).toEqual({
+      allocated: 12,
+      idle: 10,
+      other: 0,
+      total: 22,
+      loadGroups: { low: 4, medium: 4, high: 4 }
     });
   });
 });
@@ -225,12 +282,14 @@ NodeName=node1 State=MIXED RealMemory=100000 AllocMem=60000 FreeMem=70000 Partit
 
     const result = getCPUsByState("partition");
 
-    expect(executeCommand).toHaveBeenCalledWith("sinfo '-p' 'partition' '-o' '%C' '--noheader'");
+    expect(executeCommand).toHaveBeenNthCalledWith(1, "sinfo '-p' 'partition' '-o' '%C' '--noheader'");
+    expect(executeCommand).toHaveBeenNthCalledWith(2, "scontrol 'show' 'node' '-o'");
     expect(result).toEqual({
       allocated: 100,
       idle: 200,
       other: 30,
       total: 330,
+      loadGroups: { low: 0, medium: 100, high: 0 }
     });
   });
 });

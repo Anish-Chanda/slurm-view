@@ -176,6 +176,8 @@ describe("getSlurmJobs", () => {
                     time_limit: { number: 120 }, // 120 minutes = 2 hours
                     start_time: { number: 1640995200 },
                     node_count: { number: "1" },
+                    nodes: "node[01-02]",
+                    tres_per_node: ["cpu=2,mem=8G", "cpu=2,mem=8G"],
                 },
             ],
         });
@@ -187,6 +189,37 @@ describe("getSlurmJobs", () => {
         expect(result.jobs.length).toBe(1);
         expect(result.jobs[0].job_id).toBe("1");
         expect(result.jobs[0].name).toBe("Test Job");
+        expect(result.jobs[0].node_list).toBe("node[01-02]");
+        expect(result.jobs[0].node_names).toEqual([]);
+        expect(result.jobs[0].per_node_cpu_allocations).toEqual([2, 2]);
+    });
+
+    it("stores explicit node names when node list is expanded", async () => {
+        const validOutput = JSON.stringify({
+            jobs: [
+                {
+                    job_id: "2",
+                    partition: "debug",
+                    name: "Node Name Job",
+                    user_name: "user3",
+                    job_state: "RUNNING",
+                    time_limit: { number: 60 },
+                    start_time: { number: 1640995200 },
+                    node_count: { number: "2" },
+                    nodes: "node01,node02",
+                    tres_alloc_str: "cpu=8,mem=16G",
+                }
+            ]
+        });
+
+        executeCommandStreaming.mockResolvedValue(validOutput);
+
+        const result = await getSlurmJobs();
+
+        expect(result.success).toBe(true);
+        expect(result.jobs[0].node_list).toBe("node01,node02");
+        expect(result.jobs[0].node_names).toEqual(["node01", "node02"]);
+        expect(result.jobs[0].per_node_cpu_allocations).toEqual([]);
     });
 
     it("returns a filtered jobs array when filters are provided", async () => {

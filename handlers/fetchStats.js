@@ -1,6 +1,7 @@
 const { executeCommand, executeCommandStreaming } = require("../helpers/executeCmd.js");
 const { validatePartitionName, createSafeCommand } = require("../helpers/inputValidation");
 const dataCache = require("../modules/dataCache.js");
+const { getRuntimeConfig } = require("../modules/runtimeConfig.js");
 
 const UNAVAILABLE_NODE_STATE_TOKENS = [
     "DOWN",
@@ -28,12 +29,249 @@ const getAllocatedMemoryInUse = (realMem, allocMem, freeMem) => {
     return Math.min(allocMem, usedByOs);
 };
 
+const isNodeAllocatedLike = (nodeState = "") => {
+    const normalizedState = nodeState.toUpperCase();
+    return normalizedState.includes("ALLOCATED") || normalizedState.includes("MIXED");
+};
+
+const buildEvenCpuDistribution = (totalAllocCpus, nodeCount) => {
+    if (!Number.isFinite(totalAllocCpus) || totalAllocCpus <= 0 || nodeCount <= 0) {
+        return [];
+    }
+
+    if (!Number.isInteger(totalAllocCpus)) {
+        return Array(nodeCount).fill(totalAllocCpus / nodeCount);
+    }
+
+    const baseShare = Math.floor(totalAllocCpus / nodeCount);
+    const remainder = totalAllocCpus - (baseShare * nodeCount);
+    const distribution = Array(nodeCount).fill(baseShare);
+
+    for (let i = 0; i < remainder; i += 1) {
+        distribution[i] += 1;
+    }
+
+    return distribution;
+};
+
+const expandNodeListExpression = (nodeListExpression, expansionCache = new Map()) => {
+    if (!nodeListExpression || typeof nodeListExpression !== 'string' || nodeListExpression === 'N/A') {
+        return [];
+    }
+
+    const trimmedExpression = nodeListExpression.trim();
+    if (!trimmedExpression) {
+        return [];
+    }
+
+    if (expansionCache.has(trimmedExpression)) {
+        return expansionCache.get(trimmedExpression);
+    }
+
+    let nodeNames = [];
+
+    if (trimmedExpression.includes('[') || trimmedExpression.includes(']')) {
+        try {
+            const safeCommand = createSafeCommand('scontrol', ['show', 'hostnames', trimmedExpression]);
+            const commandOutput = executeCommand(safeCommand);
+            nodeNames = commandOutput
+                .split('\n')
+                .map((nodeName) => nodeName.trim())
+                .filter(Boolean);
+        } catch (error) {
+            console.error(`[Stats Handler] Failed to expand node list '${trimmedExpression}': ${error.message}`);
+            nodeNames = [];
+        }
+    } else {
+        nodeNames = trimmedExpression
+            .split(',')
+            .map((nodeName) => nodeName.trim())
+            .filter(Boolean);
+    }
+
+    expansionCache.set(trimmedExpression, nodeNames);
+    return nodeNames;
+};
+
+const getNodeCpuAllocationsForJob = (job, nodeNames) => {
+    if (!Array.isArray(nodeNames) || nodeNames.length === 0) {
+        return [];
+    }
+
+    const explicitAllocations = Array.isArray(job.per_node_cpu_allocations)
+        ? job.per_node_cpu_allocations
+            .map((value) => Number(value))
+            .filter((value) => Number.isFinite(value) && value >= 0)
+        : [];
+
+    if (explicitAllocations.length === nodeNames.length && explicitAllocations.length > 0) {
+        return explicitAllocations;
+    }
+
+    if (explicitAllocations.length === 1 && nodeNames.length > 1) {
+        return Array(nodeNames.length).fill(explicitAllocations[0]);
+    }
+
+    const totalAllocatedCpus = Number(job.alloc_cpus);
+    if (!Number.isFinite(totalAllocatedCpus) || totalAllocatedCpus <= 0) {
+        return [];
+    }
+
+    return buildEvenCpuDistribution(totalAllocatedCpus, nodeNames.length);
+};
+
+const buildAllocatedCpuMapByNode = (partition = null) => {
+    const jobsData = dataCache.getData('jobs');
+    const allocationByNode = {};
+    const expansionCache = new Map();
+    const validatedPartition = partition ? validatePartitionName(partition) : null;
+
+    if (!jobsData || !Array.isArray(jobsData.jobs)) {
+        return allocationByNode;
+    }
+
+    jobsData.jobs.forEach((job) => {
+        if (job.job_state !== 'RUNNING') return;
+        if (validatedPartition && job.partition !== validatedPartition) return;
+
+        let nodeNames = Array.isArray(job.node_names)
+            ? job.node_names
+                .map((nodeName) => String(nodeName || '').trim())
+                .filter(Boolean)
+            : [];
+
+        if (nodeNames.length === 0 && typeof job.node_list === 'string') {
+            nodeNames = expandNodeListExpression(job.node_list, expansionCache);
+        }
+
+        if (nodeNames.length === 0) return;
+
+        const nodeAllocations = getNodeCpuAllocationsForJob(job, nodeNames);
+        if (nodeAllocations.length === 0) return;
+
+        nodeNames.forEach((nodeName, index) => {
+            const allocation = Number(nodeAllocations[index]);
+            if (!Number.isFinite(allocation) || allocation <= 0) {
+                return;
+            }
+
+            allocationByNode[nodeName] = (allocationByNode[nodeName] || 0) + allocation;
+        });
+    });
+
+    return allocationByNode;
+};
+
+const getNodeCpuLoadByNode = (partition = null) => {
+    const safeCommand = createSafeCommand('scontrol', ['show', 'node', '-o']);
+    const commandOutput = executeCommand(safeCommand);
+    const lines = commandOutput.trim().split('\n');
+    const validatedPartition = partition ? validatePartitionName(partition) : null;
+    const nodeLoadByName = {};
+
+    lines.forEach((line) => {
+        if (!line.trim()) return;
+
+        if (validatedPartition) {
+            const partitionMatch = line.match(/Partitions=([^\s]+)/);
+            if (!partitionMatch || !partitionMatch[1].split(',').includes(validatedPartition)) {
+                return;
+            }
+        }
+
+        const stateMatch = line.match(/State=(\S+)/);
+        const nodeState = stateMatch ? stateMatch[1] : '';
+        if (!isNodeAllocatedLike(nodeState)) {
+            return;
+        }
+
+        const nodeNameMatch = line.match(/NodeName=(\S+)/);
+        const cpuLoadMatch = line.match(/CPULoad=([^\s]+)/);
+
+        if (!nodeNameMatch || !cpuLoadMatch) {
+            return;
+        }
+
+        const parsedCpuLoad = Number(cpuLoadMatch[1]);
+        if (!Number.isFinite(parsedCpuLoad) || parsedCpuLoad < 0) {
+            return;
+        }
+
+        nodeLoadByName[nodeNameMatch[1]] = parsedCpuLoad;
+    });
+
+    return nodeLoadByName;
+};
+
+const classifyCpuLoadBucket = (normalizedLoadRatio, thresholds) => {
+    if (normalizedLoadRatio < thresholds.lowMax) {
+        return 'low';
+    }
+
+    if (normalizedLoadRatio <= thresholds.mediumMax) {
+        return 'medium';
+    }
+
+    return 'high';
+};
+
+const getCpuLoadGroups = (partition = null, totalAllocatedCpus = 0) => {
+    const emptyGroups = { low: 0, medium: 0, high: 0 };
+
+    if (!Number.isFinite(totalAllocatedCpus) || totalAllocatedCpus <= 0) {
+        return emptyGroups;
+    }
+
+    try {
+        const config = getRuntimeConfig();
+        const thresholds = config.stats.cpuLoad.thresholds;
+        const allocatedCpuByNode = buildAllocatedCpuMapByNode(partition);
+        const nodeCpuLoadByName = getNodeCpuLoadByNode(partition);
+
+        const groupedAllocation = { low: 0, medium: 0, high: 0 };
+
+        Object.entries(allocatedCpuByNode).forEach(([nodeName, allocatedCpus]) => {
+            if (!Number.isFinite(allocatedCpus) || allocatedCpus <= 0) {
+                return;
+            }
+
+            const nodeCpuLoad = nodeCpuLoadByName[nodeName];
+            if (!Number.isFinite(nodeCpuLoad)) {
+                return;
+            }
+
+            const normalizedLoadRatio = nodeCpuLoad / allocatedCpus;
+            const bucket = classifyCpuLoadBucket(normalizedLoadRatio, thresholds);
+            groupedAllocation[bucket] += allocatedCpus;
+        });
+
+        const classifiedTotal = groupedAllocation.low + groupedAllocation.medium + groupedAllocation.high;
+        const remainingAllocation = Math.max(0, totalAllocatedCpus - classifiedTotal);
+        groupedAllocation.medium += remainingAllocation;
+
+        return groupedAllocation;
+    } catch (error) {
+        console.error(`[Stats Handler] Failed CPU load bucket calculation: ${error.message}`);
+        return { low: 0, medium: totalAllocatedCpus, high: 0 };
+    }
+};
+
 // Fetches the number of CPUs by state
 function getCPUsByState(partition = null) {
     const key = `stats:cpu:${partition || 'all'}`;
     const cached = dataCache.cache.get(key);
     if (cached) {
         console.log(`[Stats Handler] Using cached CPU stats for ${partition || 'all'}`);
+        if (!cached.loadGroups) {
+            return {
+                ...cached,
+                loadGroups: {
+                    low: 0,
+                    medium: Number(cached.allocated) || 0,
+                    high: 0
+                }
+            };
+        }
         return cached;
     }
 
@@ -57,13 +295,14 @@ function getCPUsByState(partition = null) {
         const idle = parts[1] || 0;
         const other = parts[2] || 0;
         const total = parts[3] || 0;
+        const loadGroups = getCpuLoadGroups(partition, allocated);
         
-        const result = { allocated, idle, other, total };
+        const result = { allocated, idle, other, total, loadGroups };
         dataCache.cache.set(key, result, 5);
         return result;
     } catch (error) {
         console.error('Error in getCPUsByState:', error.message);
-        return { allocated: 0, idle: 0, other: 0, total: 0 };
+        return { allocated: 0, idle: 0, other: 0, total: 0, loadGroups: { low: 0, medium: 0, high: 0 } };
     }
 }
 

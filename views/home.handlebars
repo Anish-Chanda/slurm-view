@@ -22,6 +22,7 @@
     <div class="bg-white rounded-lg shadow border flex flex-col">
       <div class="pb-2 border-b p-4">
         <h3 class="text-lg font-medium">CPU Utilization</h3>
+        <p class="text-sm text-gray-600">Inner ring shows allocated, idle, and other CPUs; Outer ring splits allocated CPUs by low, medium, and high cpu load.</p>
       </div>
       <div class="flex-1 flex items-center justify-center p-4">
         <div id="sunburst-chart-cpu" class="h-full mx-auto"></div>
@@ -31,6 +32,7 @@
     <div class="bg-white rounded-lg shadow border flex flex-col">
       <div class="pb-2 border-b p-4">
         <h3 class="text-lg font-medium">Memory Utilization</h3>
+        <p class="text-sm text-gray-600">Shows allocated, idle, down, and other memory, with allocated memory split into used and unused portions.</p>
       </div>
       <div class="flex-1 flex items-center justify-center p-4">
         <div id="sunburst-chart-mem" class="h-full mx-auto"></div>
@@ -40,6 +42,7 @@
     <div class="bg-white rounded-lg shadow border flex flex-col">
       <div class="pb-2 border-b p-4">
         <h3 class="text-lg font-medium">GPU Utilization</h3>
+        <p class="text-sm text-gray-600">Breaks down GPU counts by used, available, down, and unknown node states, with type-level detail in each group.</p>
       </div>
       <div class="flex-1 flex items-center justify-center p-4">
         <div id="sunburst-chart-gpu" class="h-full mx-auto"></div>
@@ -87,7 +90,8 @@
     cpuStats: {
       allocated: {{cpuStats.allocated}},
       idle: {{cpuStats.idle}},
-      other: {{cpuStats.other}}
+      other: {{cpuStats.other}},
+      loadGroups: {{{json cpuStats.loadGroups}}}
     },
     memStats: {
       allocated: {{memStats.allocated}},

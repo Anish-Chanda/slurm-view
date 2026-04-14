@@ -1,0 +1,5 @@
+stats:
+  cpuLoad:
+    thresholds:
+      lowMax: 0.33
+      mediumMax: 0.66

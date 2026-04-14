@@ -5,6 +5,7 @@ const { DEFAULT_PAGE_SIZE, JOB_STATE_REASONS } = require('./constants.js');
 const backgroundPolling = require('./service/backgroundPolling.js');
 const dataCache = require('./modules/dataCache.js');
 const jobsService = require('./service/jobsService.js');
+const { initializeRuntimeConfig, CONFIG_DIR_PATH } = require('./modules/runtimeConfig.js');
 const { getPartitions } = require('./handlers/fetchPartitions.js');
 const { getJobStates } = require('./handlers/fetchJobStates.js');
 const { getPendingReason } = require('./handlers/fetchPendingReason.js');
@@ -86,7 +87,16 @@ const hbs = engine({
   }
 })
 
+// Load runtime configuration on startup, fail if config is invalid or cannot be loaded
+try {
+  initializeRuntimeConfig();
+  console.log(`[Config] Runtime configuration loaded from ${CONFIG_DIR_PATH}`);
+} catch (error) {
+  console.error(`[Config] Failed to load runtime configuration: ${error.message}`);
+  process.exit(1);
+}
 //start the background polling service
+
 console.log("[Main Worker] Starting background worker service...");
 backgroundPolling.start();
 
@@ -343,7 +353,7 @@ router.get('/', async (req, res) => {
       errorMessage: 'An error occurred while processing your request.',
       jobs: [],
       pagination: { page: 1, pageSize: DEFAULT_PAGE_SIZE, totalItems: 0, totalPages: 0 },
-      cpuStats: { allocated: 0, idle: 0, other: 0, total: 0 },
+      cpuStats: { allocated: 0, idle: 0, other: 0, total: 0, loadGroups: { low: 0, medium: 0, high: 0 } },
       memStats: { allocated: 0, allocatedUsed: 0, idle: 0, down: 0, other: 0, total: 0 },
       gpuStats: { name: "GPU Utilization", children: [], totalGPUs: 0 },
       lastUpdated: { jobs: 'N/A' },
