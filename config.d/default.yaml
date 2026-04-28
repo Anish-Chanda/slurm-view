@@ -3,3 +3,15 @@ stats:
     thresholds:
       lowMax: 0.33
       mediumMax: 0.66
+ui:
+  charts:
+    cpu:
+      showSecondaryLayer: true
+    memory:
+      showSecondaryLayer: true
+    gpu:
+      showSecondaryLayer: true
+  navbar:
+    enabled: true
+    title: Slurm View
+    color: "#e7000b"

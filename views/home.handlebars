@@ -1,5 +1,5 @@
 {{!Stats section}}
-<div class="mb-12">
+<div id="resource-utilization" class="mb-12 scroll-mt-24">
   <div class="flex justify-between items-center mb-6">
     <h2 class="text-2xl font-semibold">Resource Utilization</h2>
     <div class="flex items-center space-x-2">
@@ -22,7 +22,11 @@
     <div class="bg-white rounded-lg shadow border flex flex-col">
       <div class="pb-2 border-b p-4">
         <h3 class="text-lg font-medium">CPU Utilization</h3>
-        <p class="text-sm text-gray-600">Inner ring shows allocated, idle, and other CPUs; Outer ring splits allocated CPUs by low, medium, and high cpu load.</p>
+        {{#if runtimeConfig.ui.charts.cpu.showSecondaryLayer}}
+          <p class="text-sm text-gray-600">Inner ring shows allocated, idle, and other CPUs; outer ring splits allocated CPUs by low, medium, and high CPU load.</p>
+        {{else}}
+          <p class="text-sm text-gray-600">Shows allocated, idle, and other CPUs without the load-breakdown outer ring.</p>
+        {{/if}}
       </div>
       <div class="flex-1 flex items-center justify-center p-4">
         <div id="sunburst-chart-cpu" class="h-full mx-auto"></div>
@@ -32,7 +36,11 @@
     <div class="bg-white rounded-lg shadow border flex flex-col">
       <div class="pb-2 border-b p-4">
         <h3 class="text-lg font-medium">Memory Utilization</h3>
-        <p class="text-sm text-gray-600">Shows allocated, idle, down, and other memory, with allocated memory split into used and unused portions.</p>
+        {{#if runtimeConfig.ui.charts.memory.showSecondaryLayer}}
+          <p class="text-sm text-gray-600">Shows allocated, idle, down, and other memory, with allocated memory split into used and unused portions.</p>
+        {{else}}
+          <p class="text-sm text-gray-600">Shows allocated, idle, down, and other memory without the allocated-memory outer ring.</p>
+        {{/if}}
       </div>
       <div class="flex-1 flex items-center justify-center p-4">
         <div id="sunburst-chart-mem" class="h-full mx-auto"></div>
@@ -42,7 +50,11 @@
     <div class="bg-white rounded-lg shadow border flex flex-col">
       <div class="pb-2 border-b p-4">
         <h3 class="text-lg font-medium">GPU Utilization</h3>
-        <p class="text-sm text-gray-600">Breaks down GPU counts by used, available, down, and unknown node states, with type-level detail in each group.</p>
+        {{#if runtimeConfig.ui.charts.gpu.showSecondaryLayer}}
+          <p class="text-sm text-gray-600">Breaks down GPU counts by used, available, down, and unknown node states, with type-level detail in each group.</p>
+        {{else}}
+          <p class="text-sm text-gray-600">Shows GPU counts by used, available, down, and unknown node states without the type-level outer ring.</p>
+        {{/if}}
       </div>
       <div class="flex-1 flex items-center justify-center p-4">
         <div id="sunburst-chart-gpu" class="h-full mx-auto"></div>
@@ -52,7 +64,7 @@
 </div>
 <!-- Filter Form and rest of the existing code -->
 
-<h2 class="text-center text-gray-800 mb-6 text-2xl">Slurm Job Queue</h2>
+<h2 id="job-queue" class="scroll-mt-24 text-center text-gray-800 mb-6 text-2xl">Slurm Job Queue</h2>
 
 <!-- Filter Form -->
 <div class="mb-4">
@@ -101,6 +113,7 @@
       other: {{memStats.other}}
     },
     gpuStats: {{{json gpuStats}}},
+    ui: {{{json runtimeConfig.ui}}},
     partitions: {{{json partitions}}},
     jobStates: {{{json jobStates}}},
     jobStateReasons: {{{json jobStateReasons}}}

@@ -1,0 +1,14 @@
+<nav
+  class="border-b border-black/10 backdrop-blur"
+  style="background-color: {{runtimeConfig.ui.navbar.color}}; color: {{contrastingTextColor runtimeConfig.ui.navbar.color}};"
+>
+  <div class="mx-auto flex max-w-[1800px] items-center justify-between px-5 py-4">
+    <a href="{{passengerBaseUri}}/" class="text-lg font-semibold tracking-tight" style="color: inherit;">
+      {{runtimeConfig.ui.navbar.title}}
+    </a>
+    <div class="flex items-center gap-5 text-sm" style="color: inherit;">
+      <a href="#resource-utilization" class="transition hover:opacity-80">Resources</a>
+      <a href="#job-queue" class="transition hover:opacity-80">Queue</a>
+    </div>
+  </div>
+</nav>

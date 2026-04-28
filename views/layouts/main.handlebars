@@ -5,7 +5,13 @@
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
   </head>
-  <body class="font-sans m-5 p-5 bg-gray-100">
-    {{{body}}}
+  <body class="font-sans bg-gray-100 text-gray-900">
+    {{#if runtimeConfig.ui.navbar.enabled}}
+      {{> navbar}}
+    {{/if}}
+
+    <main class="mx-auto max-w-[1800px] px-5 py-5">
+      {{{body}}}
+    </main>
   </body>
 </html>

@@ -1,6 +1,22 @@
 // D3.js Sunburst Chart functionality
 
-function buildMemoryChartData(memStats) {
+function shouldShowSecondaryLayer(chartKey) {
+  return window.SLURM_CONFIG.ui.charts[chartKey].showSecondaryLayer;
+}
+
+function buildMemoryChartData(memStats, showSecondaryLayer = true) {
+  if (!showSecondaryLayer) {
+    return {
+      name: "Memory Utilization",
+      children: [
+        { name: "Allocated", value: memStats.allocated },
+        { name: "Idle", value: memStats.idle },
+        { name: "Down", value: memStats.down },
+        { name: "Other", value: memStats.other }
+      ]
+    };
+  }
+
   const allocatedUsed = Math.min(memStats.allocatedUsed, memStats.allocated);
   const allocatedReserved = Math.max(0, memStats.allocated - allocatedUsed);
   const allocatedChildren = [];
@@ -24,7 +40,18 @@ function buildMemoryChartData(memStats) {
   };
 }
 
-function buildCpuChartData(cpuStats) {
+function buildCpuChartData(cpuStats, showSecondaryLayer = true) {
+  if (!showSecondaryLayer) {
+    return {
+      name: "CPU Utilization",
+      children: [
+        { name: "Allocated", value: cpuStats.allocated },
+        { name: "Idle", value: cpuStats.idle },
+        { name: "Other", value: cpuStats.other }
+      ]
+    };
+  }
+
   const loadGroups = cpuStats && cpuStats.loadGroups ? cpuStats.loadGroups : {};
   const lowLoad = Number(loadGroups.low) || 0;
   const mediumLoad = Number(loadGroups.medium) || 0;
@@ -55,6 +82,29 @@ function buildCpuChartData(cpuStats) {
       { name: "Idle", value: cpuStats.idle },
       { name: "Other", value: cpuStats.other }
     ]
+  };
+}
+
+function buildGpuChartData(gpuStats, showSecondaryLayer = true) {
+  if (showSecondaryLayer || !Array.isArray(gpuStats.children)) {
+    return gpuStats;
+  }
+
+  return {
+    ...gpuStats,
+    children: gpuStats.children
+      .map((child) => {
+        if (typeof child.value === "number") {
+          return { name: child.name, value: child.value };
+        }
+
+        const childTotal = Array.isArray(child.children)
+          ? child.children.reduce((sum, nestedChild) => sum + (Number(nestedChild.value) || 0), 0)
+          : 0;
+
+        return { name: child.name, value: childTotal };
+      })
+      .filter((child) => child.name === "Error" || child.name === "No GPUs" || child.value > 0)
   };
 }
 
@@ -225,6 +275,9 @@ function updateChartsForPartition(partition) {
   const baseUrl = window.SLURM_CONFIG.baseUri;
   const partitionBadge = document.getElementById('partition-badge');
   const selectedPartitionName = document.getElementById('selected-partition-name');
+  const showCpuSecondaryLayer = shouldShowSecondaryLayer('cpu');
+  const showMemorySecondaryLayer = shouldShowSecondaryLayer('memory');
+  const showGpuSecondaryLayer = shouldShowSecondaryLayer('gpu');
   
   // Show/hide partition badge
   if (partition === 'all') {
@@ -243,14 +296,14 @@ function updateChartsForPartition(partition) {
     .then(data => {
       if (data.success) {
         // Create updated chart data
-        const newCpuData = buildCpuChartData(data.cpuStats);
-        
-        const newMemData = buildMemoryChartData(data.memStats);
+        const newCpuData = buildCpuChartData(data.cpuStats, showCpuSecondaryLayer);
+        const newMemData = buildMemoryChartData(data.memStats, showMemorySecondaryLayer);
+        const newGpuData = buildGpuChartData(data.gpuStats, showGpuSecondaryLayer);
         
         // Redraw charts with new data
         drawSunburstChart(newCpuData, "sunburst-chart-cpu", "CPU");
         drawSunburstChart(newMemData, "sunburst-chart-mem", "Memory", "GB");
-        drawSunburstChart(data.gpuStats, "sunburst-chart-gpu", "GPU");
+        drawSunburstChart(newGpuData, "sunburst-chart-gpu", "GPU");
       } else {
         console.error("Error fetching stats:", data.error);
       }
@@ -262,15 +315,16 @@ function updateChartsForPartition(partition) {
 
 function initializeCharts() {
   // Data for CPU sunburst chart
-  const cpuData = buildCpuChartData(window.SLURM_CONFIG.cpuStats);
+  const cpuData = buildCpuChartData(window.SLURM_CONFIG.cpuStats, shouldShowSecondaryLayer('cpu'));
 
   // Data for Memory sunburst chart
-  const memData = buildMemoryChartData(window.SLURM_CONFIG.memStats);
+  const memData = buildMemoryChartData(window.SLURM_CONFIG.memStats, shouldShowSecondaryLayer('memory'));
+  const gpuData = buildGpuChartData(window.SLURM_CONFIG.gpuStats, shouldShowSecondaryLayer('gpu'));
 
   // Render all charts
   drawSunburstChart(cpuData, "sunburst-chart-cpu", "CPU");
   drawSunburstChart(memData, "sunburst-chart-mem", "Memory", "GB");
-  drawSunburstChart(window.SLURM_CONFIG.gpuStats, "sunburst-chart-gpu", "GPU");
+  drawSunburstChart(gpuData, "sunburst-chart-gpu", "GPU");
 
   // Listen for partition selection changes
   document.getElementById('partition-select').addEventListener('change', function() {

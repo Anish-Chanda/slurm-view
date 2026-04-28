@@ -5,7 +5,12 @@ const { DEFAULT_PAGE_SIZE, JOB_STATE_REASONS } = require('./constants.js');
 const backgroundPolling = require('./service/backgroundPolling.js');
 const dataCache = require('./modules/dataCache.js');
 const jobsService = require('./service/jobsService.js');
-const { initializeRuntimeConfig, CONFIG_DIR_PATH } = require('./modules/runtimeConfig.js');
+const {
+  initializeRuntimeConfig,
+  getRuntimeConfig,
+  SYSTEM_CONFIG_DIR_PATH,
+  USER_CONFIG_DIR_PATH
+} = require('./modules/runtimeConfig.js');
 const { getPartitions } = require('./handlers/fetchPartitions.js');
 const { getJobStates } = require('./handlers/fetchJobStates.js');
 const { getPendingReason } = require('./handlers/fetchPendingReason.js');
@@ -14,6 +19,24 @@ const { validatePartitionName, validatePageNumber, validatePageSize, validateFil
 
 const app = express();
 const port = 3000;
+
+function getContrastingTextColor(hexColor) {
+  if (typeof hexColor !== 'string') {
+    return '#ffffff';
+  }
+
+  let normalized = hexColor.replace('#', '');
+  if (normalized.length === 3) {
+    normalized = normalized.split('').map((char) => `${char}${char}`).join('');
+  }
+
+  const red = Number.parseInt(normalized.slice(0, 2), 16);
+  const green = Number.parseInt(normalized.slice(2, 4), 16);
+  const blue = Number.parseInt(normalized.slice(4, 6), 16);
+  const brightness = ((red * 299) + (green * 587) + (blue * 114)) / 1000;
+
+  return brightness >= 140 ? '#0f172a' : '#ffffff';
+}
 
 // Create handlebars instance with helpers
 const hbs = engine({
@@ -84,13 +107,15 @@ const hbs = engine({
       if (value > 40) return 'text-yellow-600';
       return 'text-red-600';
     },
+
+    contrastingTextColor: getContrastingTextColor
   }
 })
 
 // Load runtime configuration on startup, fail if config is invalid or cannot be loaded
 try {
   initializeRuntimeConfig();
-  console.log(`[Config] Runtime configuration loaded from ${CONFIG_DIR_PATH}`);
+  console.log(`[Config] Runtime configuration loaded from ${SYSTEM_CONFIG_DIR_PATH} with optional user overrides from ${USER_CONFIG_DIR_PATH}`);
 } catch (error) {
   console.error(`[Config] Failed to load runtime configuration: ${error.message}`);
   process.exit(1);
@@ -130,6 +155,12 @@ app.set('views', './views');
 
 // Serve static files from public directory
 app.use(express.static('public'));
+
+app.use((req, res, next) => {
+  res.locals.passengerBaseUri = process.env.PASSENGER_BASE_URI || '';
+  res.locals.runtimeConfig = getRuntimeConfig();
+  next();
+});
 
 const router = express.Router();
 app.use(process.env.PASSENGER_BASE_URI || '/', router);
@@ -342,7 +373,6 @@ router.get('/', async (req, res) => {
       partitions,
       jobStates,
       jobStateReasons: JOB_STATE_REASONS,
-      passengerBaseUri: process.env.PASSENGER_BASE_URI,
       defaultPageSize: DEFAULT_PAGE_SIZE
     });
   } catch (error) {
@@ -360,7 +390,6 @@ router.get('/', async (req, res) => {
       partitions: [{ id: 'all', name: 'All Partitions' }],
       jobStates: [],
       jobStateReasons: [],
-      passengerBaseUri: process.env.PASSENGER_BASE_URI,
       defaultPageSize: DEFAULT_PAGE_SIZE
     });
   }
