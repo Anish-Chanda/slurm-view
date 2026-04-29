@@ -1,6 +1,7 @@
 const { executeCommand } = require("../helpers/executeCmd");
 const { createSafeCommand, validatePartitionName } = require("../helpers/inputValidation");
 const { parseTres, checkResources } = require("../helpers/tresUtils");
+const { getJobResourceValue, formatRunMinutes } = require("../helpers/runMinutesUtils");
 const { 
     getJobPriority, 
     getCompetingJobs, 
@@ -720,7 +721,7 @@ const summarizeAnalysis = (nodes, totalNodes) => {
 const analyzeAssocGrpMemRunMinutes = (jobId, jobData) => {
     try {
         const { buildAncestorChain, formatMemory, parseMemoryToMB } = require('../helpers/accountLimits.js');
-        const { calculateJobRunMinutes, formatRunMinutes } = require('../helpers/runMinutesUtils.js');
+        const { calculateJobRunMinutes } = require('../helpers/runMinutesUtils.js');
         
         // Get account limits from cache
         const allLimits = dataCache.getAccountLimits();
@@ -857,7 +858,7 @@ const analyzeAssocGrpMemRunMinutes = (jobId, jobData) => {
                 shortfall: shortfall,
                 shortfallFormatted: shortfallFormatted.display,
                 runningJobs: usage.jobCount,
-                topConsumers: usage.topConsumers || []
+                topConsumers: formatTopConsumers(usage.topConsumers, 'mem')
             }
         };
         
@@ -876,7 +877,7 @@ const analyzeAssocGrpMemRunMinutes = (jobId, jobData) => {
 const analyzeAssocGrpCPURunMinutes = (jobId, jobData) => {
     try {
         const { buildAncestorChain } = require('../helpers/accountLimits.js');
-        const { calculateJobRunMinutes, formatRunMinutes } = require('../helpers/runMinutesUtils.js');
+        const { calculateJobRunMinutes } = require('../helpers/runMinutesUtils.js');
         
         // Get account limits from cache
         const allLimits = dataCache.getAccountLimits();
@@ -1011,7 +1012,7 @@ const analyzeAssocGrpCPURunMinutes = (jobId, jobData) => {
                 shortfall: shortfall,
                 shortfallFormatted: shortfallFormatted.display,
                 runningJobs: usage.jobCount,
-                topConsumers: usage.topConsumers || []
+                topConsumers: formatTopConsumers(usage.topConsumers, 'cpu')
             }
         };
         
@@ -1072,6 +1073,18 @@ function calculateRunMinutesUsage(account, resource, allLimits, includeChildren 
     usage.topConsumers = jobContributions.slice(0, 10);
     
     return usage;
+}
+
+function formatTopConsumers(topConsumers = [], resource) {
+    return topConsumers.map((consumer) => {
+        const formatted = formatRunMinutes(consumer.contribution, resource);
+
+        return {
+            ...consumer,
+            formatted: formatted.display,
+            tooltip: formatted.tooltip
+        };
+    });
 }
 
 /**
@@ -1671,7 +1684,7 @@ function calculateAccountGRESUsage(account, allLimits, includeChildren = false) 
     // Sum usage from RUNNING jobs
     jobsData.jobs.forEach(job => {
         if (job.job_state === 'RUNNING' && accountsToCheck.includes(job.account)) {
-            const gpusToUse = parseInt(job.alloc_gpus || job.total_gpus) || 0;
+            const gpusToUse = parseInt(getJobResourceValue(job, 'alloc_gpus', 'total_gpus') || 0, 10) || 0;
             usage.total += gpusToUse;
             
             // Track GPU types if available
@@ -1721,13 +1734,13 @@ function calculateAccountUsage(account, allLimits, includeChildren = false) {
         if (job.job_state === 'RUNNING' && accountsToCheck.includes(job.account)) {
             // For running jobs, use alloc_tres if available (actual allocation),
             // otherwise fall back to total_memory (which comes from ReqTRES)
-            const memToUse = job.alloc_memory || job.total_memory;
-            const cpusToUse = job.alloc_cpus || job.total_cpus;
-            const gpusToUse = job.alloc_gpus || job.total_gpus;
+            const memToUse = getJobResourceValue(job, 'alloc_memory', 'total_memory');
+            const cpusToUse = getJobResourceValue(job, 'alloc_cpus', 'total_cpus');
+            const gpusToUse = getJobResourceValue(job, 'alloc_gpus', 'total_gpus');
             
             usage.memory += parseMemoryToMB(memToUse);
-            usage.cpus += parseInt(cpusToUse) || 0;
-            usage.gpus += parseInt(gpusToUse) || 0;
+            usage.cpus += parseInt(cpusToUse, 10) || 0;
+            usage.gpus += parseInt(gpusToUse, 10) || 0;
             usage.jobCount++;
         }
     });
@@ -1922,7 +1935,7 @@ const analyzeQOSGrpCpuLimit = (jobId, jobData) => {
                 if (job.job_state === 'RUNNING' && job.account === jobData.Account) {
                     const jobQOS = job.qos || 'normal';
                     if (jobQOS === qosName) {
-                        const cpus = parseInt(job.alloc_cpus || job.total_cpus) || 0;
+                        const cpus = parseInt(getJobResourceValue(job, 'alloc_cpus', 'total_cpus') || 0, 10) || 0;
                         currentUsage += cpus;
                         runningJobsCount++;
                         

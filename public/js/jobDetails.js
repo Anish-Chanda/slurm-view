@@ -993,7 +993,7 @@ function renderAssocGrpMemRunMinutesReason(data) {
             ${analysis.topConsumers.map(consumer => `
               <div class="flex justify-between text-slate-600">
                 <span>Job ${consumer.jobId}</span>
-                <span class="font-mono" title="${consumer.contribution.toLocaleString()} MB-minutes">${consumer.formatted}</span>
+                <span class="font-mono" title="${consumer.tooltip || `${consumer.contribution.toLocaleString()} MB-minutes`}">${consumer.formatted || consumer.contribution}</span>
               </div>
             `).join('')}
           </div>
@@ -1072,7 +1072,7 @@ function renderAssocGrpCPURunMinutesReason(data) {
             ${analysis.topConsumers.map(consumer => `
               <div class="flex justify-between text-slate-600">
                 <span>Job ${consumer.jobId}</span>
-                <span class="font-mono" title="${consumer.contribution.toLocaleString()} CPU-minutes">${consumer.formatted}</span>
+                <span class="font-mono" title="${consumer.tooltip || `${consumer.contribution.toLocaleString()} CPU-minutes`}">${consumer.formatted || consumer.contribution}</span>
               </div>
             `).join('')}
           </div>

@@ -1,6 +1,7 @@
 const {
     parseTimeLimit,
     getRemainingMinutes,
+    getJobResourceValue,
     calculateJobRunMinutes,
     formatRunMinutes
 } = require('../../helpers/runMinutesUtils');
@@ -27,6 +28,11 @@ describe('runMinutesUtils', () => {
         it('should parse minutes only', () => {
             expect(parseTimeLimit('60')).toBe(60);
             expect(parseTimeLimit('120')).toBe(120);
+        });
+
+        it('should parse human-readable duration strings', () => {
+            expect(parseTimeLimit('11d 23h 39m 19s')).toBe(17259);
+            expect(parseTimeLimit('2h 15m')).toBe(135);
         });
 
         it('should handle UNLIMITED', () => {
@@ -107,6 +113,48 @@ describe('runMinutesUtils', () => {
             
             expect(getRemainingMinutes(job)).toBe(90);
         });
+
+        it('should handle start_time as numeric string', () => {
+            const currentTime = 1640000000;
+            const startTime = String(currentTime - (15 * 60));
+
+            const job = {
+                time_limit: 60,
+                start_time: startTime
+            };
+
+            expect(getRemainingMinutes(job)).toBe(45);
+        });
+
+        it('should prefer time_left when already formatted', () => {
+            const job = {
+                time_limit: '2:00:00',
+                time_left: '1h 30m',
+                start_time: 'N/A'
+            };
+
+            expect(getRemainingMinutes(job)).toBe(90);
+        });
+    });
+
+    describe('getJobResourceValue', () => {
+        it('should prefer allocated values when available', () => {
+            const job = {
+                alloc_cpus: '32',
+                total_cpus: '16'
+            };
+
+            expect(getJobResourceValue(job, 'alloc_cpus', 'total_cpus')).toBe('32');
+        });
+
+        it('should fall back when allocated values are unavailable', () => {
+            const job = {
+                alloc_memory: 'N/A',
+                total_memory: '128G'
+            };
+
+            expect(getJobResourceValue(job, 'alloc_memory', 'total_memory')).toBe('128G');
+        });
     });
 
     describe('calculateJobRunMinutes', () => {
@@ -184,6 +232,17 @@ describe('runMinutesUtils', () => {
             
             expect(calculateJobRunMinutes(job, 'cpu')).toBe(480); // 8 * 60
             expect(calculateJobRunMinutes(job, 'mem')).toBe(307200); // 5120 MB * 60
+        });
+
+        it('should ignore alloc_* values set to N/A', () => {
+            const job = {
+                alloc_memory: 'N/A',
+                total_memory: '10G',
+                time_limit: 120,
+                start_time: null
+            };
+
+            expect(calculateJobRunMinutes(job, 'mem')).toBe(1228800);
         });
     });
 
