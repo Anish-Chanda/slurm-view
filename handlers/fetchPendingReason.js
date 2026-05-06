@@ -95,6 +95,15 @@ const getPendingReason = async (jobId) => {
             case 'QOSGrpCpuLimit':
                 result = analyzeQOSGrpCpuLimit(jobId, jobData);
                 break;
+            case 'QOSGrpJobsLimit':
+                result = analyzeQOSGrpJobsLimit(jobId, jobData);
+                break;
+            case 'QOSGrpMemLimit':
+                result = analyzeQOSGrpMemLimit(jobId, jobData);
+                break;
+            case 'QOSGrpNodeLimit':
+                result = analyzeQOSGrpNodeLimit(jobId, jobData);
+                break;
             default:
                 result = { type: 'Other', message: `Pending reason: ${jobData.Reason}` };
                 break;
@@ -1990,6 +1999,258 @@ const analyzeQOSGrpCpuLimit = (jobId, jobData) => {
         
     } catch (error) {
         console.error(`Error analyzing QOSGrpCpuLimit for job ${jobId}:`, error.message);
+        return { type: 'Error', message: error.message };
+    }
+};
+
+/**
+ * Analyze a job pending due to QOS jobs limit
+ * @param {string} jobId - Job ID
+ * @param {Object} jobData - Parsed job data from scontrol
+ * @returns {Object} QOSGrpJobsLimit analysis result
+ */
+const analyzeQOSGrpJobsLimit = (jobId, jobData) => {
+    try {
+        const qosLimitsData = dataCache.getQOSLimits();
+        if (!qosLimitsData) return { type: 'Error', message: 'QOS limits not available' };
+        
+        const qosName = jobData.QOS || 'normal';
+        const qosLimits = qosLimitsData.qos[qosName];
+        if (!qosLimits) return { type: 'Error', message: `QOS '${qosName}' not found in limits` };
+        
+        if (!qosLimits.grpJobs) {
+            return { type: 'Error', message: `QOS '${qosName}' has no jobs limit configured` };
+        }
+        
+        const jobsLimit = parseInt(qosLimits.grpJobs, 10);
+        const jobsData = dataCache.getData('jobs');
+        let currentUsage = 0;
+        let runningJobsCount = 0;
+        
+        if (jobsData && jobsData.jobs) {
+            jobsData.jobs.forEach(job => {
+                const jobQOS = job.qos || 'normal';
+                if (jobQOS === qosName && job.job_state === 'RUNNING') {
+                    currentUsage++;
+                    runningJobsCount++;
+                }
+            });
+        }
+        
+        const available = Math.max(0, jobsLimit - currentUsage);
+        const shortfall = Math.min(0, jobsLimit - currentUsage - 1);
+        
+        return {
+            type: 'QOSGrpJobsLimit',
+            jobId: jobId,
+            qosName: qosName,
+            analysis: {
+                qosName: qosName,
+                limit: jobsLimit,
+                limitFormatted: jobsLimit.toLocaleString(),
+                currentUsage: currentUsage,
+                currentUsageFormatted: currentUsage.toLocaleString(),
+                percentUsed: ((currentUsage / jobsLimit) * 100).toFixed(1),
+                available: available,
+                availableFormatted: available.toLocaleString(),
+                shortfall: shortfall,
+                shortfallFormatted: Math.abs(shortfall).toLocaleString(),
+                runningJobs: runningJobsCount
+            }
+        };
+    } catch (error) {
+        console.error(`Error analyzing QOSGrpJobsLimit for job ${jobId}:`, error.message);
+        return { type: 'Error', message: error.message };
+    }
+};
+
+/**
+ * Analyze a job pending due to QOS memory limit
+ * @param {string} jobId - Job ID
+ * @param {Object} jobData - Parsed job data from scontrol
+ * @returns {Object} QOSGrpMemLimit analysis result
+ */
+const analyzeQOSGrpMemLimit = (jobId, jobData) => {
+    try {
+        const qosLimitsData = dataCache.getQOSLimits();
+        if (!qosLimitsData) return { type: 'Error', message: 'QOS limits not available' };
+        
+        const qosName = jobData.QOS || 'normal';
+        const qosLimits = qosLimitsData.qos[qosName];
+        if (!qosLimits) return { type: 'Error', message: `QOS '${qosName}' not found in limits` };
+        
+        let memLimit = null;
+        if (qosLimits.grpMem) memLimit = qosLimits.grpMem;
+        else if (qosLimits.grpTRES && qosLimits.grpTRES.mem) memLimit = qosLimits.grpTRES.mem;
+        
+        if (!memLimit) {
+            return { type: 'Error', message: `QOS '${qosName}' has no memory limit configured` };
+        }
+        
+        memLimit = parseInt(memLimit, 10);
+        
+        let jobMemMB = 0;
+        if (jobData.MinMemoryNode) {
+            jobMemMB = parseInt(jobData.MinMemoryNode.replace(/[^0-9]/g, ''), 10) * (jobData.MinMemoryNode.includes('G') ? 1024 : 1);
+        } else if (jobData.ReqTRES && jobData.ReqTRES.mem) {
+             if (typeof jobData.ReqTRES.mem === 'string') {
+                 const memStr = jobData.ReqTRES.mem;
+                 jobMemMB = parseInt(memStr.replace(/[^0-9]/g, ''), 10);
+                 if (memStr.includes('G')) jobMemMB *= 1024;
+             } else {
+                 jobMemMB = jobData.ReqTRES.mem;
+             }
+        }
+        
+        const jobsData = dataCache.getData('jobs');
+        let currentUsage = 0;
+        let runningJobsCount = 0;
+        
+        if (jobsData && jobsData.jobs) {
+            jobsData.jobs.forEach(job => {
+                const jobQOS = job.qos || 'normal';
+                if (jobQOS === qosName && job.job_state === 'RUNNING') {
+                    let mem = parseInt(getJobResourceValue(job, 'mem') || 0, 10);
+                    // Check TRES alloc string for real memory used
+                    if (job.tres_alloc_str && job.tres_alloc_str.includes('mem=')) {
+                        const match = job.tres_alloc_str.match(/mem=([0-9]+)([A-Za-z])/);
+                        if (match) {
+                            const val = parseInt(match[1]);
+                            const unit = match[2].toUpperCase();
+                            mem = unit === 'G' ? val * 1024 : (unit === 'M' ? val : val);
+                        }
+                    } else if (job.min_memory) {
+                        // Fallback to min_memory from sacct/scontrol
+                        if (typeof job.min_memory === 'string' && job.min_memory.includes('G')) {
+                            mem = parseInt(job.min_memory) * 1024;
+                        } else if (typeof job.min_memory === 'string' && job.min_memory.includes('M')) {
+                            mem = parseInt(job.min_memory);
+                        } else {
+                            mem = parseInt(job.min_memory || 0);
+                        }
+                    }
+                    currentUsage += mem;
+                    runningJobsCount++;
+                }
+            });
+        }
+        
+        const available = Math.max(0, memLimit - currentUsage);
+        const shortfall = Math.min(0, memLimit - currentUsage - jobMemMB);
+        
+        const formatMem = (mb) => {
+            if (mb >= 1024 * 1024) return (mb / (1024 * 1024)).toFixed(1) + ' TB';
+            if (mb >= 1024) return (mb / 1024).toFixed(1) + ' GB';
+            return mb.toLocaleString() + ' MB';
+        };
+        
+        return {
+            type: 'QOSGrpMemLimit',
+            jobId: jobId,
+            qosName: qosName,
+            job: {
+                requested: {
+                    mem: jobMemMB,
+                    formatted: formatMem(jobMemMB)
+                }
+            },
+            analysis: {
+                qosName: qosName,
+                limit: memLimit,
+                limitFormatted: formatMem(memLimit),
+                currentUsage: currentUsage,
+                currentUsageFormatted: formatMem(currentUsage),
+                percentUsed: ((currentUsage / memLimit) * 100).toFixed(1),
+                available: available,
+                availableFormatted: formatMem(available),
+                shortfall: shortfall,
+                shortfallFormatted: formatMem(Math.abs(shortfall)),
+                runningJobs: runningJobsCount
+            }
+        };
+    } catch (error) {
+        console.error(`Error analyzing QOSGrpMemLimit for job ${jobId}:`, error.message);
+        return { type: 'Error', message: error.message };
+    }
+};
+
+/**
+ * Analyze a job pending due to QOS node limit
+ * @param {string} jobId - Job ID
+ * @param {Object} jobData - Parsed job data from scontrol
+ * @returns {Object} QOSGrpNodeLimit analysis result
+ */
+const analyzeQOSGrpNodeLimit = (jobId, jobData) => {
+    try {
+        const qosLimitsData = dataCache.getQOSLimits();
+        if (!qosLimitsData) return { type: 'Error', message: 'QOS limits not available' };
+        
+        const qosName = jobData.QOS || 'normal';
+        const qosLimits = qosLimitsData.qos[qosName];
+        if (!qosLimits) return { type: 'Error', message: `QOS '${qosName}' not found in limits` };
+        
+        let nodeLimit = null;
+        if (qosLimits.grpNodes) nodeLimit = qosLimits.grpNodes;
+        else if (qosLimits.grpTRES && qosLimits.grpTRES.node) nodeLimit = qosLimits.grpTRES.node;
+        
+        if (!nodeLimit) {
+            return { type: 'Error', message: `QOS '${qosName}' has no node limit configured` };
+        }
+        
+        nodeLimit = parseInt(nodeLimit, 10);
+        let jobNodes = parseInt(jobData.NumNodes || 1, 10);
+        
+        const jobsData = dataCache.getData('jobs');
+        let currentUsage = 0;
+        let runningJobsCount = 0;
+        
+        if (jobsData && jobsData.jobs) {
+            jobsData.jobs.forEach(job => {
+                const jobQOS = job.qos || 'normal';
+                if (jobQOS === qosName && job.job_state === 'RUNNING') {
+                    // Try to extract num_nodes from the best possible field
+                    let nodes = 1;
+                    if (job.num_nodes) {
+                        nodes = parseInt(job.num_nodes, 10);
+                    } else if (job.tres_alloc_str && job.tres_alloc_str.includes('node=')) {
+                        const match = job.tres_alloc_str.match(/node=([0-9]+)/);
+                        if (match) nodes = parseInt(match[1]);
+                    }
+                    currentUsage += nodes;
+                    runningJobsCount++;
+                }
+            });
+        }
+        
+        const available = Math.max(0, nodeLimit - currentUsage);
+        const shortfall = Math.min(0, nodeLimit - currentUsage - jobNodes);
+        
+        return {
+            type: 'QOSGrpNodeLimit',
+            jobId: jobId,
+            qosName: qosName,
+            job: {
+                requested: {
+                    nodes: jobNodes,
+                    formatted: jobNodes.toLocaleString()
+                }
+            },
+            analysis: {
+                qosName: qosName,
+                limit: nodeLimit,
+                limitFormatted: nodeLimit.toLocaleString(),
+                currentUsage: currentUsage,
+                currentUsageFormatted: currentUsage.toLocaleString(),
+                percentUsed: ((currentUsage / nodeLimit) * 100).toFixed(1),
+                available: available,
+                availableFormatted: available.toLocaleString(),
+                shortfall: shortfall,
+                shortfallFormatted: Math.abs(shortfall).toLocaleString(),
+                runningJobs: runningJobsCount
+            }
+        };
+    } catch (error) {
+        console.error(`Error analyzing QOSGrpNodeLimit for job ${jobId}:`, error.message);
         return { type: 'Error', message: error.message };
     }
 };

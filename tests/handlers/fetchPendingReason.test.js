@@ -2118,4 +2118,280 @@ else expect(result.missingLimitWarning).toBe(true);
             expect(result.analysis.topConsumers[1].cpus).toBe(50);
         });
     });
+
+    describe('QOSGrpJobsLimit', () => {
+        beforeEach(() => {
+            // Mock QOS limits
+            dataCache.getQOSLimits = jest.fn().mockReturnValue({
+                timestamp: Date.now(),
+                qos: {
+                    'normal': {
+                        name: 'normal',
+                        grpJobs: 10
+                    },
+                    'premium': {
+                        name: 'premium',
+                        grpJobs: null
+                    }
+                }
+            });
+
+            // Mock running jobs in QOS
+            dataCache.getData = jest.fn().mockReturnValue({
+                jobs: [
+                    { job_id: 100, job_state: 'RUNNING', account: 'test-account', user_name: 'user1', qos: 'normal' },
+                    { job_id: 101, job_state: 'RUNNING', account: 'test-account', user_name: 'user2', qos: 'normal' },
+                    { job_id: 102, job_state: 'RUNNING', account: 'other-account', user_name: 'user3', qos: 'premium' },
+                    { job_id: 103, job_state: 'PENDING', account: 'test-account', user_name: 'user4', qos: 'normal' }
+                ]
+            });
+        });
+
+        it('should analyze QOS jobs limit reached', async () => {
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=QOSGrpJobsLimit Account=test-account QOS=normal"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('QOSGrpJobsLimit');
+            expect(result.qosName).toBe('normal');
+            expect(result.analysis.limit).toBe(10);
+            expect(result.analysis.currentUsage).toBe(2); // 2 running jobs in normal QOS
+            expect(result.analysis.runningJobs).toBe(2);
+        });
+
+        it('should return error if QOS limits not available', async () => {
+            dataCache.getQOSLimits = jest.fn().mockReturnValue(null);
+
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=QOSGrpJobsLimit Account=test-account QOS=normal"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('Error');
+            expect(result.message).toContain('QOS limits not available');
+        });
+
+        it('should return error if QOS not found', async () => {
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=QOSGrpJobsLimit Account=test-account QOS=nonexistent"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('Error');
+            expect(result.message).toContain('not found in limits');
+        });
+
+        it('should return error if QOS has no jobs limit', async () => {
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=QOSGrpJobsLimit Account=test-account QOS=premium"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('Error');
+            expect(result.message).toContain('no jobs limit configured');
+        });
+    });
+
+    describe('QOSGrpMemLimit', () => {
+        beforeEach(() => {
+            // Mock QOS limits
+            dataCache.getQOSLimits = jest.fn().mockReturnValue({
+                timestamp: Date.now(),
+                qos: {
+                    'normal': {
+                        name: 'normal',
+                        grpMem: 10240 // 10GB
+                    },
+                    'premium': {
+                        name: 'premium',
+                        grpMem: null,
+                        grpTRES: {
+                            mem: 20480 // 20GB
+                        }
+                    },
+                    'unlimited': {
+                        name: 'unlimited',
+                        grpMem: null
+                    }
+                }
+            });
+
+            // Mock running jobs in QOS
+            dataCache.getData = jest.fn().mockReturnValue({
+                jobs: [
+                    { job_id: 100, job_state: 'RUNNING', account: 'test-account', min_memory: '2G', tres_alloc_str: 'mem=2G', user_name: 'user1', qos: 'normal' },
+                    { job_id: 101, job_state: 'RUNNING', account: 'test-account', min_memory: '3000M', user_name: 'user2', qos: 'normal' },
+                    { job_id: 102, job_state: 'RUNNING', account: 'other-account', tres_alloc_str: 'mem=4096M', user_name: 'user3', qos: 'premium' }
+                ]
+            });
+        });
+
+        it('should analyze QOS memory limit reached', async () => {
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=QOSGrpMemLimit Account=test-account QOS=normal ReqTRES=cpu=100,mem=4G,node=1"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('QOSGrpMemLimit');
+            expect(result.qosName).toBe('normal');
+            expect(result.analysis.limit).toBe(10240);
+            expect(result.analysis.currentUsage).toBe(5048); // 2G (2048) + 3000M = 5048
+            expect(result.analysis.runningJobs).toBe(2);
+            expect(result.job.requested.mem).toBe(4096);
+        });
+
+        it('should use grpTRES.mem if grpMem not set', async () => {
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=QOSGrpMemLimit Account=other-account QOS=premium ReqTRES=cpu=50,mem=8G,node=1"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('QOSGrpMemLimit');
+            expect(result.qosName).toBe('premium');
+            expect(result.analysis.limit).toBe(20480);
+            expect(result.analysis.currentUsage).toBe(4096); // 4096 M
+            expect(result.job.requested.mem).toBe(8192);
+        });
+
+        it('should parse MinMemoryNode if present', async () => {
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=QOSGrpMemLimit Account=test-account QOS=normal MinMemoryNode=5G"
+            );
+
+            const result = await getPendingReason('200');
+            expect(result.type).toBe('QOSGrpMemLimit');
+            expect(result.job.requested.mem).toBe(5120);
+        });
+
+        it('should return error if QOS limits not available', async () => {
+            dataCache.getQOSLimits = jest.fn().mockReturnValue(null);
+
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=QOSGrpMemLimit Account=test-account QOS=normal"
+            );
+
+            const result = await getPendingReason('200');
+            expect(result.type).toBe('Error');
+        });
+
+        it('should return error if QOS not found', async () => {
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=QOSGrpMemLimit Account=test-account QOS=nonexistent"
+            );
+
+            const result = await getPendingReason('200');
+            expect(result.type).toBe('Error');
+        });
+
+        it('should return error if QOS has no memory limit', async () => {
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=QOSGrpMemLimit Account=test-account QOS=unlimited"
+            );
+
+            const result = await getPendingReason('200');
+            expect(result.type).toBe('Error');
+            expect(result.message).toContain('no memory limit configured');
+        });
+    });
+
+    describe('QOSGrpNodeLimit', () => {
+        beforeEach(() => {
+            // Mock QOS limits
+            dataCache.getQOSLimits = jest.fn().mockReturnValue({
+                timestamp: Date.now(),
+                qos: {
+                    'normal': {
+                        name: 'normal',
+                        grpNodes: 20
+                    },
+                    'premium': {
+                        name: 'premium',
+                        grpNodes: null,
+                        grpTRES: {
+                            node: 50
+                        }
+                    },
+                    'unlimited': {
+                        name: 'unlimited',
+                        grpNodes: null
+                    }
+                }
+            });
+
+            // Mock running jobs in QOS
+            dataCache.getData = jest.fn().mockReturnValue({
+                jobs: [
+                    { job_id: 100, job_state: 'RUNNING', account: 'test-account', num_nodes: 4, user_name: 'user1', qos: 'normal' },
+                    { job_id: 101, job_state: 'RUNNING', account: 'test-account', tres_alloc_str: 'node=6', user_name: 'user2', qos: 'normal' },
+                    { job_id: 102, job_state: 'RUNNING', account: 'other-account', num_nodes: 10, user_name: 'user3', qos: 'premium' }
+                ]
+            });
+        });
+
+        it('should analyze QOS node limit reached', async () => {
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=QOSGrpNodeLimit Account=test-account QOS=normal ReqTRES=cpu=100,mem=64G,node=5 NumNodes=5"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('QOSGrpNodeLimit');
+            expect(result.qosName).toBe('normal');
+            expect(result.analysis.limit).toBe(20);
+            expect(result.analysis.currentUsage).toBe(10); // 4 + 6 = 10
+            expect(result.analysis.runningJobs).toBe(2);
+            expect(result.job.requested.nodes).toBe(5);
+        });
+
+        it('should use grpTRES.node if grpNodes not set', async () => {
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=QOSGrpNodeLimit Account=other-account QOS=premium NumNodes=2"
+            );
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('QOSGrpNodeLimit');
+            expect(result.qosName).toBe('premium');
+            expect(result.analysis.limit).toBe(50);
+            expect(result.analysis.currentUsage).toBe(10);
+            expect(result.job.requested.nodes).toBe(2);
+        });
+
+        it('should return error if QOS limits not available', async () => {
+            dataCache.getQOSLimits = jest.fn().mockReturnValue(null);
+
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=QOSGrpNodeLimit Account=test-account QOS=normal"
+            );
+
+            const result = await getPendingReason('200');
+            expect(result.type).toBe('Error');
+        });
+
+        it('should return error if QOS not found', async () => {
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=QOSGrpNodeLimit Account=test-account QOS=nonexistent"
+            );
+
+            const result = await getPendingReason('200');
+            expect(result.type).toBe('Error');
+        });
+
+        it('should return error if QOS has no node limit', async () => {
+            executeCommand.mockReturnValue(
+                "JobId=200 JobState=PENDING Reason=QOSGrpNodeLimit Account=test-account QOS=unlimited"
+            );
+
+            const result = await getPendingReason('200');
+            expect(result.type).toBe('Error');
+            expect(result.message).toContain('no node limit configured');
+        });
+    });
 });
