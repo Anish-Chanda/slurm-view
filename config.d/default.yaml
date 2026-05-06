@@ -6,9 +6,9 @@ stats:
 ui:
   charts:
     cpu:
-      showSecondaryLayer: true
+      showSecondaryLayer: false
     memory:
-      showSecondaryLayer: true
+      showSecondaryLayer: false
     gpu:
       showSecondaryLayer: true
   navbar:
