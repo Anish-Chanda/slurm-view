@@ -217,7 +217,7 @@ function fetchQOSLimits() {
     const cmd = createSafeCommand('sacctmgr', [
         '-n', '-P',
         'show', 'qos',
-        'format=Name,Priority,GrpCPUs,GrpMem,GrpNodes,GrpJobs,GrpSubmitJobs,GrpWall,GrpTRES,GrpTRESRunMins'
+        'format=Name,Priority,GrpCPUs,GrpMem,GrpNodes,GrpJobs,GrpSubmitJobs,GrpWall,GrpTRES,GrpTRESRunMins,MaxCPUsPerUser,MaxJobsPerUser,MaxNodesPerUser'
     ]);
     
     const output = executeCommand(cmd);
@@ -243,7 +243,10 @@ function fetchQOSLimits() {
             grpSubmitJobs: fields[6] ? parseInt(fields[6]) : null,
             grpWall: fields[7] || null,
             grpTRES: parseTRESLimits(fields[8]),
-            grpTRESRunMins: parseTRESLimits(fields[9])
+            grpTRESRunMins: parseTRESLimits(fields[9]),
+            maxCPUsPerUser: fields[10] ? parseInt(fields[10]) : null,
+            maxJobsPerUser: fields[11] ? parseInt(fields[11]) : null,
+            maxNodesPerUser: fields[12] ? parseInt(fields[12]) : null
         };
     });
     

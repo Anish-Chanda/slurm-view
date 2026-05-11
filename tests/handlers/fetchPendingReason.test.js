@@ -2394,4 +2394,83 @@ else expect(result.missingLimitWarning).toBe(true);
             expect(result.message).toContain('no node limit configured');
         });
     });
+
+    describe('QOSMaxCpuPerUserLimit', () => {
+        beforeEach(() => {
+            dataCache.getQOSLimits = jest.fn().mockReturnValue({
+                timestamp: Date.now(),
+                qos: {
+                    'normal': { name: 'normal', maxCPUsPerUser: 100 }
+                }
+            });
+            dataCache.getData = jest.fn().mockReturnValue({
+                jobs: [
+                    { job_id: 100, job_state: 'RUNNING', user_name: 'user1', qos: 'normal', alloc_cpus: 80 }
+                ]
+            });
+        });
+
+        it('should analyze QOS Max CPU Per User limit', async () => {
+            executeCommand.mockReturnValue("JobId=200 JobState=PENDING Reason=QOSMaxCpuPerUserLimit UserId=user1(1001) QOS=normal ReqTRES=cpu=30,mem=64G,node=1");
+            const result = await getPendingReason('200');
+            expect(result.type).toBe('QOSMaxCpuPerUserLimit');
+            expect(result.qosName).toBe('normal');
+            expect(result.user).toBe('user1');
+            expect(result.analysis.limit).toBe(100);
+            expect(result.analysis.currentUsage).toBe(80);
+        });
+    });
+
+    describe('QOSMaxJobsPerUserLimit', () => {
+        beforeEach(() => {
+            dataCache.getQOSLimits = jest.fn().mockReturnValue({
+                timestamp: Date.now(),
+                qos: {
+                    'normal': { name: 'normal', maxJobsPerUser: 5 }
+                }
+            });
+            dataCache.getData = jest.fn().mockReturnValue({
+                jobs: [
+                    { job_id: 100, job_state: 'RUNNING', user_name: 'user1', qos: 'normal' },
+                    { job_id: 101, job_state: 'RUNNING', user_name: 'user1', qos: 'normal' }
+                ]
+            });
+        });
+
+        it('should analyze QOS Max Jobs Per User limit', async () => {
+            executeCommand.mockReturnValue("JobId=200 JobState=PENDING Reason=QOSMaxJobsPerUserLimit UserId=user1(1001) QOS=normal");
+            const result = await getPendingReason('200');
+            expect(result.type).toBe('QOSMaxJobsPerUserLimit');
+            expect(result.qosName).toBe('normal');
+            expect(result.user).toBe('user1');
+            expect(result.analysis.limit).toBe(5);
+            expect(result.analysis.currentUsage).toBe(2);
+        });
+    });
+
+    describe('QOSMaxNodePerUserLimit', () => {
+        beforeEach(() => {
+            dataCache.getQOSLimits = jest.fn().mockReturnValue({
+                timestamp: Date.now(),
+                qos: {
+                    'normal': { name: 'normal', maxNodesPerUser: 10 }
+                }
+            });
+            dataCache.getData = jest.fn().mockReturnValue({
+                jobs: [
+                    { job_id: 100, job_state: 'RUNNING', user_name: 'user1', qos: 'normal', num_nodes: 6 }
+                ]
+            });
+        });
+
+        it('should analyze QOS Max Node Per User limit', async () => {
+            executeCommand.mockReturnValue("JobId=200 JobState=PENDING Reason=QOSMaxNodePerUserLimit UserId=user1(1001) QOS=normal ReqTRES=cpu=100,mem=64G,node=5 NumNodes=5");
+            const result = await getPendingReason('200');
+            expect(result.type).toBe('QOSMaxNodePerUserLimit');
+            expect(result.qosName).toBe('normal');
+            expect(result.user).toBe('user1');
+            expect(result.analysis.limit).toBe(10);
+            expect(result.analysis.currentUsage).toBe(6);
+        });
+    });
 });
