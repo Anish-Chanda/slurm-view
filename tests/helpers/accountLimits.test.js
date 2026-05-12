@@ -3,7 +3,8 @@ const {
     parseTRESLimits,
     buildAncestorChain,
     formatMemory,
-    fetchAccountLimits
+    fetchAccountLimits,
+    fetchQOSLimits
 } = require('../../helpers/accountLimits');
 const { executeCommand } = require('../../helpers/executeCmd');
 
@@ -99,6 +100,24 @@ describe('accountLimits', () => {
             const result = parseTRESLimits(null);
             expect(result.cpu).toBeNull();
             expect(result.mem).toBeNull();
+        });
+    });
+
+    describe('fetchQOSLimits', () => {
+        it('should parse QOS MaxTRESPerUser and MaxJobsPerUser limits', () => {
+            executeCommand.mockReturnValue([
+                ['400thread', '0', '', '', '', '', '', '', 'cpu=20000,mem=150T,node=150', '', 'cpu=2000,mem=18T,node=16', ''].join('|'),
+                ['memlimit', '0', '', '', '', '', '', '', '', '', 'cpu=2000,mem=18T,node=16', '25'].join('|')
+            ].join('\n'));
+
+            const result = fetchQOSLimits();
+
+            expect(result.qos['400thread'].grpTRES.cpu).toBe(20000);
+            expect(result.qos['400thread'].grpTRES.node).toBe(150);
+            expect(result.qos['400thread'].maxTRESPerUser.cpu).toBe(2000);
+            expect(result.qos['400thread'].maxTRESPerUser.mem).toBe(18874368);
+            expect(result.qos['400thread'].maxTRESPerUser.node).toBe(16);
+            expect(result.qos.memlimit.maxJobsPerUser).toBe(25);
         });
     });
 

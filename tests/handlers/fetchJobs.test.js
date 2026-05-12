@@ -172,12 +172,14 @@ describe("getSlurmJobs", () => {
                     partition: "debug",
                     name: "Test Job",
                     user_name: "user2",
+                    qos: "debug",
                     job_state: "R",
                     time_limit: { number: 120 }, // 120 minutes = 2 hours
                     start_time: { number: 1640995200 },
                     node_count: { number: "1" },
                     nodes: "node[01-02]",
                     tres_per_node: ["cpu=2,mem=8G", "cpu=2,mem=8G"],
+                    tres_alloc_str: "cpu=4,mem=8G,node=1",
                 },
             ],
         });
@@ -190,6 +192,9 @@ describe("getSlurmJobs", () => {
         expect(result.jobs[0].job_id).toBe("1");
         expect(result.jobs[0].name).toBe("Test Job");
         expect(result.jobs[0].node_list).toBe("node[01-02]");
+        expect(result.jobs[0].qos).toBe("debug");
+        expect(result.jobs[0].num_nodes).toBe("1");
+        expect(result.jobs[0].alloc_nodes).toBe("1");
         expect(result.jobs[0].node_names).toEqual([]);
         expect(result.jobs[0].per_node_cpu_allocations).toEqual([2, 2]);
     });

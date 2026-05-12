@@ -2400,7 +2400,7 @@ else expect(result.missingLimitWarning).toBe(true);
             dataCache.getQOSLimits = jest.fn().mockReturnValue({
                 timestamp: Date.now(),
                 qos: {
-                    'normal': { name: 'normal', maxCPUsPerUser: 100 }
+                    'normal': { name: 'normal', maxTRESPerUser: { cpu: 100, mem: null, node: null, gres: {} } }
                 }
             });
             dataCache.getData = jest.fn().mockReturnValue({
@@ -2453,7 +2453,7 @@ else expect(result.missingLimitWarning).toBe(true);
             dataCache.getQOSLimits = jest.fn().mockReturnValue({
                 timestamp: Date.now(),
                 qos: {
-                    'normal': { name: 'normal', maxNodesPerUser: 10 }
+                    'normal': { name: 'normal', maxTRESPerUser: { cpu: null, mem: null, node: 10, gres: {} } }
                 }
             });
             dataCache.getData = jest.fn().mockReturnValue({
@@ -2471,6 +2471,56 @@ else expect(result.missingLimitWarning).toBe(true);
             expect(result.user).toBe('user1');
             expect(result.analysis.limit).toBe(10);
             expect(result.analysis.currentUsage).toBe(6);
+        });
+
+        it('should use MaxTRESPU node limit and preserve non-normal QOS usage', async () => {
+            dataCache.getQOSLimits = jest.fn().mockReturnValue({
+                timestamp: Date.now(),
+                qos: {
+                    '400thread': {
+                        name: '400thread',
+                        grpTRES: { cpu: 20000, mem: 157286400, node: 150, gres: {} },
+                        maxTRESPerUser: { cpu: 2000, mem: 18874368, node: 16, gres: {} }
+                    }
+                }
+            });
+            dataCache.getData = jest.fn().mockReturnValue({
+                jobs: [
+                    { job_id: 100, job_state: 'RUNNING', user_name: 'pat.reeves', qos: '400thread', num_nodes: 10 },
+                    { job_id: 101, job_state: 'RUNNING', user_name: 'pat.reeves', qos: '400thread', nodes: 6 },
+                    { job_id: 102, job_state: 'RUNNING', user_name: 'pat.reeves', qos: 'normal', nodes: 150 }
+                ]
+            });
+
+            executeCommand.mockReturnValue("JobId=200 JobState=PENDING Reason=QOSMaxNodePerUserLimit UserId=pat.reeves(1001) QOS=400thread ReqTRES=cpu=72,mem=368G,node=1 NumNodes=1");
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('QOSMaxNodePerUserLimit');
+            expect(result.qosName).toBe('400thread');
+            expect(result.analysis.limit).toBe(16);
+            expect(result.analysis.currentUsage).toBe(16);
+            expect(result.analysis.runningJobs).toBe(2);
+        });
+
+        it('should not use aggregate GrpTRES as a per-user node limit', async () => {
+            dataCache.getQOSLimits = jest.fn().mockReturnValue({
+                timestamp: Date.now(),
+                qos: {
+                    '400thread': {
+                        name: '400thread',
+                        grpTRES: { cpu: 20000, mem: 157286400, node: 150, gres: {} },
+                        maxTRESPerUser: { cpu: null, mem: null, node: null, gres: {} }
+                    }
+                }
+            });
+
+            executeCommand.mockReturnValue("JobId=200 JobState=PENDING Reason=QOSMaxNodePerUserLimit UserId=pat.reeves(1001) QOS=400thread ReqTRES=cpu=72,mem=368G,node=1 NumNodes=1");
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('Error');
+            expect(result.message).toContain('no max nodes per user limit configured');
         });
     });
 });

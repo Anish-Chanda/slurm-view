@@ -66,10 +66,12 @@ function formatJobsData(jobs) {
       partition: job.partition || 'N/A',
       name: job.name || 'N/A',
       user_name: job.user_name || 'N/A',
+      qos: job.qos || 'N/A',
       job_state: jobState || 'N/A',
       time_limit: formatTime(job.time_limit?.number * 60), // Convert from minutes to seconds
       time_left: formatTimeLeft(job.time_limit?.number, job.start_time?.number, jobState),
       nodes: job.node_count?.number || 'N/A',
+      num_nodes: job.node_count?.number || 'N/A',
       node_list: nodeListExpression || 'N/A',
       node_names: nodeNames,
       per_node_cpu_allocations: perNodeCpuAllocations,
@@ -90,6 +92,7 @@ function formatJobsData(jobs) {
       alloc_cpus: getTresvalue(job.tres_alloc_str, "cpu"),
       alloc_memory: getTresvalue(job.tres_alloc_str, "mem"),
       alloc_gpus: getTresvalue(job.tres_alloc_str, "gres/gpu"),
+      alloc_nodes: getTresvalue(job.tres_alloc_str, "node"),
       
       // GPU allocations with type breakdown
       gpu_allocations: gpuAllocations,

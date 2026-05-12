@@ -1951,7 +1951,7 @@ const analyzeQOSGrpCpuLimit = (jobId, jobData) => {
             jobsData.jobs.forEach(job => {
                 // Only count running jobs in this QOS
                 if (job.job_state === 'RUNNING' && job.account === jobData.Account) {
-                    const jobQOS = job.qos || 'normal';
+                    const jobQOS = job.qos;
                     if (jobQOS === qosName) {
                         const cpus = parseInt(getJobResourceValue(job, 'alloc_cpus', 'total_cpus') || 0, 10) || 0;
                         currentUsage += cpus;
@@ -2038,7 +2038,7 @@ const analyzeQOSGrpJobsLimit = (jobId, jobData) => {
         
         if (jobsData && jobsData.jobs) {
             jobsData.jobs.forEach(job => {
-                const jobQOS = job.qos || 'normal';
+                const jobQOS = job.qos;
                 if (jobQOS === qosName && job.job_state === 'RUNNING') {
                     currentUsage++;
                     runningJobsCount++;
@@ -2117,7 +2117,7 @@ const analyzeQOSGrpMemLimit = (jobId, jobData) => {
         
         if (jobsData && jobsData.jobs) {
             jobsData.jobs.forEach(job => {
-                const jobQOS = job.qos || 'normal';
+                const jobQOS = job.qos;
                 if (jobQOS === qosName && job.job_state === 'RUNNING') {
                     let mem = parseInt(getJobResourceValue(job, 'mem') || 0, 10);
                     // Check TRES alloc string for real memory used
@@ -2215,7 +2215,7 @@ const analyzeQOSGrpNodeLimit = (jobId, jobData) => {
         
         if (jobsData && jobsData.jobs) {
             jobsData.jobs.forEach(job => {
-                const jobQOS = job.qos || 'normal';
+                const jobQOS = job.qos;
                 if (jobQOS === qosName && job.job_state === 'RUNNING') {
                     // Try to extract num_nodes from the best possible field
                     let nodes = 1;
@@ -2592,22 +2592,63 @@ const analyzeInvalidQOS = (jobId, jobData) => {
     };
 };
 
+function getQOSNameForAnalysis(jobData) {
+    return jobData.QOS || jobData.qos || null;
+}
+
+function getUserNameForAnalysis(jobData) {
+    if (jobData.UserId) {
+        return jobData.UserId.split('(')[0];
+    }
+
+    return jobData.user_name || null;
+}
+
+function getPositiveInteger(value) {
+    const parsed = parseInt(value, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function getMaxTRESPerUserLimit(qosLimits, tresName) {
+    return getPositiveInteger(qosLimits.maxTRESPerUser?.[tresName]);
+}
+
+function getJobNodeCount(job) {
+    const allocNodes = getPositiveInteger(job.alloc_nodes);
+    if (allocNodes) return allocNodes;
+
+    const numNodes = getPositiveInteger(job.num_nodes);
+    if (numNodes) return numNodes;
+
+    const nodes = getPositiveInteger(job.nodes);
+    if (nodes) return nodes;
+
+    return 0;
+}
+
+function isRunningJobForQOSUser(job, qosName, user) {
+    return job.job_state === 'RUNNING' && job.qos === qosName && job.user_name === user;
+}
+
 const analyzeQOSMaxCpuPerUserLimit = (jobId, jobData) => {
     try {
         const qosLimitsData = dataCache.getQOSLimits();
         if (!qosLimitsData) return { type: 'Error', message: 'QOS limits not available' };
         
-        const qosName = jobData.QOS || 'normal';
+        const qosName = getQOSNameForAnalysis(jobData);
+        if (!qosName) return { type: 'Error', message: 'Job QOS not available' };
+
         const qosLimits = qosLimitsData.qos[qosName];
         if (!qosLimits) return { type: 'Error', message: `QOS '${qosName}' not found in limits` };
         
-        const cpuLimit = parseInt(qosLimits.maxCPUsPerUser || (qosLimits.maxTRES && qosLimits.maxTRES.cpu) || (qosLimits.grpTRES && qosLimits.grpTRES.cpu), 10);
+        const cpuLimit = getMaxTRESPerUserLimit(qosLimits, 'cpu');
         
-        if (!cpuLimit || isNaN(cpuLimit)) {
+        if (!cpuLimit) {
             return { type: 'Error', message: `QOS '${qosName}' has no max CPUs per user limit configured` };
         }
 
-        const user = jobData.UserId ? jobData.UserId.split('(')[0] : null;
+        const user = getUserNameForAnalysis(jobData);
+        if (!user) return { type: 'Error', message: 'Job user not available' };
 
         const jobCPUs = parseInt(jobData.ReqTRES?.cpu || getJobResourceValue(jobData, 'alloc_cpus', 'total_cpus') || 0, 10) || 0;
         
@@ -2617,8 +2658,7 @@ const analyzeQOSMaxCpuPerUserLimit = (jobId, jobData) => {
         
         if (jobsData && jobsData.jobs) {
             jobsData.jobs.forEach(job => {
-                const jobQOS = job.qos || 'normal';
-                if (job.user_name === user && jobQOS === qosName && job.job_state === 'RUNNING') {
+                if (isRunningJobForQOSUser(job, qosName, user)) {
                     const cpus = parseInt(getJobResourceValue(job, 'alloc_cpus', 'total_cpus') || 0, 10) || 0;
                     currentUsage += cpus;
                     runningJobsCount++;
@@ -2665,7 +2705,9 @@ const analyzeQOSMaxJobsPerUserLimit = (jobId, jobData) => {
         const qosLimitsData = dataCache.getQOSLimits();
         if (!qosLimitsData) return { type: 'Error', message: 'QOS limits not available' };
         
-        const qosName = jobData.QOS || 'normal';
+        const qosName = getQOSNameForAnalysis(jobData);
+        if (!qosName) return { type: 'Error', message: 'Job QOS not available' };
+
         const qosLimits = qosLimitsData.qos[qosName];
         if (!qosLimits) return { type: 'Error', message: `QOS '${qosName}' not found in limits` };
         
@@ -2674,7 +2716,8 @@ const analyzeQOSMaxJobsPerUserLimit = (jobId, jobData) => {
         }
         
         const jobsLimit = parseInt(qosLimits.maxJobsPerUser, 10);
-        const user = jobData.UserId ? jobData.UserId.split('(')[0] : null;
+        const user = getUserNameForAnalysis(jobData);
+        if (!user) return { type: 'Error', message: 'Job user not available' };
 
         const jobsData = dataCache.getData('jobs');
         let currentUsage = 0;
@@ -2682,8 +2725,7 @@ const analyzeQOSMaxJobsPerUserLimit = (jobId, jobData) => {
         
         if (jobsData && jobsData.jobs) {
             jobsData.jobs.forEach(job => {
-                const jobQOS = job.qos || 'normal';
-                if (job.user_name === user && jobQOS === qosName && job.job_state === 'RUNNING') {
+                if (isRunningJobForQOSUser(job, qosName, user)) {
                     currentUsage++;
                     runningJobsCount++;
                 }
@@ -2723,22 +2765,21 @@ const analyzeQOSMaxNodePerUserLimit = (jobId, jobData) => {
         const qosLimitsData = dataCache.getQOSLimits();
         if (!qosLimitsData) return { type: 'Error', message: 'QOS limits not available' };
         
-        const qosName = jobData.QOS || 'normal';
+        const qosName = getQOSNameForAnalysis(jobData);
+        if (!qosName) return { type: 'Error', message: 'Job QOS not available' };
+
         const qosLimits = qosLimitsData.qos[qosName];
         if (!qosLimits) return { type: 'Error', message: `QOS '${qosName}' not found in limits` };
         
-        let nodeLimit = null;
-        if (qosLimits.maxNodesPerUser) nodeLimit = qosLimits.maxNodesPerUser;
-        else if (qosLimits.maxTRES && qosLimits.maxTRES.node) nodeLimit = qosLimits.maxTRES.node;
-        else if (qosLimits.grpTRES && qosLimits.grpTRES.node) nodeLimit = qosLimits.grpTRES.node;
+        const nodeLimit = getMaxTRESPerUserLimit(qosLimits, 'node');
         
         if (!nodeLimit) {
             return { type: 'Error', message: `QOS '${qosName}' has no max nodes per user limit configured` };
         }
         
-        nodeLimit = parseInt(nodeLimit, 10);
-        let jobNodes = parseInt(jobData.NumNodes || 1, 10);
-        const user = jobData.UserId ? jobData.UserId.split('(')[0] : null;
+        const jobNodes = parseInt(jobData.NumNodes || jobData.ReqTRES?.node || 1, 10);
+        const user = getUserNameForAnalysis(jobData);
+        if (!user) return { type: 'Error', message: 'Job user not available' };
 
         const jobsData = dataCache.getData('jobs');
         let currentUsage = 0;
@@ -2746,15 +2787,8 @@ const analyzeQOSMaxNodePerUserLimit = (jobId, jobData) => {
         
         if (jobsData && jobsData.jobs) {
             jobsData.jobs.forEach(job => {
-                const jobQOS = job.qos || 'normal';
-                if (job.user_name === user && jobQOS === qosName && job.job_state === 'RUNNING') {
-                    let nodes = 1;
-                    if (job.num_nodes) {
-                        nodes = parseInt(job.num_nodes, 10);
-                    } else if (job.tres_alloc_str && job.tres_alloc_str.includes('node=')) {
-                        const match = job.tres_alloc_str.match(/node=([0-9]+)/);
-                        if (match) nodes = parseInt(match[1]);
-                    }
+                if (isRunningJobForQOSUser(job, qosName, user)) {
+                    const nodes = getJobNodeCount(job);
                     currentUsage += nodes;
                     runningJobsCount++;
                 }
