@@ -2448,6 +2448,39 @@ else expect(result.missingLimitWarning).toBe(true);
         });
     });
 
+    describe('QOSMaxMemoryPerUser', () => {
+        beforeEach(() => {
+            dataCache.getQOSLimits = jest.fn().mockReturnValue({
+                timestamp: Date.now(),
+                qos: {
+                    'memlimit': { name: 'memlimit', maxTRESPerUser: { cpu: null, mem: 10240, node: null, gres: {} } }
+                }
+            });
+            dataCache.getData = jest.fn().mockReturnValue({
+                jobs: [
+                    { job_id: 100, job_state: 'RUNNING', user_name: 'user1', qos: 'memlimit', alloc_memory: '6G' },
+                    { job_id: 101, job_state: 'RUNNING', user_name: 'user1', qos: 'memlimit', alloc_memory: '2G' },
+                    { job_id: 102, job_state: 'RUNNING', user_name: 'user1', qos: 'normal', alloc_memory: '100G' }
+                ]
+            });
+        });
+
+        it('should analyze QOS Max Memory Per User limit', async () => {
+            executeCommand.mockReturnValue("JobId=200 JobState=PENDING Reason=QOSMaxMemoryPerUser UserId=user1(1001) QOS=memlimit ReqTRES=cpu=8,mem=4G,node=1");
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('QOSMaxMemoryPerUser');
+            expect(result.qosName).toBe('memlimit');
+            expect(result.user).toBe('user1');
+            expect(result.analysis.limit).toBe(10240);
+            expect(result.analysis.currentUsage).toBe(8192);
+            expect(result.analysis.available).toBe(2048);
+            expect(result.analysis.jobShortfall).toBe(2048);
+            expect(result.analysis.shortfall).toBe(-2048);
+        });
+    });
+
     describe('QOSMaxNodePerUserLimit', () => {
         beforeEach(() => {
             dataCache.getQOSLimits = jest.fn().mockReturnValue({
@@ -2501,6 +2534,37 @@ else expect(result.missingLimitWarning).toBe(true);
             expect(result.analysis.limit).toBe(16);
             expect(result.analysis.currentUsage).toBe(16);
             expect(result.analysis.runningJobs).toBe(2);
+        });
+
+        it('should count unique allocated nodes instead of counting one node per running job', async () => {
+            dataCache.getQOSLimits = jest.fn().mockReturnValue({
+                timestamp: Date.now(),
+                qos: {
+                    'shared': {
+                        name: 'shared',
+                        maxTRESPerUser: { cpu: null, mem: null, node: 2, gres: {} }
+                    }
+                }
+            });
+            dataCache.getData = jest.fn().mockReturnValue({
+                jobs: [
+                    { job_id: 100, job_state: 'RUNNING', user_name: 'user1', qos: 'shared', node_names: ['node01'] },
+                    { job_id: 101, job_state: 'RUNNING', user_name: 'user1', qos: 'shared', node_names: ['node01'] },
+                    { job_id: 102, job_state: 'RUNNING', user_name: 'user1', qos: 'shared', node_list: 'node[02-02]' }
+                ]
+            });
+
+            executeCommand.mockReturnValue("JobId=200 JobState=PENDING Reason=QOSMaxNodePerUserLimit UserId=user1(1001) QOS=shared ReqTRES=cpu=8,mem=8G,node=1 NumNodes=1");
+
+            const result = await getPendingReason('200');
+
+            expect(result.type).toBe('QOSMaxNodePerUserLimit');
+            expect(result.analysis.currentUsage).toBe(2);
+            expect(result.analysis.uniqueNodeCount).toBe(2);
+            expect(result.analysis.runningJobs).toBe(3);
+            expect(result.analysis.available).toBe(0);
+            expect(result.analysis.jobShortfall).toBe(1);
+            expect(result.analysis.shortfall).toBe(-1);
         });
 
         it('should not use aggregate GrpTRES as a per-user node limit', async () => {

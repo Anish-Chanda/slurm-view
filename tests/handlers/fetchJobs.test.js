@@ -195,7 +195,7 @@ describe("getSlurmJobs", () => {
         expect(result.jobs[0].qos).toBe("debug");
         expect(result.jobs[0].num_nodes).toBe("1");
         expect(result.jobs[0].alloc_nodes).toBe("1");
-        expect(result.jobs[0].node_names).toEqual([]);
+        expect(result.jobs[0].node_names).toEqual(["node01", "node02"]);
         expect(result.jobs[0].per_node_cpu_allocations).toEqual([2, 2]);
     });
 

@@ -2,6 +2,8 @@ const { executeCommand } = require("../helpers/executeCmd");
 const { createSafeCommand, validatePartitionName } = require("../helpers/inputValidation");
 const { parseTres, checkResources } = require("../helpers/tresUtils");
 const { getJobResourceValue, formatRunMinutes } = require("../helpers/runMinutesUtils");
+const { parseMemoryToMB, formatMemory } = require("../helpers/accountLimits");
+const { expandSlurmHostlist } = require("../helpers/slurmHostlist");
 const { 
     getJobPriority, 
     getCompetingJobs, 
@@ -112,6 +114,9 @@ const getPendingReason = async (jobId) => {
                 break;
             case 'QOSMaxNodePerUserLimit':
                 result = analyzeQOSMaxNodePerUserLimit(jobId, jobData);
+                break;
+            case 'QOSMaxMemoryPerUser':
+                result = analyzeQOSMaxMemoryPerUser(jobId, jobData);
                 break;
             default:
                 result = { type: 'Other', message: `Pending reason: ${jobData.Reason}` };
@@ -2613,6 +2618,11 @@ function getMaxTRESPerUserLimit(qosLimits, tresName) {
     return getPositiveInteger(qosLimits.maxTRESPerUser?.[tresName]);
 }
 
+function getMemoryMB(value) {
+    if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+    return parseMemoryToMB(value);
+}
+
 function getJobNodeCount(job) {
     const allocNodes = getPositiveInteger(job.alloc_nodes);
     if (allocNodes) return allocNodes;
@@ -2624,6 +2634,94 @@ function getJobNodeCount(job) {
     if (nodes) return nodes;
 
     return 0;
+}
+
+function getJobNodeNames(job) {
+    if (Array.isArray(job.node_names) && job.node_names.length > 0) {
+        return job.node_names.map(nodeName => String(nodeName).trim()).filter(Boolean);
+    }
+
+    if (job.node_list && job.node_list !== 'N/A') {
+        return expandSlurmHostlist(job.node_list);
+    }
+
+    if (typeof job.nodes === 'string' && job.nodes !== 'N/A' && !/^\d+$/.test(job.nodes.trim())) {
+        return expandSlurmHostlist(job.nodes);
+    }
+
+    return [];
+}
+
+function calculateUniqueNodeUsage(jobs, qosName, user) {
+    const uniqueNodes = new Set();
+    let unknownNodeCount = 0;
+    let runningJobsCount = 0;
+
+    jobs.forEach(job => {
+        if (!isRunningJobForQOSUser(job, qosName, user)) return;
+
+        runningJobsCount++;
+        const nodeNames = getJobNodeNames(job);
+        if (nodeNames.length > 0) {
+            nodeNames.forEach(nodeName => uniqueNodes.add(nodeName));
+            return;
+        }
+
+        unknownNodeCount += getJobNodeCount(job);
+    });
+
+    return {
+        total: uniqueNodes.size + unknownNodeCount,
+        uniqueNodeCount: uniqueNodes.size,
+        unknownNodeCount: unknownNodeCount,
+        runningJobsCount: runningJobsCount
+    };
+}
+
+function formatPercent(usage, limit) {
+    return ((usage / limit) * 100).toFixed(1);
+}
+
+function buildNumericLimitAnalysis(limit, currentUsage, jobRequest, runningJobsCount) {
+    const available = Math.max(0, limit - currentUsage);
+    const overageAfterJob = Math.max(0, currentUsage + jobRequest - limit);
+    const jobShortfall = Math.max(0, jobRequest - available);
+
+    return {
+        limit: limit,
+        limitFormatted: limit.toLocaleString(),
+        currentUsage: currentUsage,
+        currentUsageFormatted: currentUsage.toLocaleString(),
+        percentUsed: formatPercent(currentUsage, limit),
+        available: available,
+        availableFormatted: available.toLocaleString(),
+        shortfall: -overageAfterJob,
+        shortfallFormatted: overageAfterJob.toLocaleString(),
+        jobShortfall: jobShortfall,
+        jobShortfallFormatted: jobShortfall.toLocaleString(),
+        runningJobs: runningJobsCount
+    };
+}
+
+function buildMemoryLimitAnalysis(limit, currentUsage, jobRequest, runningJobsCount) {
+    const available = Math.max(0, limit - currentUsage);
+    const overageAfterJob = Math.max(0, currentUsage + jobRequest - limit);
+    const jobShortfall = Math.max(0, jobRequest - available);
+
+    return {
+        limit: limit,
+        limitFormatted: formatMemory(limit),
+        currentUsage: currentUsage,
+        currentUsageFormatted: formatMemory(currentUsage),
+        percentUsed: formatPercent(currentUsage, limit),
+        available: available,
+        availableFormatted: formatMemory(available),
+        shortfall: -overageAfterJob,
+        shortfallFormatted: formatMemory(overageAfterJob),
+        jobShortfall: jobShortfall,
+        jobShortfallFormatted: formatMemory(jobShortfall),
+        runningJobs: runningJobsCount
+    };
 }
 
 function isRunningJobForQOSUser(job, qosName, user) {
@@ -2666,8 +2764,7 @@ const analyzeQOSMaxCpuPerUserLimit = (jobId, jobData) => {
             });
         }
         
-        const available = Math.max(0, cpuLimit - currentUsage);
-        const shortfall = Math.min(0, cpuLimit - currentUsage - jobCPUs);
+        const analysis = buildNumericLimitAnalysis(cpuLimit, currentUsage, jobCPUs, runningJobsCount);
         
         return {
             type: 'QOSMaxCpuPerUserLimit',
@@ -2682,20 +2779,70 @@ const analyzeQOSMaxCpuPerUserLimit = (jobId, jobData) => {
             },
             analysis: {
                 qosName: qosName,
-                limit: cpuLimit,
-                limitFormatted: cpuLimit.toLocaleString(),
-                currentUsage: currentUsage,
-                currentUsageFormatted: currentUsage.toLocaleString(),
-                percentUsed: ((currentUsage / cpuLimit) * 100).toFixed(1),
-                available: available,
-                availableFormatted: available.toLocaleString(),
-                shortfall: shortfall,
-                shortfallFormatted: Math.abs(shortfall).toLocaleString(),
-                runningJobs: runningJobsCount
+                ...analysis
             }
         };
     } catch (error) {
         console.error(`Error analyzing QOSMaxCpuPerUserLimit for job ${jobId}:`, error.message);
+        return { type: 'Error', message: error.message };
+    }
+};
+
+const analyzeQOSMaxMemoryPerUser = (jobId, jobData) => {
+    try {
+        const qosLimitsData = dataCache.getQOSLimits();
+        if (!qosLimitsData) return { type: 'Error', message: 'QOS limits not available' };
+
+        const qosName = getQOSNameForAnalysis(jobData);
+        if (!qosName) return { type: 'Error', message: 'Job QOS not available' };
+
+        const qosLimits = qosLimitsData.qos[qosName];
+        if (!qosLimits) return { type: 'Error', message: `QOS '${qosName}' not found in limits` };
+
+        const memLimit = getMaxTRESPerUserLimit(qosLimits, 'mem');
+        if (!memLimit) {
+            return { type: 'Error', message: `QOS '${qosName}' has no max memory per user limit configured` };
+        }
+
+        const user = getUserNameForAnalysis(jobData);
+        if (!user) return { type: 'Error', message: 'Job user not available' };
+
+        const jobMem = getMemoryMB(jobData.ReqTRES?.mem || getJobResourceValue(jobData, 'alloc_memory', 'total_memory'));
+
+        const jobsData = dataCache.getData('jobs');
+        let currentUsage = 0;
+        let runningJobsCount = 0;
+
+        if (jobsData && jobsData.jobs) {
+            jobsData.jobs.forEach(job => {
+                if (!isRunningJobForQOSUser(job, qosName, user)) return;
+
+                const memToUse = getJobResourceValue(job, 'alloc_memory', 'total_memory');
+                currentUsage += getMemoryMB(memToUse);
+                runningJobsCount++;
+            });
+        }
+
+        const analysis = buildMemoryLimitAnalysis(memLimit, currentUsage, jobMem, runningJobsCount);
+
+        return {
+            type: 'QOSMaxMemoryPerUser',
+            jobId: jobId,
+            user: user,
+            qosName: qosName,
+            job: {
+                requested: {
+                    mem: jobMem,
+                    formatted: formatMemory(jobMem)
+                }
+            },
+            analysis: {
+                qosName: qosName,
+                ...analysis
+            }
+        };
+    } catch (error) {
+        console.error(`Error analyzing QOSMaxMemoryPerUser for job ${jobId}:`, error.message);
         return { type: 'Error', message: error.message };
     }
 };
@@ -2732,8 +2879,7 @@ const analyzeQOSMaxJobsPerUserLimit = (jobId, jobData) => {
             });
         }
         
-        const available = Math.max(0, jobsLimit - currentUsage);
-        const shortfall = Math.min(0, jobsLimit - currentUsage - 1);
+        const analysis = buildNumericLimitAnalysis(jobsLimit, currentUsage, 1, runningJobsCount);
         
         return {
             type: 'QOSMaxJobsPerUserLimit',
@@ -2742,16 +2888,7 @@ const analyzeQOSMaxJobsPerUserLimit = (jobId, jobData) => {
             qosName: qosName,
             analysis: {
                 qosName: qosName,
-                limit: jobsLimit,
-                limitFormatted: jobsLimit.toLocaleString(),
-                currentUsage: currentUsage,
-                currentUsageFormatted: currentUsage.toLocaleString(),
-                percentUsed: ((currentUsage / jobsLimit) * 100).toFixed(1),
-                available: available,
-                availableFormatted: available.toLocaleString(),
-                shortfall: shortfall,
-                shortfallFormatted: Math.abs(shortfall).toLocaleString(),
-                runningJobs: runningJobsCount
+                ...analysis
             }
         };
     } catch (error) {
@@ -2782,21 +2919,13 @@ const analyzeQOSMaxNodePerUserLimit = (jobId, jobData) => {
         if (!user) return { type: 'Error', message: 'Job user not available' };
 
         const jobsData = dataCache.getData('jobs');
-        let currentUsage = 0;
-        let runningJobsCount = 0;
+        let nodeUsage = { total: 0, uniqueNodeCount: 0, unknownNodeCount: 0, runningJobsCount: 0 };
         
         if (jobsData && jobsData.jobs) {
-            jobsData.jobs.forEach(job => {
-                if (isRunningJobForQOSUser(job, qosName, user)) {
-                    const nodes = getJobNodeCount(job);
-                    currentUsage += nodes;
-                    runningJobsCount++;
-                }
-            });
+            nodeUsage = calculateUniqueNodeUsage(jobsData.jobs, qosName, user);
         }
         
-        const available = Math.max(0, nodeLimit - currentUsage);
-        const shortfall = Math.min(0, nodeLimit - currentUsage - jobNodes);
+        const analysis = buildNumericLimitAnalysis(nodeLimit, nodeUsage.total, jobNodes, nodeUsage.runningJobsCount);
         
         return {
             type: 'QOSMaxNodePerUserLimit',
@@ -2811,16 +2940,9 @@ const analyzeQOSMaxNodePerUserLimit = (jobId, jobData) => {
             },
             analysis: {
                 qosName: qosName,
-                limit: nodeLimit,
-                limitFormatted: nodeLimit.toLocaleString(),
-                currentUsage: currentUsage,
-                currentUsageFormatted: currentUsage.toLocaleString(),
-                percentUsed: ((currentUsage / nodeLimit) * 100).toFixed(1),
-                available: available,
-                availableFormatted: available.toLocaleString(),
-                shortfall: shortfall,
-                shortfallFormatted: Math.abs(shortfall).toLocaleString(),
-                runningJobs: runningJobsCount
+                ...analysis,
+                uniqueNodeCount: nodeUsage.uniqueNodeCount,
+                unknownNodeCount: nodeUsage.unknownNodeCount
             }
         };
     } catch (error) {

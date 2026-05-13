@@ -3,6 +3,7 @@ const { executeCommand, executeCommandStreaming } = require("../helpers/executeC
 const { formatTimeLeft } = require("../helpers/formatTimeLeft.js");
 const { formatTime, formatUnixTimestamp } = require("../helpers/formatTime.js");
 const { getTresvalue, parseGpuAllocations, parsePerNodeCpuAllocations } = require("../helpers/getTresValue.js");
+const { expandSlurmHostlist } = require("../helpers/slurmHostlist.js");
 
 function parseJobsData(data) {
   try {
@@ -34,19 +35,7 @@ function extractNodeListExpression(job) {
 }
 
 function normalizeNodeNames(nodeListExpression) {
-  if (!nodeListExpression || typeof nodeListExpression !== 'string') {
-    return [];
-  }
-
-  // Hostlist expressions are expanded later where needed to avoid per-job command overhead.
-  if (nodeListExpression.includes('[') || nodeListExpression.includes(']')) {
-    return [];
-  }
-
-  return nodeListExpression
-    .split(',')
-    .map((nodeName) => nodeName.trim())
-    .filter(Boolean);
+  return expandSlurmHostlist(nodeListExpression);
 }
 
 function formatJobsData(jobs) {

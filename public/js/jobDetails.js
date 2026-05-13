@@ -142,6 +142,8 @@ function renderPendingReason(data, container) {
       html += renderQOSMaxGenericPerUserLimitReason(data, 'Jobs');
   } else if (data.type === 'QOSMaxNodePerUserLimit') {
       html += renderQOSMaxGenericPerUserLimitReason(data, 'Nodes');
+  } else if (data.type === 'QOSMaxMemoryPerUser') {
+      html += renderQOSMaxGenericPerUserLimitReason(data, 'Memory');
   } else if (data.type === 'Status') {
       html += `
           <div class="flex items-center text-green-600">
@@ -1608,7 +1610,7 @@ function renderQOSMaxGenericPerUserLimitReason(data, resourceName) {
   if (data.job && data.job.requested && data.job.requested.formatted) {
     jobRequestVal = data.job.requested.formatted;
   }
-  
+
   return `
     <div class="space-y-3">
       <div class="flex items-center text-red-600">
@@ -1689,7 +1691,7 @@ function renderQOSGrpGenericLimitReason(data, resourceName) {
   if (data.job && data.job.requested && data.job.requested.formatted) {
     jobRequestVal = data.job.requested.formatted;
   }
-  
+
   return `
     <div class="space-y-3">
       <div class="flex items-center text-red-600">
@@ -1771,6 +1773,10 @@ function renderQOSMaxGenericPerUserLimitReason(data, resourceName) {
   if (data.job && data.job.requested && data.job.requested.formatted) {
     jobRequestVal = data.job.requested.formatted;
   }
+
+  const warningDetail = analysis.jobShortfall > 0
+    ? `This job requests ${jobRequestVal}${unitDisp}, but only ${analysis.availableFormatted}${unitDisp} is available under this per-user QOS limit.`
+    : `After adding this job, usage would exceed the limit by ${analysis.shortfallFormatted}${unitDisp}.`;
   
   return `
     <div class="space-y-3">
@@ -1820,7 +1826,7 @@ function renderQOSMaxGenericPerUserLimitReason(data, resourceName) {
             </svg>
             <div class="flex-1">
               <div class="text-sm font-medium text-amber-900">Job Would Exceed Limit</div>
-              <p class="text-xs text-amber-700 mt-1">Your job needs ${analysis.shortfallFormatted}${unitDisp} more than your user limit has available.</p>
+              <p class="text-xs text-amber-700 mt-1">${warningDetail}</p>
             </div>
           </div>
         </div>
