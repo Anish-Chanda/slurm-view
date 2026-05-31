@@ -109,6 +109,12 @@ function updateAddButton(filterValue) {
   }
 }
 
+function applyActiveFilters() {
+  renderFilters(window.activeFilters);
+  updateURL(window.activeFilters);
+  fetchJobs(window.activeFilters);
+}
+
 function initializeFilters() {
   // Initialize active filters from the URL
   window.activeFilters = getQueryParams();
@@ -160,8 +166,7 @@ function initializeFilters() {
       
       // Reset to page 1 for new filters
       window.activeFilters.page = 1;
-      renderFilters(window.activeFilters);
-      updateURL(window.activeFilters);
+      applyActiveFilters();
     }
     document.getElementById('filter-value').value = '';
     updateAddButton('');
@@ -173,16 +178,8 @@ function initializeFilters() {
       const key = e.target.getAttribute('data-key');
       delete window.activeFilters[key];
       window.activeFilters.page = 1;
-      renderFilters(window.activeFilters);
-      updateURL(window.activeFilters);
-      fetchJobs(window.activeFilters);
+      applyActiveFilters();
     }
-  });
-
-  // Apply filters button
-  document.getElementById('save-filter-btn').addEventListener('click', function () {
-    console.log("Clicked save, fetching with filters:", window.activeFilters);
-    fetchJobs(window.activeFilters);
   });
 
   // Quick filter format detection
