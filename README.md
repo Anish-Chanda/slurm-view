@@ -24,11 +24,14 @@ Job Details
 Job Efficiency Report
 ![slurm view efficiency blurred](https://github.com/user-attachments/assets/451c2eb6-a585-4e64-b981-4bc711cd849a)
 
-Pending Reason Analysis (Resources)
+Pending Reason Analysis (Resources):
 <img width="1323" height="1073" alt="slurm-view-pending-resources-blurred" src="https://github.com/user-attachments/assets/b9a44288-052c-460d-9123-18e0d2b0db10" />
 
+Pending Reason Association Limit:
+<img width="2048" height="1035" alt="slurm-view-assoc-grp-mem-limit" src="https://github.com/user-attachments/assets/26c7986b-d8b4-4ebf-802c-1c96368b21cc" />
 
-Pending Reason Analysis (Priority)
+
+Pending Reason Analysis (Priority):
 <img width="1341" height="1237" alt="slurm-view-pending-priority-blurred" src="https://github.com/user-attachments/assets/397cc994-1b35-4bc4-9d51-9f9557cd9e9e" />
 
 
