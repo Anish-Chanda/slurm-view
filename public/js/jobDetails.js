@@ -161,7 +161,7 @@ function renderPendingReason(data, container) {
               </div>
           </div>
           <div class="text-sm text-slate-500 italic ml-8">
-              Detailed analysis for this pending reason is coming soon.
+              Detailed analysis for this pending reason has not been implemented yet.
           </div>
       `;
   } else {
