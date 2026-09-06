@@ -356,6 +356,23 @@ function createApp() {
     }
   });
 
+  // Temporary React verification route serving the Vite build output.
+  // Scoped to <base>/react/ only; does not intercept /api/*, existing
+  // Handlebars routes, public assets, or the OOD base URI itself.
+  const reactDistPath = path.join(PROJECT_ROOT, 'dist', 'client');
+  const reactRoute = `${passengerBaseUri}/react`;
+  // Express matches routes non-strictly, so this also matches the trailing-
+  // slash URL; only redirect the slash-less form and let the index route
+  // below serve /react/ itself.
+  app.get(reactRoute, (req, res, next) => {
+    if (req.path.endsWith('/')) return next();
+    res.redirect(`${reactRoute}/`);
+  });
+  app.use(`${reactRoute}/`, express.static(reactDistPath, { index: false }));
+  app.get(`${reactRoute}/`, (req, res) => {
+    res.sendFile(path.join(reactDistPath, 'index.html'));
+  });
+
   return app;
 }
 
