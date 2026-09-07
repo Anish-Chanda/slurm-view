@@ -5,12 +5,17 @@
   "main": "app.js",
   "scripts": {
     "test": "jest --coverage",
+    "pretest": "npm run server:build",
     "start": "node app.js",
-    "dev:server": "node app.js",
+    "dev:server": "tsx watch --tsconfig tsconfig.server.json src/server/index.ts",
     "dev": "concurrently -k -n server,client \"npm run dev:server\" \"npm run client:dev\"",
     "client:dev": "vite",
     "client:build": "vite build",
-    "client:typecheck": "tsc -b"
+    "client:typecheck": "tsc -b",
+    "server:build": "tsc -p tsconfig.server.json",
+    "server:typecheck": "tsc -p tsconfig.server.json --noEmit",
+    "build": "npm run server:build && npm run client:build",
+    "typecheck": "npm run server:typecheck && npm run client:typecheck"
   },
   "author": "Anish Chanda",
   "license": "ISC",
@@ -26,6 +31,7 @@
   "devDependencies": {
     "@babel/core": "^7.29.7",
     "@babel/preset-env": "^7.29.7",
+    "@types/express": "^4.17.25",
     "@types/node": "^26.4.1",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
@@ -35,6 +41,7 @@
     "jest": "^29.7.0",
     "jsdom": "^27.4.0",
     "supertest": "^7.2.2",
+    "tsx": "^4.23.13",
     "typescript": "^7.0.2",
     "vite": "^8.2.2"
   }

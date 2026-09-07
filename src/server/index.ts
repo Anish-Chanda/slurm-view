@@ -1,4 +1,8 @@
-const { createApp } = require('./app.js');
+import type { Express } from 'express';
+import type { Server } from 'http';
+import { createApp } from './app.js';
+
+// Legacy CommonJS boundaries (not migrated in this commit).
 const backgroundPolling = require('../../service/backgroundPolling.js');
 const dataCache = require('../../modules/dataCache.js');
 const {
@@ -7,15 +11,19 @@ const {
   USER_CONFIG_DIR_PATH
 } = require('../../modules/runtimeConfig.js');
 
-const port = 3000;
+const port: number = 3000;
 
-function startServer() {
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function startServer(): { app: Express; server: Server } {
   // Load runtime configuration on startup, fail if config is invalid or cannot be loaded
   try {
     initializeRuntimeConfig();
     console.log(`[Config] Runtime configuration loaded from ${SYSTEM_CONFIG_DIR_PATH} with optional user overrides from ${USER_CONFIG_DIR_PATH}`);
   } catch (error) {
-    console.error(`[Config] Failed to load runtime configuration: ${error.message}`);
+    console.error(`[Config] Failed to load runtime configuration: ${getErrorMessage(error)}`);
     process.exit(1);
   }
   //start the background polling service
@@ -25,7 +33,7 @@ function startServer() {
 
   const app = createApp();
 
-  const server = app.listen(port, () => {
+  const server: Server = app.listen(port, () => {
     console.log(`[Main Worker] App listening on port ${port}`);
 
     // Initialize account limits on startup
@@ -36,7 +44,7 @@ function startServer() {
   });
 
   // Graceful shutdown
-  function gracefulShutdown() {
+  function gracefulShutdown(): void {
     console.log('[Main Worker] Graceful shutdown initiated...');
 
     // First stop the background polling
@@ -64,7 +72,7 @@ function startServer() {
 /**
  * Initialize account limits cache on startup
  */
-async function initializeAccountLimits() {
+async function initializeAccountLimits(): Promise<void> {
   try {
     const { fetchAccountLimits } = require('../../helpers/accountLimits.js');
     const limitsData = fetchAccountLimits();
@@ -80,19 +88,19 @@ async function initializeAccountLimits() {
           console.log('[Background] Account limits refreshed');
         }
       } catch (error) {
-        console.error('[Background] Failed to refresh account limits:', error.message);
+        console.error('[Background] Failed to refresh account limits:', getErrorMessage(error));
       }
     }, 3600000); // 1 hour
 
   } catch (error) {
-    console.error('[Startup] Failed to initialize account limits:', error.message);
+    console.error('[Startup] Failed to initialize account limits:', getErrorMessage(error));
   }
 }
 
 /**
  * Initialize QOS limits cache on startup
  */
-async function initializeQOSLimits() {
+async function initializeQOSLimits(): Promise<void> {
   try {
     const { fetchQOSLimits } = require('../../helpers/accountLimits.js');
     const qosData = fetchQOSLimits();
@@ -108,13 +116,17 @@ async function initializeQOSLimits() {
           console.log('[Background] QOS limits refreshed');
         }
       } catch (error) {
-        console.error('[Background] Failed to refresh QOS limits:', error.message);
+        console.error('[Background] Failed to refresh QOS limits:', getErrorMessage(error));
       }
     }, 3600000); // 1 hour
 
   } catch (error) {
-    console.error('[Startup] Failed to initialize QOS limits:', error.message);
+    console.error('[Startup] Failed to initialize QOS limits:', getErrorMessage(error));
   }
 }
 
-module.exports = { startServer };
+export { startServer };
+
+if (require.main === module) {
+  startServer();
+}

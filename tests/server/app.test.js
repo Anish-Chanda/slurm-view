@@ -22,7 +22,7 @@ jest.mock('../../handlers/fetchPendingReason', () => ({
 }));
 
 const request = require('supertest');
-const { createApp } = require('../../src/server/app.js');
+const { createApp } = require('../../dist/server/app.js');
 const { DEFAULT_PAGE_SIZE } = require('../../constants.js');
 const jobsService = require('../../service/jobsService');
 const { getCPUsByState, getMemByState, getGPUByState } = require('../../handlers/fetchStats');
