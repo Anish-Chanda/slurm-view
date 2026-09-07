@@ -1,3 +1,4 @@
 node_modules
 tmp/restart.txt
 coverage/
+dist/
