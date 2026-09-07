@@ -1,6 +1,7 @@
 import express, { type Express, type NextFunction, type Request, type Response } from 'express';
 import path from 'path';
 import { engine } from 'express-handlebars';
+import { createV1Router } from './routes/v1/index.js';
 
 // Legacy CommonJS boundaries (not migrated in this commit).
 const { getCPUsByState, getMemByState, getGPUByState } = require('../../handlers/fetchStats.js');
@@ -131,6 +132,8 @@ function createApp(): Express {
 
   const router = express.Router();
   app.use(passengerBaseUri || '/', router);
+
+  router.use('/api/v1', createV1Router());
 
   router.get('/partials/jobs-table', async (req: Request, res: Response) => {
     try {
