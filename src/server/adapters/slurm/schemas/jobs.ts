@@ -5,10 +5,22 @@ import { slurmNoticeSchema, slurmNumericSchema } from './common.js';
 // Only consumed fields are modeled; the rest is stripped. The per-parser
 // record keeps each generation an explicit contract; they share one
 // definition while the consumed fields stay identical.
+// Only the consumed exit-code fields are modeled; the rest is stripped.
+const slurmSignalSchema = z.object({
+  id: slurmNumericSchema.nullish(),
+  name: z.string().nullish(),
+});
+
+const slurmExitCodeSchema = z.object({
+  return_code: slurmNumericSchema.nullish(),
+  signal: slurmSignalSchema.nullish(),
+  status: z.union([z.string(), z.number()]).nullish(),
+});
+
 const rawJobSchema = z.object({
   job_id: z.union([z.string(), z.number()]),
-  array_job_id: z.union([z.string(), z.number()]).nullish(),
-  array_task_id: z.union([z.string(), z.number()]).nullish(),
+  array_job_id: slurmNumericSchema.nullish(),
+  array_task_id: slurmNumericSchema.nullish(),
   partition: z.string().nullish(),
   name: z.string().nullish(),
   user_name: z.string().nullish(),
@@ -29,20 +41,8 @@ const rawJobSchema = z.object({
   current_working_directory: z.string().nullish(),
   standard_output: z.string().nullish(),
   dependency: z.string().nullish(),
-  exit_code: z
-    .union([
-      z.string(),
-      z.number(),
-      z.object({ status: z.union([z.string(), z.number()]).nullish() }),
-    ])
-    .nullish(),
-  derived_exit_code: z
-    .union([
-      z.string(),
-      z.number(),
-      z.object({ status: z.union([z.string(), z.number()]).nullish() }),
-    ])
-    .nullish(),
+  exit_code: slurmExitCodeSchema.nullish(),
+  derived_exit_code: slurmExitCodeSchema.nullish(),
   flags: z.union([z.array(z.string()), z.string()]).nullish(),
 });
 

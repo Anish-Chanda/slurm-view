@@ -47,11 +47,7 @@ function createStatsHandler(nodesCache: NodesCache | undefined) {
         .join('; ');
       throw new HttpError(ProblemCode.BadRequest, `Invalid query parameters: ${detail}`);
     }
-    // `partition=all` means cluster-wide.
-    const partition =
-      parsed.data.partition === undefined || parsed.data.partition === 'all'
-        ? null
-        : parsed.data.partition;
+    const partition = parsed.data.partition ?? null;
     try {
       const thresholds = getRuntimeConfig().stats.cpuLoad.thresholds;
       const service = new StatsService(nodesCache, thresholds);

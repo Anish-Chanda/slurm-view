@@ -29,7 +29,7 @@ describe('GET /api/v1/stats', () => {
     expect(typeof res.body.updatedAt).toBe('string');
   });
 
-  test('partition filter scopes; all means cluster-wide', async () => {
+  test('partition filter scopes; omitted means cluster-wide', async () => {
     const app = createApp({ nodesCache: new NodesCache({ parser: 'v0.0.45', run: fixtureRun() }) });
 
     const gpu = await request(app).get('/api/v1/stats').query({ partition: 'gpu' });
@@ -37,9 +37,28 @@ describe('GET /api/v1/stats', () => {
     expect(gpu.body.cpu.configuredCpus).toBe(128);
     expect(gpu.body.gpu.total).toBe(8);
 
-    const all = await request(app).get('/api/v1/stats').query({ partition: 'all' });
-    expect(all.status).toBe(200);
-    expect(all.body.cpu.configuredCpus).toBe(192);
+    const omitted = await request(app).get('/api/v1/stats');
+    expect(omitted.status).toBe(200);
+    expect(omitted.body.cpu.configuredCpus).toBe(192);
+  });
+
+  test('partition=all scopes to a real partition named all', async () => {
+    const stdout = JSON.stringify({
+      nodes: [
+        { name: 'all01', partitions: ['all'], cpus: 4, effective_cpus: 4, real_memory: 8000, alloc_cpus: 0, alloc_memory: 0 },
+        { name: 'gpu01', partitions: ['gpu'], cpus: 8, effective_cpus: 8, real_memory: 16000, alloc_cpus: 0, alloc_memory: 0 },
+      ],
+    });
+    const run: SlurmRunFn = jest.fn().mockResolvedValue({ stdout, stderr: '' });
+    const app = createApp({ nodesCache: new NodesCache({ parser: 'v0.0.45', run }) });
+
+    const scoped = await request(app).get('/api/v1/stats').query({ partition: 'all' });
+    expect(scoped.status).toBe(200);
+    expect(scoped.body.cpu.configuredCpus).toBe(4);
+
+    const wide = await request(app).get('/api/v1/stats');
+    expect(wide.status).toBe(200);
+    expect(wide.body.cpu.configuredCpus).toBe(12);
   });
 
   test('invalid partition becomes RFC 9457 Bad Request', async () => {

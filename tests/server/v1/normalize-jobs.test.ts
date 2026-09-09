@@ -45,7 +45,7 @@ describe('parseJobsStdout', () => {
     expect(running.partition).toBe('debug');
   });
 
-  test('derives composite identity from array fields', () => {
+  test('derives composite identity from array wrapper fields', () => {
     const jobs = parseJobsStdout('v0.0.45', jobsFixture('v43'));
     const arrayTask = jobs[1]!;
     expect(arrayTask.jobId).toBe('102');
@@ -68,8 +68,28 @@ describe('parseJobsStdout', () => {
     expect(done.nodeExpression).toBe('node01,node02');
     expect(done.nodeCount).toBe(1);
     expect(done.requested.gpus).toEqual({ total: 2, byType: { unknown: 2 } });
-    expect(done.exitCode).toBe('0:0');
-    expect(done.derivedExitCode).toBe('0:0');
+    expect(done.exitCode).toBe('0');
+    expect(done.derivedExitCode).toBe('0');
+  });
+
+  test('non-array jobs keep scalar identity and null exit codes when unset', () => {
+    const jobs = parseJobsStdout('v0.0.45', jobsFixture('v43'));
+    const running = jobs[0]!;
+    expect(running.id).toBe('101');
+    expect(running.arrayJobId).toBeNull();
+    expect(running.arrayTaskId).toBeNull();
+    expect(running.exitCode).toBeNull();
+  });
+
+  test('malformed array wrapper data rejects the payload', () => {
+    const badTask = {
+      job_id: 9,
+      array_job_id: { number: 100, set: true, infinite: false },
+      array_task_id: { number: 'abc', set: true, infinite: false },
+    };
+    expect(() =>
+      parseJobsStdout('v0.0.45', JSON.stringify({ jobs: [badTask] }))
+    ).toThrow(UpstreamInvalidError);
   });
 
   test('gres_detail enriches GPU types without changing the TRES total', () => {

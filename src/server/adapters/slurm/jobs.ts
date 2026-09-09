@@ -23,34 +23,33 @@ function cleanString(input: unknown): string | null {
   return trimmed.length > 0 && trimmed !== '(null)' ? trimmed : null;
 }
 
-function cleanIdComponent(input: unknown): string | null {
-  if (typeof input === 'number' && Number.isInteger(input) && input >= 0) {
-    return String(input);
-  }
-  if (typeof input === 'string' && /^\d+$/.test(input.trim())) {
-    return input.trim();
-  }
-  return null;
-}
-
-function scalarizeExitCode(input: RawJob['exit_code']): string | null {
+// Array identifiers arrive as Slurm numeric wrappers. Absent or unset
+// values mean "not an array job"; present-but-unusable values reject the
+// payload instead of becoming a fabricated identifier.
+function normalizeArrayId(input: unknown, field: string, jobId: string): string | null {
   if (input === null || input === undefined) {
     return null;
   }
-  if (typeof input === 'string') {
-    return input.trim().length > 0 ? input.trim() : null;
+  if (typeof input === 'object' && (input as { set?: unknown }).set === false) {
+    return null;
   }
-  if (typeof input === 'number') {
-    return Number.isFinite(input) ? String(input) : null;
+  const { value, infinite } = normalizeSlurmNumber(input);
+  if (!infinite && value !== null && Number.isInteger(value) && value >= 0) {
+    return String(value);
   }
-  const status = input.status;
-  if (typeof status === 'string') {
-    return status.trim().length > 0 ? status.trim() : null;
+  throw new UpstreamInvalidError(
+    `squeue job "${jobId}" has malformed field: ${field}`
+  );
+}
+
+// Only the numeric return code is consumed; signal/status ride along
+// unvalidated. An unusable return code means "no exit code", not zero.
+function normalizeExitCode(input: RawJob['exit_code']): string | null {
+  if (input === null || input === undefined) {
+    return null;
   }
-  if (typeof status === 'number' && Number.isFinite(status)) {
-    return String(status);
-  }
-  return null;
+  const { value } = normalizeSlurmNumber(input.return_code ?? null);
+  return value === null ? null : String(Math.trunc(value));
 }
 
 // Adopts gres_detail type info when TRES knows the total but not the
@@ -81,8 +80,8 @@ function normalizeNodeExpression(input: RawJob['nodes']): string | null {  if (t
 
 function normalizeJob(raw: RawJob): Job {
   const jobId = String(raw.job_id).trim();
-  const arrayJobId = cleanIdComponent(raw.array_job_id ?? null);
-  const arrayTaskId = cleanIdComponent(raw.array_task_id ?? null);
+  const arrayJobId = normalizeArrayId(raw.array_job_id ?? null, 'array_job_id', jobId);
+  const arrayTaskId = normalizeArrayId(raw.array_task_id ?? null, 'array_task_id', jobId);
   // Array tasks are addressed as "<arrayJobId>_<arrayTaskId>".
   const id =
     arrayJobId !== null && arrayTaskId !== null && !jobId.includes('_')
@@ -138,8 +137,8 @@ function normalizeJob(raw: RawJob): Job {
     command: cleanString(raw.command),
     stdoutPath: cleanString(raw.standard_output),
     dependency: cleanString(raw.dependency),
-    exitCode: scalarizeExitCode(raw.exit_code ?? null),
-    derivedExitCode: scalarizeExitCode(raw.derived_exit_code ?? null),
+    exitCode: normalizeExitCode(raw.exit_code ?? null),
+    derivedExitCode: normalizeExitCode(raw.derived_exit_code ?? null),
     flags: Array.isArray(raw.flags)
       ? raw.flags.filter((flag) => flag.trim().length > 0)
       : typeof raw.flags === 'string' && raw.flags.trim().length > 0

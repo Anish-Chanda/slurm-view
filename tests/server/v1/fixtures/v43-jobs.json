@@ -28,14 +28,14 @@
       "current_working_directory": "/home/alice",
       "standard_output": "/home/alice/slurm-101.out",
       "dependency": null,
-      "exit_code": { "status": "0:0" },
+      "exit_code": { "return_code": { "number": 0, "set": false, "infinite": false } },
       "flags": [],
       "ignored_test_field": "must be stripped"
     },
     {
       "job_id": 102,
-      "array_job_id": 100,
-      "array_task_id": 2,
+      "array_job_id": { "number": 100, "set": true, "infinite": false },
+      "array_task_id": { "number": 2, "set": true, "infinite": false },
       "partition": "compute",
       "name": "array-task",
       "user_name": "bob",
@@ -71,8 +71,14 @@
       "nodes": ["node01", "node02"],
       "tres_req_str": "cpu=4,mem=16384M,node=1,gres/gpu=2",
       "tres_alloc_str": "cpu=4,mem=16384M,node=1,gres/gpu=2",
-      "exit_code": "0:0",
-      "derived_exit_code": { "status": "0:0" }
+      "exit_code": {
+        "return_code": { "number": 0, "set": true, "infinite": false },
+        "status": "COMPLETED"
+      },
+      "derived_exit_code": {
+        "return_code": { "number": 0, "set": true, "infinite": false },
+        "signal": { "name": "NONE" }
+      }
     }
   ]
 }

@@ -72,6 +72,9 @@ function summarizeCpu(nodes: readonly ClusterNode[], thresholds: CpuLoadThreshol
 
 function summarizeMemory(nodes: readonly ClusterNode[]): MemoryStats {
   const stats = emptyMemoryStats();
+  let freeSum = 0;
+  let freeComplete = true;
+  let counted = 0;
   for (const node of nodes) {
     stats.totalMiB += node.totalMemoryMiB;
     const availability = nodeAvailability(node.state, node.stateFlags);
@@ -79,6 +82,7 @@ function summarizeMemory(nodes: readonly ClusterNode[]): MemoryStats {
       stats.unavailableMiB += node.totalMemoryMiB;
       continue;
     }
+    counted += 1;
     const allocated = Math.min(node.allocMemoryMiB, node.totalMemoryMiB);
     stats.allocatedMiB += allocated;
     const remainder = Math.max(0, node.totalMemoryMiB - allocated);
@@ -87,10 +91,13 @@ function summarizeMemory(nodes: readonly ClusterNode[]): MemoryStats {
     } else {
       stats.unallocatedMiB += remainder;
     }
-    if (node.freeMemoryMiB !== null) {
-      stats.freeMiB += node.freeMemoryMiB;
+    if (node.freeMemoryMiB === null) {
+      freeComplete = false;
+    } else {
+      freeSum += node.freeMemoryMiB;
     }
   }
+  stats.freeMiB = counted === 0 || freeComplete ? freeSum : null;
   return stats;
 }
 

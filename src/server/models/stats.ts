@@ -44,12 +44,11 @@ interface MemoryStats {
   allocatedMiB: number;
   unallocatedMiB: number;
   unavailableMiB: number;
-  // OS-reported free memory, informational only. Summed over nodes that
-  // report it; overlaps the accounting categories, not part of the
-  // invariant below.
+  // OS-reported free memory, informational only. Null unless every
+  // counted node reports it; never a partial sum. Outside the invariant.
   //
   // Invariant: allocatedMiB + unallocatedMiB + unavailableMiB === totalMiB
-  freeMiB: number;
+  freeMiB: number | null;
 }
 
 interface GpuTypeStats {

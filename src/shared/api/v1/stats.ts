@@ -18,11 +18,11 @@ export interface MemoryStatsDto {
   unallocatedMiB: number;
   unavailableMiB: number;
   /**
-   * OS-reported free memory (informational only). Overlaps the accounting
-   * categories above; not part of the invariant
+   * OS-reported free memory (informational only). Null unless every counted
+   * node reports it; never a partial sum. Not part of the invariant
    * allocated + unallocated + unavailable === total.
    */
-  freeMiB: number;
+  freeMiB: number | null;
 }
 
 export interface GpuTypeStatsDto {

@@ -102,7 +102,18 @@ describe('StatsService.getStats', () => {
     const { stats } = await serviceFor(loadNodes()).getStats('no-such-partition');
     expect(stats.cpu.configuredCpus).toBe(0);
     expect(stats.memory.totalMiB).toBe(0);
+    expect(stats.memory.freeMiB).toBe(0);
     expect(stats.gpu.total).toBe(0);
+  });
+
+  test('freeMiB is null when any counted node omits it', async () => {
+    const nodes = loadNodes();
+    const withoutFree: ClusterNode = { ...nodes[1]!, freeMemoryMiB: null };
+    const { stats } = await serviceFor([nodes[0]!, withoutFree]).getStats(null);
+    expect(stats.memory.freeMiB).toBeNull();
+    expect(
+      stats.memory.allocatedMiB + stats.memory.unallocatedMiB + stats.memory.unavailableMiB
+    ).toBe(stats.memory.totalMiB);
   });
 
   test('allocated capacity without a usable load ratio is unclassified, never folded away', async () => {
