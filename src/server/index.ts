@@ -72,7 +72,7 @@ async function startServer(): Promise<ServerRuntime> {
   console.log('[Main Worker] Starting background worker service...');
   backgroundPolling.start();
 
-  const app = createApp();
+  const app = createApp({ jobsCache, nodesCache });
 
   const server: Server = app.listen(port, () => {
     console.log(`[Main Worker] App listening on port ${port}`);

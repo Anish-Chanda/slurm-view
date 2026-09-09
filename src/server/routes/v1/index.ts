@@ -1,8 +1,14 @@
 import { Router, type Request, type Response } from 'express';
 import type { HealthResponse } from '../../../shared/api/v1/health.js';
+import type { JobsCache } from '../../cache/jobs-cache.js';
 import { errorHandler } from '../../middleware/error-handler.js';
+import { createJobsRouter } from './jobs.js';
 
-function createV1Router(): Router {
+interface V1RouterDeps {
+  jobsCache?: JobsCache;
+}
+
+function createV1Router(deps: V1RouterDeps = {}): Router {
   const router = Router();
 
   router.get('/health', (_req: Request, res: Response) => {
@@ -12,9 +18,12 @@ function createV1Router(): Router {
     res.json(body);
   });
 
+  router.use('/jobs', createJobsRouter(deps.jobsCache));
+
   router.use(errorHandler);
 
   return router;
 }
 
 export { createV1Router };
+export type { V1RouterDeps };

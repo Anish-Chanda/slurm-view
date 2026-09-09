@@ -2,6 +2,7 @@ import express, { type Express, type NextFunction, type Request, type Response }
 import path from 'path';
 import { engine } from 'express-handlebars';
 import { createV1Router } from './routes/v1/index.js';
+import type { V1RouterDeps } from './routes/v1/index.js';
 
 // Legacy CommonJS boundaries (not migrated in this commit).
 const { getCPUsByState, getMemByState, getGPUByState } = require('../../handlers/fetchStats.js');
@@ -37,7 +38,7 @@ function getContrastingTextColor(hexColor: unknown): string {
   return brightness >= 140 ? '#0f172a' : '#ffffff';
 }
 
-function createApp(): Express {
+function createApp(v1Deps: V1RouterDeps = {}): Express {
   const app = express();
 
   // Create handlebars instance with helpers
@@ -133,7 +134,7 @@ function createApp(): Express {
   const router = express.Router();
   app.use(passengerBaseUri || '/', router);
 
-  router.use('/api/v1', createV1Router());
+  router.use('/api/v1', createV1Router(v1Deps));
 
   router.get('/partials/jobs-table', async (req: Request, res: Response) => {
     try {
