@@ -212,35 +212,9 @@ function createApp(v1Deps: V1RouterDeps = {}): Express {
     }
   })
 
-  router.get('/api/jobs', async (req: Request, res: Response) => {
-    try {
-      const { page, pageSize, ...filters } = req.query;
-
-      // Validate pagination parameters
-      const pagination = {
-        page: page ? validatePageNumber(page) : 1,
-        pageSize: pageSize ? validatePageSize(pageSize) : DEFAULT_PAGE_SIZE
-      };
-
-      // Validate filter values
-      const validatedFilters: Record<string, string> = {};
-      for (const [key, value] of Object.entries(filters)) {
-        if (value) {
-          validatedFilters[key] = validateFilterValue(value.toString());
-        }
-      }
-
-      const result = await jobsService.getJobs(validatedFilters, pagination, true);
-      res.json(result);
-    } catch (error) {
-      console.error('[App] Error in /api/jobs:', getErrorMessage(error));
-      res.status(400).json({
-        success: false,
-        error: getErrorMessage(error) || 'Invalid request parameters'
-      });
-    }
-  });
-
+  // Bare `GET /api/jobs` was removed: no in-repo consumers, superseded
+  // by `GET /api/v1/jobs`. `/api/stats/` stays for public/js/charts.js;
+  // pending-reason and seff routes stay for their own migrations.
   router.get('/api/jobs/:id/pending-reason', async (req: Request, res: Response) => {
     try {
       const reason = await getPendingReason(req.params.id);

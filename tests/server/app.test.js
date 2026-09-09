@@ -91,79 +91,6 @@ afterEach(() => {
   }
 });
 
-describe('GET /api/jobs', () => {
-  test('successful default request', async () => {
-    const app = createApp();
-
-    const res = await request(app).get('/api/jobs');
-
-    expect(res.status).toBe(200);
-    expect(res.headers['content-type']).toMatch(/application\/json/);
-    expect(res.body.success).toBe(true);
-    expect(jobsService.getJobs).toHaveBeenCalledWith(
-      {},
-      { page: 1, pageSize: DEFAULT_PAGE_SIZE },
-      true
-    );
-  });
-
-  test('pagination parameters are forwarded', async () => {
-    const app = createApp();
-
-    const res = await request(app).get('/api/jobs').query({ page: '2', pageSize: '5' });
-
-    expect(res.status).toBe(200);
-    expect(jobsService.getJobs).toHaveBeenCalledWith(
-      {},
-      { page: 2, pageSize: 5 },
-      true
-    );
-  });
-
-  test('filter values are forwarded', async () => {
-    const app = createApp();
-
-    const res = await request(app).get('/api/jobs').query({ user: 'alice' });
-
-    expect(res.status).toBe(200);
-    expect(jobsService.getJobs).toHaveBeenCalledWith(
-      { user: 'alice' },
-      { page: 1, pageSize: DEFAULT_PAGE_SIZE },
-      true
-    );
-  });
-
-  test('invalid page returns 400', async () => {
-    const app = createApp();
-
-    const res = await request(app).get('/api/jobs').query({ page: '0' });
-
-    expect(res.status).toBe(400);
-    expect(res.body.success).toBe(false);
-    expect(jobsService.getJobs).not.toHaveBeenCalled();
-  });
-
-  test('invalid page size returns 400', async () => {
-    const app = createApp();
-
-    const res = await request(app).get('/api/jobs').query({ pageSize: '9999' });
-
-    expect(res.status).toBe(400);
-    expect(res.body.success).toBe(false);
-    expect(jobsService.getJobs).not.toHaveBeenCalled();
-  });
-
-  test('invalid filter value returns 400', async () => {
-    const app = createApp();
-
-    const res = await request(app).get('/api/jobs').query({ user: 'a;b' });
-
-    expect(res.status).toBe(400);
-    expect(res.body.success).toBe(false);
-    expect(jobsService.getJobs).not.toHaveBeenCalled();
-  });
-});
-
 describe('GET /api/stats', () => {
   test('no partition maps to null', async () => {
     const app = createApp();
@@ -236,21 +163,29 @@ describe('GET /api/jobs/:id/pending-reason', () => {
 });
 
 describe('PASSENGER_BASE_URI', () => {
-  test('API routes are reachable under the prefix and unprefixed route is 404', async () => {
+  test('legacy API routes are reachable under the prefix and unprefixed route is 404', async () => {
     process.env.PASSENGER_BASE_URI = PASSENGER_BASE_URI;
     const app = createApp();
     // Delete before any requests to prove the base URI was captured
     // at construction time rather than read from process.env per request.
     delete process.env.PASSENGER_BASE_URI;
 
-    const prefixed = await request(app).get(`${PASSENGER_BASE_URI}/api/jobs`);
+    const prefixed = await request(app).get(`${PASSENGER_BASE_URI}/api/stats/`);
 
     expect(prefixed.status).toBe(200);
     expect(prefixed.body.success).toBe(true);
 
-    const unprefixed = await request(app).get('/api/jobs');
+    const unprefixed = await request(app).get('/api/stats/');
 
     expect(unprefixed.status).toBe(404);
+  });
+
+  test('removed bare /api/jobs route is 404 (superseded by /api/v1/jobs)', async () => {
+    const app = createApp();
+
+    const res = await request(app).get('/api/jobs');
+
+    expect(res.status).toBe(404);
   });
 });
 

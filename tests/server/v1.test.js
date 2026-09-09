@@ -119,9 +119,9 @@ describe('legacy routes keep legacy error shape', () => {
   test('legacy validation failure is not converted to Problem Details', async () => {
     const app = createApp();
 
-    // page=0 fails input validation before any Slurm access, so this
+    // bad;name fails partition validation before any Slurm access, so this
     // is deterministic without service mocks.
-    const res = await request(app).get('/api/jobs').query({ page: '0' });
+    const res = await request(app).get('/api/stats/').query({ partition: 'bad;name' });
 
     expect(res.status).toBe(400);
     expect(res.headers['content-type']).toMatch(/application\/json/);
