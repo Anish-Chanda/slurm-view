@@ -1,6 +1,7 @@
 // RFC 9457 Problem Details for HTTP APIs.
 export const ProblemCode = {
   BadRequest: 'BAD_REQUEST',
+  NotFound: 'NOT_FOUND',
   SlurmUnavailable: 'SLURM_UNAVAILABLE',
   UpstreamInvalidResponse: 'UPSTREAM_INVALID_RESPONSE',
   InternalError: 'INTERNAL_ERROR',
@@ -13,6 +14,11 @@ export const ProblemDefinitions = {
     type: 'urn:slurm-view:problem:bad-request',
     status: 400,
     title: 'Bad Request',
+  },
+  [ProblemCode.NotFound]: {
+    type: 'urn:slurm-view:problem:not-found',
+    status: 404,
+    title: 'Not Found',
   },
   [ProblemCode.SlurmUnavailable]: {
     type: 'urn:slurm-view:problem:slurm-unavailable',

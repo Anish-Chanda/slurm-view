@@ -54,6 +54,23 @@ describe('v1 routes under PASSENGER_BASE_URI', () => {
   });
 });
 
+describe('unknown /api/v1 routes', () => {
+  test('GET /api/v1/nope returns RFC 9457 Not Found', async () => {
+    const app = createApp();
+
+    const res = await request(app).get('/api/v1/nope');
+
+    expect(res.status).toBe(404);
+    expect(res.headers['content-type']).toMatch(/application\/problem\+json/);
+    expect(res.body).toEqual({
+      type: 'urn:slurm-view:problem:not-found',
+      title: 'Not Found',
+      status: 404,
+      code: 'NOT_FOUND',
+    });
+  });
+});
+
 describe('v1 error middleware', () => {
   function makeErrorApp(errToThrow) {
     const app = express();
