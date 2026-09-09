@@ -1,0 +1,185 @@
+{
+  "_comment": "SYNTHETIC fixture shaped like squeue --json=v0.0.44 output. Not captured from a live cluster. Contains synthetic unknown fields, which must be tolerated.",
+  "meta": {
+    "plugin": {
+      "type": "v0.0.44",
+      "name": "job_info"
+    }
+  },
+  "errors": [],
+  "warnings": [],
+  "last_backfill": 1725800000,
+  "last_update": 1725800100,
+  "jobs": [
+    {
+      "job_id": 101,
+      "partition": "debug",
+      "name": "train-model",
+      "user_name": "alice",
+      "account": "research",
+      "qos": "normal",
+      "job_state": [
+        "RUNNING"
+      ],
+      "state_reason": "None",
+      "time_limit": {
+        "number": 120,
+        "set": true,
+        "infinite": false
+      },
+      "submit_time": {
+        "number": 1725799000,
+        "set": true,
+        "infinite": false
+      },
+      "start_time": {
+        "number": 1725799500,
+        "set": true,
+        "infinite": false
+      },
+      "end_time": {
+        "number": 0,
+        "set": false,
+        "infinite": false
+      },
+      "node_count": {
+        "number": 2,
+        "set": true,
+        "infinite": false
+      },
+      "nodes": "gpu[01-02]",
+      "tres_req_str": "cpu=8,mem=32768M,node=2,gres/gpu:a100=4",
+      "tres_alloc_str": "cpu=8,mem=32768M,node=2,gres/gpu:a100=4",
+      "gres_detail": [
+        "gpu:a100:4(IDX:0-3)"
+      ],
+      "command": "/bin/sbatch",
+      "current_working_directory": "/home/alice",
+      "standard_output": "/home/alice/slurm-101.out",
+      "dependency": null,
+      "exit_code": {
+        "return_code": {
+          "number": 0,
+          "set": false,
+          "infinite": false
+        }
+      },
+      "flags": [],
+      "ignored_test_field": "must be stripped",
+      "ignored_test_field_2": "pack"
+    },
+    {
+      "job_id": 102,
+      "array_job_id": {
+        "number": 100,
+        "set": true,
+        "infinite": false
+      },
+      "array_task_id": {
+        "number": 2,
+        "set": true,
+        "infinite": false
+      },
+      "partition": "compute",
+      "name": "array-task",
+      "user_name": "bob",
+      "account": "teaching",
+      "qos": "short",
+      "job_state": [
+        "PENDING",
+        "REQUEUE_HOLD"
+      ],
+      "state_reason": "Resources",
+      "time_limit": {
+        "number": 0,
+        "set": false,
+        "infinite": true
+      },
+      "submit_time": {
+        "number": 1725799900,
+        "set": true,
+        "infinite": false
+      },
+      "start_time": {
+        "number": 0,
+        "set": false,
+        "infinite": false
+      },
+      "node_count": {
+        "number": 1,
+        "set": true,
+        "infinite": false
+      },
+      "nodes": "",
+      "tres_req_str": "cpu=2,mem=8G,node=1",
+      "tres_alloc_str": "",
+      "command": "/bin/sbatch",
+      "current_working_directory": "/home/bob",
+      "standard_output": "/home/bob/slurm-100_%a.out",
+      "dependency": "afterok:99",
+      "flags": [
+        "ARRAY_TASK"
+      ]
+    },
+    {
+      "job_id": "103",
+      "partition": "(null)",
+      "name": "",
+      "user_name": "carol",
+      "job_state": "COMPLETED",
+      "state_reason": "None",
+      "time_limit": {
+        "number": 60,
+        "set": true,
+        "infinite": false
+      },
+      "submit_time": {
+        "number": 1725798000,
+        "set": true,
+        "infinite": false
+      },
+      "start_time": {
+        "number": 1725798100,
+        "set": true,
+        "infinite": false
+      },
+      "end_time": {
+        "number": 1725799000,
+        "set": true,
+        "infinite": false
+      },
+      "node_count": {
+        "number": "1",
+        "set": true,
+        "infinite": false
+      },
+      "nodes": [
+        "node01",
+        "node02"
+      ],
+      "tres_req_str": "cpu=4,mem=16384M,node=1,gres/gpu=2",
+      "tres_alloc_str": "cpu=4,mem=16384M,node=1,gres/gpu=2",
+      "exit_code": {
+        "return_code": {
+          "number": 0,
+          "set": true,
+          "infinite": false
+        },
+        "status": "COMPLETED"
+      },
+      "derived_exit_code": {
+        "return_code": {
+          "number": 0,
+          "set": true,
+          "infinite": false
+        },
+        "signal": {
+          "name": "NONE"
+        }
+      }
+    }
+  ],
+  "ignored_test_envelope_field": {
+    "note": "synthetic"
+  }
+}

@@ -1,6 +1,8 @@
 import express, { type Express, type NextFunction, type Request, type Response } from 'express';
 import path from 'path';
 import { engine } from 'express-handlebars';
+import { createV1Router } from './routes/v1/index.js';
+import type { V1RouterDeps } from './routes/v1/index.js';
 
 // Legacy CommonJS boundaries (not migrated in this commit).
 const { getCPUsByState, getMemByState, getGPUByState } = require('../../handlers/fetchStats.js');
@@ -36,7 +38,7 @@ function getContrastingTextColor(hexColor: unknown): string {
   return brightness >= 140 ? '#0f172a' : '#ffffff';
 }
 
-function createApp(): Express {
+function createApp(v1Deps: V1RouterDeps = {}): Express {
   const app = express();
 
   // Create handlebars instance with helpers
@@ -132,6 +134,8 @@ function createApp(): Express {
   const router = express.Router();
   app.use(passengerBaseUri || '/', router);
 
+  router.use('/api/v1', createV1Router(v1Deps));
+
   router.get('/partials/jobs-table', async (req: Request, res: Response) => {
     try {
       const { page, pageSize, ...filters } = req.query;
@@ -208,35 +212,9 @@ function createApp(): Express {
     }
   })
 
-  router.get('/api/jobs', async (req: Request, res: Response) => {
-    try {
-      const { page, pageSize, ...filters } = req.query;
-
-      // Validate pagination parameters
-      const pagination = {
-        page: page ? validatePageNumber(page) : 1,
-        pageSize: pageSize ? validatePageSize(pageSize) : DEFAULT_PAGE_SIZE
-      };
-
-      // Validate filter values
-      const validatedFilters: Record<string, string> = {};
-      for (const [key, value] of Object.entries(filters)) {
-        if (value) {
-          validatedFilters[key] = validateFilterValue(value.toString());
-        }
-      }
-
-      const result = await jobsService.getJobs(validatedFilters, pagination, true);
-      res.json(result);
-    } catch (error) {
-      console.error('[App] Error in /api/jobs:', getErrorMessage(error));
-      res.status(400).json({
-        success: false,
-        error: getErrorMessage(error) || 'Invalid request parameters'
-      });
-    }
-  });
-
+  // Bare `GET /api/jobs` was removed: no in-repo consumers, superseded
+  // by `GET /api/v1/jobs`. `/api/stats/` stays for public/js/charts.js;
+  // pending-reason and seff routes stay for their own migrations.
   router.get('/api/jobs/:id/pending-reason', async (req: Request, res: Response) => {
     try {
       const reason = await getPendingReason(req.params.id);
