@@ -1,11 +1,14 @@
 import { Router, type Request, type Response } from 'express';
 import type { HealthResponse } from '../../../shared/api/v1/health.js';
 import type { JobsCache } from '../../cache/jobs-cache.js';
+import type { NodesCache } from '../../cache/nodes-cache.js';
 import { errorHandler } from '../../middleware/error-handler.js';
 import { createJobsRouter } from './jobs.js';
+import { createStatsRouter } from './stats.js';
 
 interface V1RouterDeps {
   jobsCache?: JobsCache;
+  nodesCache?: NodesCache;
 }
 
 function createV1Router(deps: V1RouterDeps = {}): Router {
@@ -19,6 +22,7 @@ function createV1Router(deps: V1RouterDeps = {}): Router {
   });
 
   router.use('/jobs', createJobsRouter(deps.jobsCache));
+  router.use('/stats', createStatsRouter(deps.nodesCache));
 
   router.use(errorHandler);
 

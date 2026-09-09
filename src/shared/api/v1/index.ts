@@ -12,3 +12,10 @@ export type {
   TimeLimitDto,
 } from './jobs.js';
 export { JOBS_PAGE_DEFAULT, JOBS_PAGE_SIZE_DEFAULT, JOBS_PAGE_SIZE_MAX } from './jobs.js';
+export type {
+  CpuStatsDto,
+  GpuStatsDto,
+  GpuTypeStatsDto,
+  MemoryStatsDto,
+  StatsResponse,
+} from './stats.js';
