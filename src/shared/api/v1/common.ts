@@ -1,6 +1,8 @@
 // RFC 9457 Problem Details for HTTP APIs.
 export const ProblemCode = {
   BadRequest: 'BAD_REQUEST',
+  SlurmUnavailable: 'SLURM_UNAVAILABLE',
+  UpstreamInvalidResponse: 'UPSTREAM_INVALID_RESPONSE',
   InternalError: 'INTERNAL_ERROR',
 } as const;
 
@@ -11,6 +13,16 @@ export const ProblemDefinitions = {
     type: 'urn:slurm-view:problem:bad-request',
     status: 400,
     title: 'Bad Request',
+  },
+  [ProblemCode.SlurmUnavailable]: {
+    type: 'urn:slurm-view:problem:slurm-unavailable',
+    status: 503,
+    title: 'Slurm Unavailable',
+  },
+  [ProblemCode.UpstreamInvalidResponse]: {
+    type: 'urn:slurm-view:problem:upstream-invalid-response',
+    status: 502,
+    title: 'Bad Gateway',
   },
   [ProblemCode.InternalError]: {
     type: 'urn:slurm-view:problem:internal-error',
