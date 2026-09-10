@@ -24,14 +24,14 @@ function CpuChart({ cpu, showSecondaryLayer }: { cpu: CpuStatsDto; showSecondary
     [cpu, showSecondaryLayer]
   );
   return (
-    <div>
+    <div className="w-full">
       <Sunburst
         model={model}
         center={{ title: 'CPU', total: String(cpu.configuredCpus) }}
         ariaLabel={`CPU utilization: ${cpu.allocatedCpus} allocated, ${cpu.availableCpus} available, ${cpu.unavailableCpus} unavailable of ${cpu.configuredCpus} configured CPUs`}
         colorFor={cpuColorFor}
       />
-      <p className="mt-1 text-center text-xs text-gray-500">
+      <p className="mt-3 text-center text-xs text-gray-500">
         {cpu.effectiveCpus} effective CPUs of {cpu.configuredCpus} configured.
       </p>
     </div>

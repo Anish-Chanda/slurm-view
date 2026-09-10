@@ -56,12 +56,14 @@ function GpuChart({
     return <EmptyState message="No GPUs in this scope." />;
   }
   return (
-    <Sunburst
-      model={model}
-      center={{ title: 'GPU', total: String(gpu.total) }}
-      ariaLabel={`GPU utilization: ${gpu.allocated} allocated, ${gpu.available} available, ${gpu.unavailable} unavailable of ${gpu.total} total GPUs`}
-      colorFor={colorFor}
-    />
+    <div className="w-full">
+      <Sunburst
+        model={model}
+        center={{ title: 'GPU', total: String(gpu.total) }}
+        ariaLabel={`GPU utilization: ${gpu.allocated} allocated, ${gpu.available} available, ${gpu.unavailable} unavailable of ${gpu.total} total GPUs`}
+        colorFor={colorFor}
+      />
+    </div>
   );
 }
 

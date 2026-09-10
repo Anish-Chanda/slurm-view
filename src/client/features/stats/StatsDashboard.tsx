@@ -169,7 +169,7 @@ function StatsDashboard() {
                     : 'Shows allocated, available, and unavailable CPUs without the load-breakdown outer ring.'}
                 </p>
               </div>
-              <div className="flex flex-1 items-center justify-center p-4">
+              <div className="flex flex-1 items-center justify-center p-6">
                 <CpuChart cpu={statsQuery.data.cpu} showSecondaryLayer={showCpuSecondary} />
               </div>
             </div>
@@ -182,7 +182,7 @@ function StatsDashboard() {
                     : 'Shows allocated, unallocated, and unavailable memory without the allocated-memory outer ring.'}
                 </p>
               </div>
-              <div className="flex flex-1 items-center justify-center p-4">
+              <div className="flex flex-1 items-center justify-center p-6">
                 <MemoryChart
                   memory={statsQuery.data.memory}
                   showSecondaryLayer={showMemorySecondary}
@@ -198,7 +198,7 @@ function StatsDashboard() {
                     : 'Shows GPU counts by allocated, available, and unavailable states without the type-level outer ring.'}
                 </p>
               </div>
-              <div className="flex flex-1 items-center justify-center p-4">
+              <div className="flex flex-1 items-center justify-center p-6">
                 <GpuChart gpu={statsQuery.data.gpu} showSecondaryLayer={showGpuSecondary} />
               </div>
             </div>

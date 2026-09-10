@@ -28,14 +28,14 @@ function MemoryChart({
     [memory, showSecondaryLayer]
   );
   return (
-    <div>
+    <div className="w-full">
       <Sunburst
         model={model}
         center={{ title: 'Memory', total: formatMiB(memory.totalMiB) }}
         ariaLabel={`Memory utilization: ${formatMiB(memory.allocatedMiB)} allocated, ${formatMiB(memory.unallocatedMiB)} unallocated, ${formatMiB(memory.unavailableMiB)} unavailable of ${formatMiB(memory.totalMiB)} total`}
         colorFor={memoryColorFor}
       />
-      <p className="mt-1 text-center text-xs text-gray-500">
+      <p className="mt-3 text-center text-xs text-gray-500">
         {memory.freeMiB === null
           ? 'OS-reported free memory not available on every node.'
           : `OS-reported free (informational): ${formatMiB(memory.freeMiB)}`}
