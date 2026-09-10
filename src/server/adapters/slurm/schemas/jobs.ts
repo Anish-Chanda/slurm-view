@@ -6,15 +6,8 @@ import { slurmNoticeSchema, slurmNumericSchema } from './common.js';
 // record keeps each generation an explicit contract; they share one
 // definition while the consumed fields stay identical.
 // Only the consumed exit-code fields are modeled; the rest is stripped.
-const slurmSignalSchema = z.object({
-  id: slurmNumericSchema.nullish(),
-  name: z.string().nullish(),
-});
-
 const slurmExitCodeSchema = z.object({
   return_code: slurmNumericSchema.nullish(),
-  signal: slurmSignalSchema.nullish(),
-  status: z.union([z.string(), z.number()]).nullish(),
 });
 
 const rawJobSchema = z.object({

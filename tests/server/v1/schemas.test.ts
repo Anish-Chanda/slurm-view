@@ -37,6 +37,42 @@ describe('job envelope handling', () => {
     expect(jobResponseSchemaFor(parser).safeParse({ meta: {} }).success).toBe(false);
   });
 
+  test('realistic exit-code status/signal metadata does not fail validation', () => {
+    const result = jobResponseSchemaFor(parser).safeParse({
+      jobs: [
+        {
+          job_id: 1,
+          exit_code: {
+            return_code: { number: 0, set: true, infinite: false },
+            status: ['SUCCESS'],
+            signal: {
+              id: { number: 0, set: false, infinite: false },
+              name: '',
+            },
+          },
+          derived_exit_code: {
+            return_code: { number: 0, set: true, infinite: false },
+            status: ['SUCCESS'],
+            signal: {
+              id: { number: 0, set: false, infinite: false },
+              name: '',
+            },
+          },
+        },
+      ],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.jobs[0]?.exit_code?.return_code).toEqual({
+        number: 0,
+        set: true,
+        infinite: false,
+      });
+      expect(result.data.jobs[0]?.exit_code).not.toHaveProperty('status');
+      expect(result.data.jobs[0]?.exit_code).not.toHaveProperty('signal');
+    }
+  });
+
   test('missing consumed scalar fields are tolerated (nullable), missing job_id fails', () => {
     const emptyJob = jobResponseSchemaFor(parser).safeParse({
       jobs: [{ partition: 'debug' }],
