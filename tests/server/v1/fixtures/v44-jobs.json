@@ -165,7 +165,7 @@
           "set": true,
           "infinite": false
         },
-        "status": "COMPLETED"
+        "status": ["SUCCESS"]
       },
       "derived_exit_code": {
         "return_code": {
@@ -174,7 +174,12 @@
           "infinite": false
         },
         "signal": {
-          "name": "NONE"
+          "id": {
+            "number": 0,
+            "set": false,
+            "infinite": false
+          },
+          "name": ""
         }
       }
     }

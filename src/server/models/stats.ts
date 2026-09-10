@@ -30,6 +30,9 @@ interface CpuStats {
   configuredCpus: number;
   effectiveCpus: number;
   allocatedCpus: number;
+  // Schedulable and unallocated. Invariant:
+  // allocatedCpus + availableCpus + unavailableCpus === configuredCpus.
+  availableCpus: number;
   unavailableCpus: number;
   loadGroups: {
     low: number;
@@ -42,6 +45,13 @@ interface CpuStats {
 interface MemoryStats {
   totalMiB: number;
   allocatedMiB: number;
+  // Estimated portion of allocated memory in use:
+  // sum over non-down nodes of min(allocated, max(0, total - free)).
+  // Null unless every counted non-down node reports freeMemoryMiB; never
+  // a partial sum. Informational: used + unused === allocatedMiB, and the
+  // allocatedMiB + unallocatedMiB + unavailableMiB === totalMiB invariant
+  // holds regardless.
+  allocatedUsedMiB: number | null;
   unallocatedMiB: number;
   unavailableMiB: number;
   // OS-reported free memory, informational only. Null unless every

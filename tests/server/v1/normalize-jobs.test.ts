@@ -72,6 +72,38 @@ describe('parseJobsStdout', () => {
     expect(done.derivedExitCode).toBe('0');
   });
 
+  test('tolerates realistic exit-code status/signal metadata without changing return_code', () => {
+    const jobs = parseJobsStdout(
+      'v0.0.45',
+      JSON.stringify({
+        jobs: [
+          {
+            job_id: 200,
+            exit_code: {
+              return_code: { number: 0, set: true, infinite: false },
+              status: ['SUCCESS'],
+              signal: {
+                id: { number: 0, set: false, infinite: false },
+                name: '',
+              },
+            },
+            derived_exit_code: {
+              return_code: { number: 1, set: true, infinite: false },
+              status: ['ERROR'],
+              signal: {
+                id: { number: 0, set: false, infinite: false },
+                name: '',
+              },
+            },
+          },
+        ],
+      })
+    );
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.exitCode).toBe('0');
+    expect(jobs[0]?.derivedExitCode).toBe('1');
+  });
+
   test('non-array jobs keep scalar identity and null exit codes when unset', () => {
     const jobs = parseJobsStdout('v0.0.45', jobsFixture('v43'));
     const running = jobs[0]!;

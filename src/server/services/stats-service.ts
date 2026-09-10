@@ -12,8 +12,11 @@ import type {
 
 // Aggregates CPU/memory/GPU from one node snapshot.
 //
-// Restricted nodes keep their allocations; only their unallocated remainder
-// counts as unavailable. Down nodes count whole. Memory invariant:
+// CPU invariant: allocated + available + unavailable === configured.
+// Hard-down nodes count whole as unavailable. Otherwise configured
+// capacity outside the effective set counts as unavailable, allocations
+// persist, and only the unallocated effective remainder is available on
+// schedulable nodes or unavailable on restricted ones. Memory invariant:
 // allocated + unallocated + unavailable === total. `freeMiB` sums
 // OS-reported FreeMem over every node except hard-down ones and sits
 // outside that invariant.
@@ -31,13 +34,14 @@ function emptyCpuStats(): CpuStats {
     configuredCpus: 0,
     effectiveCpus: 0,
     allocatedCpus: 0,
+    availableCpus: 0,
     unavailableCpus: 0,
     loadGroups: { ...emptyCpuLoadGroups(), unclassified: 0 },
   };
 }
 
 function emptyMemoryStats(): MemoryStats {
-  return { totalMiB: 0, allocatedMiB: 0, unallocatedMiB: 0, unavailableMiB: 0, freeMiB: 0 };
+  return { totalMiB: 0, allocatedMiB: 0, allocatedUsedMiB: 0, unallocatedMiB: 0, unavailableMiB: 0, freeMiB: 0 };
 }
 
 function emptyGpuStats(): GpuStats {
@@ -54,6 +58,9 @@ function summarizeCpu(nodes: readonly ClusterNode[], thresholds: CpuLoadThreshol
       stats.unavailableCpus += node.cpus;
       continue;
     }
+    // Configured capacity outside the effective set is specialized away
+    // from scheduling entirely.
+    stats.unavailableCpus += Math.max(0, node.cpus - node.effectiveCpus);
     stats.allocatedCpus += node.allocCpus;
     if (node.allocCpus > 0) {
       if (node.cpuLoad === null) {
@@ -63,8 +70,11 @@ function summarizeCpu(nodes: readonly ClusterNode[], thresholds: CpuLoadThreshol
         stats.loadGroups[bucket] += node.allocCpus;
       }
     }
+    const remainingEffective = Math.max(0, node.effectiveCpus - node.allocCpus);
     if (availability === 'restricted') {
-      stats.unavailableCpus += Math.max(0, node.effectiveCpus - node.allocCpus);
+      stats.unavailableCpus += remainingEffective;
+    } else {
+      stats.availableCpus += remainingEffective;
     }
   }
   return stats;
@@ -74,6 +84,8 @@ function summarizeMemory(nodes: readonly ClusterNode[]): MemoryStats {
   const stats = emptyMemoryStats();
   let freeSum = 0;
   let freeComplete = true;
+  let usedSum = 0;
+  let usedComplete = true;
   let counted = 0;
   for (const node of nodes) {
     stats.totalMiB += node.totalMemoryMiB;
@@ -93,11 +105,16 @@ function summarizeMemory(nodes: readonly ClusterNode[]): MemoryStats {
     }
     if (node.freeMemoryMiB === null) {
       freeComplete = false;
+      usedComplete = false;
     } else {
       freeSum += node.freeMemoryMiB;
+      // Ported from the legacy getAllocatedMemoryInUse(realMem, allocMem,
+      // freeMem): usedByOs = max(0, real - free), used = min(alloc, usedByOs).
+      usedSum += Math.min(allocated, Math.max(0, node.totalMemoryMiB - node.freeMemoryMiB));
     }
   }
   stats.freeMiB = counted === 0 || freeComplete ? freeSum : null;
+  stats.allocatedUsedMiB = counted === 0 || usedComplete ? usedSum : null;
   return stats;
 }
 
