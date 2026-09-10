@@ -1,10 +1,7 @@
+import { DashboardPage } from './app/DashboardPage.tsx';
+
 function App() {
-  return (
-    <main>
-      <h1>Slurm View</h1>
-      <p>React client</p>
-    </main>
-  )
+  return <DashboardPage />;
 }
 
-export default App
+export default App;
