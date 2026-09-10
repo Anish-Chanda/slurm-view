@@ -12,7 +12,7 @@ const PARTITIONS_COMMAND_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 function normalizePartitionName(raw: RawPartition): string {
   const name = raw.name.trim();
   if (name.length === 0) {
-    throw new UpstreamInvalidError('sinfo returned a partition with an empty name');
+    throw new UpstreamInvalidError('scontrol show partition returned a partition with an empty name');
   }
   return name;
 }
@@ -24,14 +24,14 @@ function parsePartitionsStdout(parser: SupportedDataParser, stdout: string): str
     parsed = JSON.parse(stdout);
   } catch (error) {
     throw new UpstreamInvalidError(
-      `sinfo returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`
+      `scontrol show partition returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`
     );
   }
 
   const result = partitionsResponseSchemaFor(parser).safeParse(parsed);
   if (!result.success) {
     throw new UpstreamInvalidError(
-      `sinfo response failed validation: ${summarizeZodIssues(result.error.issues)}`
+      `scontrol show partition response failed validation: ${summarizeZodIssues(result.error.issues)}`
     );
   }
 
@@ -40,7 +40,7 @@ function parsePartitionsStdout(parser: SupportedDataParser, stdout: string): str
   }
   if (result.data.warnings && result.data.warnings.length > 0) {
     console.warn(
-      `[Slurm] sinfo warnings: ${result.data.warnings.map(describeNotice).join('; ')}`
+      `[Slurm] scontrol show partition warnings: ${result.data.warnings.map(describeNotice).join('; ')}`
     );
   }
 
@@ -52,7 +52,7 @@ async function fetchPartitions(
   options: { signal?: AbortSignal } = {}
 ): Promise<string[]> {
   const run: SlurmRunFn = context.run ?? runCommand;
-  const { stdout } = await run('sinfo', [`--json=${context.parser}`], {
+  const { stdout } = await run('scontrol', [`--json=${context.parser}`, 'show', 'partition'], {
     timeoutMs: PARTITIONS_COMMAND_TIMEOUT_MS,
     maxBufferBytes: PARTITIONS_COMMAND_MAX_BUFFER_BYTES,
     signal: options.signal,

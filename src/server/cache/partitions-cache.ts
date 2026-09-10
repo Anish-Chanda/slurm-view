@@ -7,7 +7,7 @@ interface PartitionSnapshot {
   capturedAt: Date;
 }
 
-// Partitions change infrequently; sinfo is an RPC to slurmctld, so cache
+// Partitions change infrequently; scontrol show partition is an RPC to slurmctld, so cache
 // lazily for about 10 minutes with no polling loop.
 const PARTITIONS_TTL_MS = 600_000;
 

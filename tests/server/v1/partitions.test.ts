@@ -64,7 +64,7 @@ describe('normalizePartitionName', () => {
 });
 
 describe('fetchPartitions', () => {
-  test('runs sinfo with the negotiated parser and forwards the signal', async () => {
+  test('runs scontrol show partition with the negotiated parser and forwards the signal', async () => {
     const stdout = envelope([{ name: 'gpu' }]);
     const run: SlurmRunFn = jest.fn().mockResolvedValue({ stdout, stderr: '' });
     const controller = new AbortController();
@@ -73,7 +73,7 @@ describe('fetchPartitions', () => {
       { signal: controller.signal }
     );
     expect(names).toEqual(['gpu']);
-    expect(run).toHaveBeenCalledWith('sinfo', ['--json=v0.0.45'], expect.objectContaining({ signal: controller.signal }));
+    expect(run).toHaveBeenCalledWith('scontrol', ['--json=v0.0.45', 'show', 'partition'], expect.objectContaining({ signal: controller.signal }));
   });
 });
 

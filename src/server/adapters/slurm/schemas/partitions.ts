@@ -3,8 +3,8 @@ import type { SupportedDataParser } from '../parser-version.js';
 import { slurmNoticeSchema } from './common.js';
 
 // Only the partition name is consumed; everything else Slurm reports
-// per partition is stripped. This mirrors the documented v0.0.43+
-// partition_info shape, where the list lives under `partitions`.
+// per partition is stripped. This mirrors scontrol --json=<parser>
+// show partition output, where the list lives under `partitions`.
 const rawPartitionSchema = z.object({
   name: z.string(),
 });

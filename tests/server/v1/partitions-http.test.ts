@@ -52,11 +52,11 @@ describe('GET /api/v1/partitions', () => {
     const run: SlurmRunFn = jest.fn().mockRejectedValue(
       new CommandError({
         kind: 'non-zero-exit',
-        executable: 'sinfo',
+        executable: 'scontrol',
         args: [],
         exitCode: 1,
         stderrSnippet: 'secret controller detail',
-        message: 'Command exited with code 1: sinfo',
+        message: 'Command exited with code 1: scontrol',
       })
     );
     const app = createApp({ partitionsCache: new PartitionsCache({ parser: 'v0.0.45', run }) });
