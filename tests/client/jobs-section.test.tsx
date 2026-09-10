@@ -101,6 +101,22 @@ afterEach(() => {
 });
 
 describe('JobsSection', () => {
+  test('long job names truncate visually with the full value in title', async () => {
+    const longName = `train-model-with-an-excessively-long-descriptive-name-${'x'.repeat(80)}`;
+    setupFetch(() =>
+      okJson({
+        ...jobsPage(['101'], 1, 20, 1),
+        jobs: [makeJob({ id: '101', name: longName })],
+      })
+    );
+    renderSection('/');
+
+    await waitFor(() => expect(screen.getByTitle(longName)).toBeTruthy());
+    const cell = screen.getByTitle(longName);
+    expect(cell.textContent).toBe(longName);
+    expect(cell.className).toContain('truncate');
+  });
+
   test('renders DTO rows with nulls as em dashes, never N/A', async () => {
     setupFetch(() =>
       okJson({
@@ -134,14 +150,22 @@ describe('JobsSection', () => {
     await waitFor(() => expect(screen.getByText('job-11')).toBeTruthy());
   });
 
-  test('text filter debounces, sends the param, and resets to page 1', async () => {
+  test('single filter commits on Enter with page reset, not while typing', async () => {
     const fetchMock = setupFetch(() => okJson(jobsPage(['9'], 1, 20, 1)));
     renderSection('/?page=2');
     const user = userEvent.setup();
 
     await waitFor(() => expect(screen.getByText('job-9')).toBeTruthy());
+    // The fixture reports one page while the URL asks for page 2; wait for
+    // the clamp refetch to settle before asserting typing fires nothing.
+    await waitFor(() => expect(screen.getByText('Showing 1 to 1 of 1 jobs')).toBeTruthy());
     fetchMock.mockClear();
-    await user.type(screen.getByLabelText('User'), 'bob');
+    await user.selectOptions(screen.getByLabelText('Filter field'), 'user');
+    await user.type(screen.getByLabelText('Filter value'), 'bob');
+
+    // Typing only edits the draft: no request fires mid-query.
+    expect(fetchMock).not.toHaveBeenCalled();
+    await user.keyboard('{Enter}');
 
     await waitFor(
       () =>
@@ -153,6 +177,68 @@ describe('JobsSection', () => {
         ).toBe(true),
       { timeout: 5000 }
     );
+    // Committed filters surface as removable chips.
+    await waitFor(() => expect(screen.getByText('User: bob')).toBeTruthy());
+  });
+
+  test('compound filters commit every pair at once', async () => {
+    const fetchMock = setupFetch(() => okJson(jobsPage(['9'], 1, 20, 1)));
+    renderSection('/');
+    const user = userEvent.setup();
+
+    await waitFor(() => expect(screen.getByText('job-9')).toBeTruthy());
+    fetchMock.mockClear();
+    await user.type(screen.getByLabelText('Filter value'), 'user:alice state:RUNNING');
+    await user.keyboard('{Enter}');
+
+    await waitFor(
+      () =>
+        expect(
+          fetchMock.mock.calls.some(
+            ([url]) =>
+              (url as string).includes('user=alice') &&
+              (url as string).includes('state=RUNNING') &&
+              (url as string).includes('page=1')
+          )
+        ).toBe(true),
+      { timeout: 5000 }
+    );
+  });
+
+  test('invalid colon input shows a hint and commits nothing', async () => {
+    const fetchMock = setupFetch(() => okJson(jobsPage(['9'], 1, 20, 1)));
+    renderSection('/');
+    const user = userEvent.setup();
+
+    await waitFor(() => expect(screen.getByText('job-9')).toBeTruthy());
+    fetchMock.mockClear();
+    await user.type(screen.getByLabelText('Filter value'), 'bogus:');
+    await user.keyboard('{Enter}');
+
+    await waitFor(() =>
+      expect(screen.getByText('Invalid format! Use: key1:value1 key2:value2')).toBeTruthy()
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('columns follow the agreed order without State reason', async () => {
+    setupFetch(() => okJson(jobsPage(['1'], 1, 20, 1)));
+    renderSection('/');
+
+    await waitFor(() => expect(screen.getByText('job-1')).toBeTruthy());
+    const headers = screen.getAllByRole('columnheader').map((header) => header.textContent);
+    expect(headers).toEqual([
+      'Job ID',
+      'Partition',
+      'Name',
+      'User',
+      'State',
+      'Time limit',
+      'Time left',
+      'Nodes',
+      'Account',
+      'Submitted',
+    ]);
   });
 
   test('error state offers retry, empty state offers clear filters', async () => {    let shouldFail = true;
@@ -275,19 +361,16 @@ describe('JobsSection', () => {
     await waitFor(() => expect(screen.getByText('Partition list unavailable.')).toBeTruthy(), {
       timeout: 8000,
     });
-    const select = screen.getByLabelText('Partition') as HTMLSelectElement;
-    expect(select.disabled).toBe(true);
-    expect(select.options.length).toBe(1);
+    // The single intelligent input stays usable without live partitions.
+    expect(screen.getByLabelText('Filter value')).toBeTruthy();
+    expect(screen.getByLabelText('Filter field')).toBeTruthy();
 
     partitionsFail = false;
     await user.click(screen.getByRole('button', { name: 'Retry' }));
-    await waitFor(() =>
-      expect(
-        Array.from((screen.getByLabelText('Partition') as HTMLSelectElement).options).some(
-          (option) => option.value === 'gpu'
-        )
-      ).toBe(true)
-    );
-    expect(screen.queryByText('Partition list unavailable.')).toBeNull();
+    await waitFor(() => expect(screen.queryByText('Partition list unavailable.')).toBeNull());
+    // Live partitions feed autocomplete once reloaded.
+    await user.type(screen.getByLabelText('Filter value'), 'partition:g');
+    await waitFor(() => expect(screen.getByRole('listbox')).toBeTruthy());
+    expect(screen.getByRole('option', { name: /gpu/ })).toBeTruthy();
   });
 });

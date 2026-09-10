@@ -42,6 +42,9 @@ describe('StatsService.getStats', () => {
     expect(stats.memory).toEqual({
       totalMiB: 768000,
       allocatedMiB: 64000,
+      // Every counted node reports free memory and total - free covers
+      // the allocation, so the whole allocation counts as used.
+      allocatedUsedMiB: 64000,
       unallocatedMiB: 320000,
       // DRAIN remainder (256000) + DOWN node (128000).
       unavailableMiB: 384000,
@@ -116,9 +119,39 @@ describe('StatsService.getStats', () => {
     const withoutFree: ClusterNode = { ...nodes[1]!, freeMemoryMiB: null };
     const { stats } = await serviceFor([nodes[0]!, withoutFree]).getStats(null);
     expect(stats.memory.freeMiB).toBeNull();
+    // Used cannot be estimated without complete free data either: never a
+    // partial sum.
+    expect(stats.memory.allocatedUsedMiB).toBeNull();
     expect(
       stats.memory.allocatedMiB + stats.memory.unallocatedMiB + stats.memory.unavailableMiB
     ).toBe(stats.memory.totalMiB);
+  });
+
+  test('allocatedUsedMiB is min(allocated, total - free) over non-down nodes', async () => {
+    const nodes = loadNodes();
+    const partial: ClusterNode = {
+      ...nodes[0]!,
+      name: 'partial01',
+      allocMemoryMiB: 32000,
+      freeMemoryMiB: 48000,
+    };
+    const { stats } = await serviceFor([partial]).getStats(null);
+    // total 256000 (fixture node) - free 48000 = 208000 used by OS, but
+    // only 32000 is allocated, so used = 32000.
+    expect(stats.memory.allocatedUsedMiB).toBe(32000);
+  });
+
+  test('allocatedUsedMiB caps at the allocation when the OS reports less free', async () => {
+    const nodes = loadNodes();
+    const idle: ClusterNode = {
+      ...nodes[0]!,
+      name: 'idle01',
+      allocMemoryMiB: 32000,
+      freeMemoryMiB: 240000,
+    };
+    const { stats } = await serviceFor([idle]).getStats(null);
+    // total - free = 16000 < allocated 32000: only 16000 counts as used.
+    expect(stats.memory.allocatedUsedMiB).toBe(16000);
   });
 
   test('allocated capacity without a usable load ratio is unclassified, never folded away', async () => {

@@ -18,6 +18,14 @@ export interface CpuStatsDto {
 export interface MemoryStatsDto {
   totalMiB: number;
   allocatedMiB: number;
+  /**
+   * Estimated portion of allocated memory in use (see server MemoryStats).
+   * Null unless every counted non-down node reports free memory; never a
+   * partial sum. When present, `allocatedMiB - allocatedUsedMiB` is the
+   * unused (reserved but idle) portion. Not part of the invariant
+   * allocated + unallocated + unavailable === total.
+   */
+  allocatedUsedMiB: number | null;
   unallocatedMiB: number;
   unavailableMiB: number;
   /**

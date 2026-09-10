@@ -1,4 +1,4 @@
-import { jobsKeys, partitionKeys, statsKeys } from '../../src/client/api/query-keys';
+import { jobsKeys, partitionKeys, statsKeys, uiSettingsKeys } from '../../src/client/api/query-keys';
 
 describe('query keys', () => {
   test('jobs list key contains every server-side input and omits unset filters', () => {
@@ -26,5 +26,9 @@ describe('query keys', () => {
 
   test('partitions has its own key', () => {
     expect(partitionKeys.list).toEqual(['partitions', 'list']);
+  });
+
+  test('ui-settings has a single stable key (fetched once, cached indefinitely)', () => {
+    expect(uiSettingsKeys.detail).toEqual(['ui-settings', 'detail']);
   });
 });

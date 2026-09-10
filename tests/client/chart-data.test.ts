@@ -41,6 +41,7 @@ describe('chart data transforms', () => {
     const model = buildMemoryChartData({
       totalMiB: 1000,
       allocatedMiB: 400,
+      allocatedUsedMiB: null,
       unallocatedMiB: 500,
       unavailableMiB: 100,
       freeMiB: null,
@@ -51,6 +52,75 @@ describe('chart data transforms', () => {
       'Unavailable',
     ]);
     expect(model.children.map((child) => child.value)).toEqual([400, 500, 100]);
+  });
+
+  test('memory secondary layer splits Allocated into Used/Unused', () => {
+    const model = buildMemoryChartData(
+      {
+        totalMiB: 1000,
+        allocatedMiB: 400,
+        allocatedUsedMiB: 250,
+        unallocatedMiB: 500,
+        unavailableMiB: 100,
+        freeMiB: 600,
+      },
+      { showSecondaryLayer: true }
+    );
+    expect(model.children[0]?.children?.map((child) => child.name)).toEqual(['Used', 'Unused']);
+    expect(model.children[0]?.children?.map((child) => child.value)).toEqual([250, 150]);
+  });
+
+  test('memory stays flat when the policy is off or used data is missing', () => {
+    const memory = {
+      totalMiB: 1000,
+      allocatedMiB: 400,
+      allocatedUsedMiB: 250,
+      unallocatedMiB: 500,
+      unavailableMiB: 100,
+      freeMiB: 600,
+    };
+    expect(
+      buildMemoryChartData(memory, { showSecondaryLayer: false }).children[0]?.children
+    ).toBeUndefined();
+    expect(
+      buildMemoryChartData({ ...memory, allocatedUsedMiB: null }, { showSecondaryLayer: true })
+        .children[0]?.children
+    ).toBeUndefined();
+  });
+
+  test('CPU secondary layer collapses to primary rings when the policy is off', () => {
+    const model = buildCpuChartData(cpu, { showSecondaryLayer: false });
+    expect(model.children.map((child) => child.name)).toEqual([
+      'Allocated',
+      'Available',
+      'Unavailable',
+    ]);
+    expect(model.children[0]?.children).toBeUndefined();
+    expect(model.children[0]?.value).toBe(16);
+  });
+
+  test('GPU secondary layer collapses to primary rings when the policy is off', () => {
+    const model = buildGpuChartData(
+      {
+        total: 10,
+        allocated: 2,
+        available: 6,
+        unavailable: 2,
+        byType: {
+          v100: { total: 4, allocated: 0, available: 2, unavailable: 2 },
+          a100: { total: 6, allocated: 2, available: 4, unavailable: 0 },
+        },
+      },
+      { showSecondaryLayer: false }
+    );
+    expect(model.children.map((child) => child.name)).toEqual([
+      'Allocated',
+      'Available',
+      'Unavailable',
+    ]);
+    for (const child of model.children) {
+      expect(child.children).toBeUndefined();
+    }
   });
 
   test('GPU keeps fixed order with alphabetically ordered types', () => {
@@ -156,8 +226,29 @@ describe('laid-out hierarchy totals', () => {
     expect(remainder?.value).toBe(3);
   });
 
-  test('an inconsistent GPU breakdown is dropped rather than drawn falsely', () => {
+  test('memory root equals the total with no internal double counting', () => {
     const laidOut = layoutSunburst(
+      buildMemoryChartData(
+        {
+          totalMiB: 1000,
+          allocatedMiB: 400,
+          allocatedUsedMiB: 250,
+          unallocatedMiB: 500,
+          unavailableMiB: 100,
+          freeMiB: 600,
+        },
+        { showSecondaryLayer: true }
+      )
+    );
+    expect(laidOut.value).toBe(1000);
+    expect(laidOut.children?.map((child) => [child.data.name, child.value])).toEqual([
+      ['Allocated', 400],
+      ['Unallocated', 500],
+      ['Unavailable', 100],
+    ]);
+  });
+
+  test('an inconsistent GPU breakdown is dropped rather than drawn falsely', () => {    const laidOut = layoutSunburst(
       buildGpuChartData({
         total: 4,
         allocated: 2,

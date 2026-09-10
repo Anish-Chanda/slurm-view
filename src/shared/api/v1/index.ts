@@ -13,6 +13,7 @@ export type {
 } from './jobs.js';
 export { JOB_STATES, JOBS_PAGE_DEFAULT, JOBS_PAGE_SIZE_DEFAULT, JOBS_PAGE_SIZE_MAX } from './jobs.js';
 export type { PartitionsResponse } from './partitions.js';
+export type { UiSettingsResponse, ChartViewPolicy, NavbarViewPolicy } from './ui-settings.js';
 export type {
   CpuStatsDto,
   GpuStatsDto,

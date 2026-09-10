@@ -1,9 +1,13 @@
 import type { JobsTableInstance } from './columns.tsx';
+import type { JobsColumnMeta } from './columns.tsx';
 
-const SECONDARY_COLUMN_IDS = new Set(['account', 'stateReason']);
+function responsiveClass(table: JobsTableInstance, columnId: string): string {
+  const column = table.getAllColumns().find((candidate) => candidate.id === columnId);
+  const meta = column?.columnDef.meta as JobsColumnMeta | undefined;
+  return meta?.responsiveClass ?? '';
+}
 
 function JobsTable({ table }: { table: JobsTableInstance }) {
-  // TODO: Add job details, pending-reason, and seff/efficiency when their v1 APIs are ready.
   return (
     <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
       <table className="w-full border-collapse text-sm">
@@ -14,9 +18,7 @@ function JobsTable({ table }: { table: JobsTableInstance }) {
                 <th
                   key={header.id}
                   scope="col"
-                  className={`border border-gray-200 bg-red-600 px-4 py-3 text-left font-medium text-white ${
-                    SECONDARY_COLUMN_IDS.has(header.column.id) ? 'hidden xl:table-cell' : ''
-                  }`}
+                  className={`border border-gray-200 bg-red-600 px-4 py-3 text-left font-medium text-white ${responsiveClass(table, header.column.id)}`}
                 >
                   <table.FlexRender header={header} />
                 </th>
@@ -30,9 +32,7 @@ function JobsTable({ table }: { table: JobsTableInstance }) {
               {row.getAllCells().map((cell) => (
                 <td
                   key={cell.id}
-                  className={`border border-gray-200 px-4 py-3 ${
-                    SECONDARY_COLUMN_IDS.has(cell.column.id) ? 'hidden xl:table-cell' : ''
-                  }`}
+                  className={`border border-gray-200 px-4 py-3 ${responsiveClass(table, cell.column.id)}`}
                 >
                   <table.FlexRender cell={cell} />
                 </td>

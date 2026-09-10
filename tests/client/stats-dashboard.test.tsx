@@ -28,9 +28,12 @@ const STATS_BODY = {
   memory: {
     totalMiB: 768000,
     allocatedMiB: 64000,
+    allocatedUsedMiB: 48000,
     unallocatedMiB: 688000,
     unavailableMiB: 16000,
-    freeMiB: null,
+    // Non-null: the server only sends allocatedUsedMiB when free-memory
+    // data is complete, so a null freeMiB here would be unrepresentative.
+    freeMiB: 700000,
   },
   gpu: {
     total: 8,
@@ -40,6 +43,15 @@ const STATS_BODY = {
     byType: { a100: { total: 8, allocated: 2, available: 6, unavailable: 0 } },
   },
   updatedAt: '2026-09-09T12:00:00.000Z',
+};
+
+const UI_SETTINGS_BODY = {
+  charts: {
+    cpu: { showSecondaryLayer: true },
+    memory: { showSecondaryLayer: true },
+    gpu: { showSecondaryLayer: true },
+  },
+  navbar: { enabled: true, title: 'Slurm View', color: '#e7000b' },
 };
 
 function statsForScope(partition: string | null) {
@@ -58,8 +70,22 @@ function statsForScope(partition: string | null) {
   };
 }
 
-function setupFetch(statsHandler?: (url: string) => unknown) {
+interface FetchOverrides {
+  statsHandler?: (url: string) => unknown;
+  uiSettingsHandler?: (url: string) => unknown;
+  uiSettingsFail?: boolean;
+}
+
+function setupFetch(overrides: FetchOverrides = {}) {
   const fetchMock = jest.fn((url: string) => {
+    if (url.includes('/api/v1/ui-settings')) {
+      if (overrides.uiSettingsFail) {
+        return Promise.reject(new TypeError('fetch failed'));
+      }
+      return Promise.resolve(
+        okJson(overrides.uiSettingsHandler ? overrides.uiSettingsHandler(url) : UI_SETTINGS_BODY)
+      );
+    }
     if (url.includes('/api/v1/partitions')) {
       return Promise.resolve(
         okJson({ partitions: ['gpu', 'all'], updatedAt: '2026-09-09T12:00:00.000Z' })
@@ -67,7 +93,9 @@ function setupFetch(statsHandler?: (url: string) => unknown) {
     }
     if (url.includes('/api/v1/stats')) {
       const partition = new URL(url).searchParams.get('partition');
-      return Promise.resolve(okJson(statsHandler ? statsHandler(url) : statsForScope(partition)));
+      return Promise.resolve(
+        okJson(overrides.statsHandler ? overrides.statsHandler(url) : statsForScope(partition))
+      );
     }
     throw new Error(`unexpected request: ${url}`);
   });
@@ -91,14 +119,78 @@ afterEach(() => {
 });
 
 describe('StatsDashboard', () => {
-  test('renders semantic totals without D3 hierarchy shapes', async () => {
+  test('renders two-line centers and explanatory descriptions', async () => {
     setupFetch();
     renderDashboard();
 
-    await waitFor(() => expect(screen.getByText('CPU Total: 108')).toBeTruthy());
-    expect(screen.getByText('Memory Total: 750 GiB')).toBeTruthy();
-    expect(screen.getByText('GPU Total: 8')).toBeTruthy();
+    // Two-line center: title + total, never a single fixed string.
+    await waitFor(() => expect(screen.getByText('108')).toBeTruthy());
+    expect(screen.getByText('750 GiB')).toBeTruthy();
+    expect(screen.getByText('8')).toBeTruthy();
+    expect(screen.queryByText('CPU Total: 108')).toBeNull();
     expect(screen.getAllByRole('img').length).toBe(3);
+    expect(
+      screen.getByText(/outer ring splits allocated CPUs by low, medium, and high CPU load/)
+    ).toBeTruthy();
+    expect(screen.getByText(/plus an Unclassified bucket when load data is unavailable/)).toBeTruthy();
+    expect(
+      screen.getByText(/split into estimated used and unused portions/)
+    ).toBeTruthy();
+    expect(screen.getByText(/not a direct measurement/)).toBeTruthy();
+    expect(screen.getByText(/with type-level detail in each group where available/)).toBeTruthy();
+  });
+
+  test('missing free-memory data renders flat memory with an accurate description', async () => {
+    setupFetch({
+      statsHandler: () => ({
+        ...STATS_BODY,
+        memory: {
+          ...STATS_BODY.memory,
+          allocatedUsedMiB: null,
+          freeMiB: null,
+        },
+      }),
+    });
+    renderDashboard();
+
+    await waitFor(() => expect(screen.getByText('108')).toBeTruthy());
+    // No Used/Unused promise when the estimate is unavailable.
+    expect(screen.getByText(/without the allocated-memory outer ring/)).toBeTruthy();
+    expect(
+      screen.getByText('OS-reported free memory not available on every node.')
+    ).toBeTruthy();
+  });
+
+  test('disabled secondary layers render flat descriptions', async () => {
+    setupFetch({
+      uiSettingsHandler: () => ({
+        ...UI_SETTINGS_BODY,
+        charts: {
+          cpu: { showSecondaryLayer: false },
+          memory: { showSecondaryLayer: false },
+          gpu: { showSecondaryLayer: false },
+        },
+      }),
+    });
+    renderDashboard();
+
+    await waitFor(() => expect(screen.getByText('108')).toBeTruthy());
+    expect(screen.getByText(/without the load-breakdown outer ring/)).toBeTruthy();
+    expect(screen.getByText(/without the allocated-memory outer ring/)).toBeTruthy();
+    expect(screen.getByText(/without the type-level outer ring/)).toBeTruthy();
+  });
+
+  test('ui-settings failure falls back to primary rings with a warning', async () => {
+    setupFetch({ uiSettingsFail: true });
+    renderDashboard();
+
+    await waitFor(
+      () => expect(screen.getByText(/Showing primary resource rings only/)).toBeTruthy(),
+      { timeout: 8000 }
+    );
+    // Charts still render from semantic stats, flat.
+    expect(screen.getByText('108')).toBeTruthy();
+    expect(screen.getByText(/without the load-breakdown outer ring/)).toBeTruthy();
   });
 
   test('partition select scopes the query; All omits the parameter', async () => {
@@ -106,10 +198,10 @@ describe('StatsDashboard', () => {
     renderDashboard();
     const user = userEvent.setup();
 
-    await waitFor(() => expect(screen.getByText('CPU Total: 108')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('108')).toBeTruthy());
     await user.selectOptions(screen.getByLabelText('Partition:'), 'gpu');
 
-    await waitFor(() => expect(screen.getByText('CPU Total: 64')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('64')).toBeTruthy());
     expect(
       fetchMock.mock.calls.some(([url]) => (url as string).includes('partition=gpu'))
     ).toBe(true);
@@ -120,7 +212,7 @@ describe('StatsDashboard', () => {
     fetchMock.mockClear();
     await user.selectOptions(screen.getByLabelText('Partition:'), '');
 
-    await waitFor(() => expect(screen.getByText('CPU Total: 108')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('108')).toBeTruthy());
     for (const [url] of fetchMock.mock.calls) {
       if ((url as string).includes('/api/v1/stats')) {
         expect(url as string).not.toContain('partition=');
@@ -133,17 +225,22 @@ describe('StatsDashboard', () => {
     renderDashboard();
     const user = userEvent.setup();
 
-    await waitFor(() => expect(screen.getByText('CPU Total: 108')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('108')).toBeTruthy());
     await user.selectOptions(screen.getByLabelText('Partition:'), 'all');
 
-    await waitFor(() => expect(screen.getByText('CPU Total: 4')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('4')).toBeTruthy());
     expect(
       fetchMock.mock.calls.some(([url]) => (url as string).includes('partition=all'))
     ).toBe(true);
   });
 
   test('zero GPUs render an empty state instead of a fake slice', async () => {
-    setupFetch(() => ({ ...STATS_BODY, gpu: { total: 0, allocated: 0, available: 0, unavailable: 0, byType: {} } }));
+    setupFetch({
+      statsHandler: () => ({
+        ...STATS_BODY,
+        gpu: { total: 0, allocated: 0, available: 0, unavailable: 0, byType: {} },
+      }),
+    });
     renderDashboard();
 
     await waitFor(() => expect(screen.getByText('No GPUs in this scope.')).toBeTruthy());
@@ -155,6 +252,9 @@ describe('StatsDashboard', () => {
     setupFetch();
     // Reject the stats request while failing.
     (global.fetch as jest.Mock).mockImplementation((url: string) => {
+      if (url.includes('/api/v1/ui-settings')) {
+        return Promise.resolve(okJson(UI_SETTINGS_BODY));
+      }
       if (url.includes('/api/v1/partitions')) {
         return Promise.resolve(
           okJson({ partitions: ['gpu'], updatedAt: '2026-09-09T12:00:00.000Z' })
@@ -171,7 +271,7 @@ describe('StatsDashboard', () => {
     await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy(), { timeout: 8000 });
     shouldFail = false;
     await user.click(screen.getByRole('button', { name: 'Retry' }));
-    await waitFor(() => expect(screen.getByText('CPU Total: 108')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('108')).toBeTruthy());
   });
 
   test('scope change shows loading instead of old data under the new label', async () => {
@@ -179,11 +279,11 @@ describe('StatsDashboard', () => {
     renderDashboard();
     const user = userEvent.setup();
 
-    await waitFor(() => expect(screen.getByText('CPU Total: 108')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('108')).toBeTruthy());
     await user.selectOptions(screen.getByLabelText('Partition:'), 'gpu');
 
-    await waitFor(() => expect(screen.queryByText('CPU Total: 108')).toBeNull());
-    await waitFor(() => expect(screen.getByText('CPU Total: 64')).toBeTruthy());
+    await waitFor(() => expect(screen.queryByText('108')).toBeNull());
+    await waitFor(() => expect(screen.getByText('64')).toBeTruthy());
   });
 
   test('same-key background refresh keeps charts with a Refreshing… indicator', async () => {
@@ -191,32 +291,37 @@ describe('StatsDashboard', () => {
     renderDashboard();
     const user = userEvent.setup();
 
-    await waitFor(() => expect(screen.getByText('CPU Total: 108')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('108')).toBeTruthy());
     let resolveRefresh!: (response: Response) => void;
     const gate = new Promise<Response>((resolve) => {
       resolveRefresh = resolve;
     });
     fetchMock.mockImplementation((url: string) =>
-      url.includes('/api/v1/partitions')
+      url.includes('/api/v1/partitions') || url.includes('/api/v1/ui-settings')
         ? Promise.resolve(
-            okJson({ partitions: ['gpu', 'all'], updatedAt: '2026-09-09T12:00:00.000Z' })
+            url.includes('/api/v1/ui-settings')
+              ? okJson(UI_SETTINGS_BODY)
+              : okJson({ partitions: ['gpu', 'all'], updatedAt: '2026-09-09T12:00:00.000Z' })
           )
         : gate
     );
     await user.click(screen.getByRole('button', { name: 'Refresh' }));
 
     await waitFor(() => expect(screen.getByText('Refreshing…')).toBeTruthy());
-    expect(screen.getByText('CPU Total: 108')).toBeTruthy();
+    expect(screen.getByText('108')).toBeTruthy();
 
     resolveRefresh(okJson(STATS_BODY));
     await waitFor(() => expect(screen.queryByText('Refreshing…')).toBeNull());
-    expect(screen.getByText('CPU Total: 108')).toBeTruthy();
+    expect(screen.getByText('108')).toBeTruthy();
   });
 
   test('background refresh error keeps charts with a warning', async () => {
     let shouldFail = false;
     setupFetch();
     (global.fetch as jest.Mock).mockImplementation((url: string) => {
+      if (url.includes('/api/v1/ui-settings')) {
+        return Promise.resolve(okJson(UI_SETTINGS_BODY));
+      }
       if (url.includes('/api/v1/partitions')) {
         return Promise.resolve(
           okJson({ partitions: ['gpu', 'all'], updatedAt: '2026-09-09T12:00:00.000Z' })
@@ -230,7 +335,7 @@ describe('StatsDashboard', () => {
     renderDashboard();
     const user = userEvent.setup();
 
-    await waitFor(() => expect(screen.getByText('CPU Total: 108')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('108')).toBeTruthy());
     shouldFail = true;
     await user.click(screen.getByRole('button', { name: 'Refresh' }));
 
@@ -241,25 +346,27 @@ describe('StatsDashboard', () => {
         ).toBeTruthy(),
       { timeout: 8000 }
     );
-    expect(screen.getByText('CPU Total: 108')).toBeTruthy();
+    expect(screen.getByText('108')).toBeTruthy();
     expect(screen.queryByText('Something went wrong')).toBeNull();
   });
 
   test('partition list failure leaves cluster-wide stats usable with retry', async () => {
     let partitionsFail = true;
     global.fetch = jest.fn((url: string) =>
-      url.includes('/api/v1/partitions')
-        ? partitionsFail
-          ? Promise.reject(new TypeError('fetch failed'))
-          : Promise.resolve(
-              okJson({ partitions: ['gpu', 'all'], updatedAt: '2026-09-09T12:00:00.000Z' })
-            )
-        : Promise.resolve(okJson(STATS_BODY))
+      url.includes('/api/v1/ui-settings')
+        ? Promise.resolve(okJson(UI_SETTINGS_BODY))
+        : url.includes('/api/v1/partitions')
+          ? partitionsFail
+            ? Promise.reject(new TypeError('fetch failed'))
+            : Promise.resolve(
+                okJson({ partitions: ['gpu', 'all'], updatedAt: '2026-09-09T12:00:00.000Z' })
+              )
+          : Promise.resolve(okJson(STATS_BODY))
     ) as unknown as typeof fetch;
     renderDashboard();
     const user = userEvent.setup();
 
-    await waitFor(() => expect(screen.getByText('CPU Total: 108')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('108')).toBeTruthy());
     await waitFor(() => expect(screen.getByText('Partition list unavailable.')).toBeTruthy(), {
       timeout: 8000,
     });
@@ -280,6 +387,9 @@ describe('StatsDashboard', () => {
   test('cached partitions survive a later refresh failure with a subtle warning', async () => {
     let partitionsFail = false;
     global.fetch = jest.fn((url: string) => {
+      if (url.includes('/api/v1/ui-settings')) {
+        return Promise.resolve(okJson(UI_SETTINGS_BODY));
+      }
       if (url.includes('/api/v1/partitions')) {
         return partitionsFail
           ? Promise.reject(new TypeError('fetch failed'))
@@ -293,9 +403,9 @@ describe('StatsDashboard', () => {
     renderDashboard(client);
     const user = userEvent.setup();
 
-    await waitFor(() => expect(screen.getByText('CPU Total: 108')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('108')).toBeTruthy());
     await user.selectOptions(screen.getByLabelText('Partition:'), 'gpu');
-    await waitFor(() => expect(screen.getByText('CPU Total: 64')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('64')).toBeTruthy());
 
     partitionsFail = true;
     await client.invalidateQueries({ queryKey: partitionKeys.list });
@@ -308,6 +418,6 @@ describe('StatsDashboard', () => {
         (option) => option.value === 'gpu'
       )
     ).toBe(true);
-    expect(screen.getByText('CPU Total: 64')).toBeTruthy();
+    expect(screen.getByText('64')).toBeTruthy();
   });
 });

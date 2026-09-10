@@ -51,5 +51,13 @@ const partitionKeys = {
   list: ['partitions', 'list'] as const,
 };
 
-export { JOBS_PAGE_DEFAULT, JOBS_PAGE_SIZE_DEFAULT, jobsKeys, partitionKeys, statsKeys };
+// UI settings are effectively immutable for the lifetime of the server:
+// fetch once and cache indefinitely (staleTime: Infinity at the call
+// site). The frontend holds no copy of the admin defaults.
+const uiSettingsKeys = {
+  all: ['ui-settings'] as const,
+  detail: ['ui-settings', 'detail'] as const,
+};
+
+export { JOBS_PAGE_DEFAULT, JOBS_PAGE_SIZE_DEFAULT, jobsKeys, partitionKeys, statsKeys, uiSettingsKeys };
 export type { JobsListInput };

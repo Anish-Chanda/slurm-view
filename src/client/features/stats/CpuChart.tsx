@@ -18,13 +18,16 @@ function cpuColorFor(node: SunburstNode): string {
   return CPU_COLORS[node.data.name] ?? '#888888';
 }
 
-function CpuChart({ cpu }: { cpu: CpuStatsDto }) {
-  const model = useMemo(() => buildCpuChartData(cpu), [cpu]);
+function CpuChart({ cpu, showSecondaryLayer }: { cpu: CpuStatsDto; showSecondaryLayer: boolean }) {
+  const model = useMemo(
+    () => buildCpuChartData(cpu, { showSecondaryLayer }),
+    [cpu, showSecondaryLayer]
+  );
   return (
     <div>
       <Sunburst
         model={model}
-        centerText={`CPU Total: ${cpu.configuredCpus}`}
+        center={{ title: 'CPU', total: String(cpu.configuredCpus) }}
         ariaLabel={`CPU utilization: ${cpu.allocatedCpus} allocated, ${cpu.availableCpus} available, ${cpu.unavailableCpus} unavailable of ${cpu.configuredCpus} configured CPUs`}
         colorFor={cpuColorFor}
       />

@@ -8,19 +8,30 @@ const MEMORY_COLORS: Record<string, string> = {
   Allocated: '#e63946',
   Unallocated: '#2a9d8f',
   Unavailable: '#f4a261',
+  Used: '#c1121f',
+  Unused: '#f28482',
 };
 
 function memoryColorFor(node: SunburstNode): string {
   return MEMORY_COLORS[node.data.name] ?? '#888888';
 }
 
-function MemoryChart({ memory }: { memory: MemoryStatsDto }) {
-  const model = useMemo(() => buildMemoryChartData(memory), [memory]);
+function MemoryChart({
+  memory,
+  showSecondaryLayer,
+}: {
+  memory: MemoryStatsDto;
+  showSecondaryLayer: boolean;
+}) {
+  const model = useMemo(
+    () => buildMemoryChartData(memory, { showSecondaryLayer }),
+    [memory, showSecondaryLayer]
+  );
   return (
     <div>
       <Sunburst
         model={model}
-        centerText={`Memory Total: ${formatMiB(memory.totalMiB)}`}
+        center={{ title: 'Memory', total: formatMiB(memory.totalMiB) }}
         ariaLabel={`Memory utilization: ${formatMiB(memory.allocatedMiB)} allocated, ${formatMiB(memory.unallocatedMiB)} unallocated, ${formatMiB(memory.unavailableMiB)} unavailable of ${formatMiB(memory.totalMiB)} total`}
         colorFor={memoryColorFor}
       />

@@ -41,7 +41,7 @@ function emptyCpuStats(): CpuStats {
 }
 
 function emptyMemoryStats(): MemoryStats {
-  return { totalMiB: 0, allocatedMiB: 0, unallocatedMiB: 0, unavailableMiB: 0, freeMiB: 0 };
+  return { totalMiB: 0, allocatedMiB: 0, allocatedUsedMiB: 0, unallocatedMiB: 0, unavailableMiB: 0, freeMiB: 0 };
 }
 
 function emptyGpuStats(): GpuStats {
@@ -84,6 +84,8 @@ function summarizeMemory(nodes: readonly ClusterNode[]): MemoryStats {
   const stats = emptyMemoryStats();
   let freeSum = 0;
   let freeComplete = true;
+  let usedSum = 0;
+  let usedComplete = true;
   let counted = 0;
   for (const node of nodes) {
     stats.totalMiB += node.totalMemoryMiB;
@@ -103,11 +105,16 @@ function summarizeMemory(nodes: readonly ClusterNode[]): MemoryStats {
     }
     if (node.freeMemoryMiB === null) {
       freeComplete = false;
+      usedComplete = false;
     } else {
       freeSum += node.freeMemoryMiB;
+      // Ported from the legacy getAllocatedMemoryInUse(realMem, allocMem,
+      // freeMem): usedByOs = max(0, real - free), used = min(alloc, usedByOs).
+      usedSum += Math.min(allocated, Math.max(0, node.totalMemoryMiB - node.freeMemoryMiB));
     }
   }
   stats.freeMiB = counted === 0 || freeComplete ? freeSum : null;
+  stats.allocatedUsedMiB = counted === 0 || usedComplete ? usedSum : null;
   return stats;
 }
 
