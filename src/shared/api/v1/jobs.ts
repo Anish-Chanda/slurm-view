@@ -1,18 +1,22 @@
 // Public v1 jobs contract: pure types, camelCase, explicit units, ISO timestamps.
-export type JobState =
-  | 'BOOT_FAIL'
-  | 'CANCELLED'
-  | 'COMPLETED'
-  | 'DEADLINE'
-  | 'FAILED'
-  | 'NODE_FAIL'
-  | 'OUT_OF_MEMORY'
-  | 'PENDING'
-  | 'PREEMPTED'
-  | 'RUNNING'
-  | 'SUSPENDED'
-  | 'TIMEOUT'
-  | 'UNKNOWN';
+// JOB_STATES is the closed normalized state vocabulary shared by server and client.
+export const JOB_STATES = [
+  'BOOT_FAIL',
+  'CANCELLED',
+  'COMPLETED',
+  'DEADLINE',
+  'FAILED',
+  'NODE_FAIL',
+  'OUT_OF_MEMORY',
+  'PENDING',
+  'PREEMPTED',
+  'RUNNING',
+  'SUSPENDED',
+  'TIMEOUT',
+  'UNKNOWN',
+] as const;
+
+export type JobState = (typeof JOB_STATES)[number];
 
 export type TimeLimitDto = { kind: 'finite'; seconds: number } | { kind: 'infinite' } | null;
 

@@ -1,18 +1,8 @@
-const JOB_BASE_STATES = [
-  'BOOT_FAIL',
-  'CANCELLED',
-  'COMPLETED',
-  'DEADLINE',
-  'FAILED',
-  'NODE_FAIL',
-  'OUT_OF_MEMORY',
-  'PENDING',
-  'PREEMPTED',
-  'RUNNING',
-  'SUSPENDED',
-  'TIMEOUT',
-  'UNKNOWN',
-] as const;
+import { JOB_STATES } from '../../shared/api/v1/jobs.js';
+
+// Single source of truth lives in the shared v1 contract so the
+// React client can depend on shared contracts only.
+const JOB_BASE_STATES = JOB_STATES;
 
 type JobBaseState = (typeof JOB_BASE_STATES)[number];
 
