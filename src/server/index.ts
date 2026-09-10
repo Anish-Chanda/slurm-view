@@ -5,6 +5,7 @@ import { negotiateDataParser, SlurmCompatibilityError } from './adapters/slurm/p
 import type { SupportedDataParser } from './adapters/slurm/parser-version.js';
 import { JobsCache, JOBS_POLL_INTERVAL_MS } from './cache/jobs-cache.js';
 import { NodesCache } from './cache/nodes-cache.js';
+import { PartitionsCache } from './cache/partitions-cache.js';
 import { PollingService } from './services/polling-service.js';
 
 // Legacy CommonJS boundaries (not migrated in this chunk).
@@ -27,6 +28,7 @@ interface ServerRuntime {
   server: Server;
   jobsCache: JobsCache;
   nodesCache: NodesCache;
+  partitionsCache: PartitionsCache;
   jobsPoller: PollingService;
 }
 
@@ -58,6 +60,7 @@ async function startServer(): Promise<ServerRuntime> {
 
   const jobsCache = new JobsCache({ parser });
   const nodesCache = new NodesCache({ parser });
+  const partitionsCache = new PartitionsCache({ parser });
 
   // The legacy poller keeps running for pending-reason, which still
   // reads the legacy per-job cache.
@@ -72,7 +75,7 @@ async function startServer(): Promise<ServerRuntime> {
   console.log('[Main Worker] Starting background worker service...');
   backgroundPolling.start();
 
-  const app = createApp({ jobsCache, nodesCache });
+  const app = createApp({ jobsCache, nodesCache, partitionsCache });
 
   const server: Server = app.listen(port, () => {
     console.log(`[Main Worker] App listening on port ${port}`);
@@ -108,7 +111,7 @@ async function startServer(): Promise<ServerRuntime> {
   process.on('SIGTERM', gracefulShutdown);
   process.on('SIGINT', gracefulShutdown);
 
-  return { app, server, jobsCache, nodesCache, jobsPoller };
+  return { app, server, jobsCache, nodesCache, partitionsCache, jobsPoller };
 }
 
 /**
