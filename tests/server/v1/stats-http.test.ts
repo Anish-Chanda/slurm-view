@@ -23,7 +23,7 @@ describe('GET /api/v1/stats', () => {
     expect(res.body.success).toBeUndefined();
     expect(res.body.name).toBeUndefined();
     expect(res.body.children).toBeUndefined();
-    expect(res.body.cpu).toMatchObject({ configuredCpus: 192, allocatedCpus: 16 });
+    expect(res.body.cpu).toMatchObject({ configuredCpus: 192, allocatedCpus: 16, availableCpus: 80, unavailableCpus: 96 });
     expect(res.body.memory).toMatchObject({ totalMiB: 768000 });
     expect(res.body.gpu).toMatchObject({ total: 10, allocated: 2 });
     expect(typeof res.body.updatedAt).toBe('string');

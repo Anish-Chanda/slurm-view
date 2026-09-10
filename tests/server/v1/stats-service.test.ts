@@ -26,11 +26,15 @@ describe('StatsService.getStats', () => {
       configuredCpus: 192,
       effectiveCpus: 156,
       allocatedCpus: 16,
+      availableCpus: 80,
       // down01 contributes 32 whole-node unavailable; the IDLE+DRAIN
-      // node contributes its 60 unallocated effective CPUs.
-      unavailableCpus: 92,
+      // node contributes 4 specialized plus 60 unallocated effective CPUs.
+      unavailableCpus: 96,
       loadGroups: { low: 0, medium: 0, high: 16, unclassified: 0 },
     });
+    expect(stats.cpu.allocatedCpus + stats.cpu.availableCpus + stats.cpu.unavailableCpus).toBe(
+      stats.cpu.configuredCpus
+    );
   });
 
   test('memory honors allocated + unallocated + unavailable === total', async () => {
@@ -75,7 +79,8 @@ describe('StatsService.getStats', () => {
       configuredCpus: 128,
       effectiveCpus: 124,
       allocatedCpus: 16,
-      unavailableCpus: 60,
+      availableCpus: 48,
+      unavailableCpus: 64,
     });
     expect(stats.memory).toMatchObject({
       totalMiB: 512000,
@@ -259,8 +264,7 @@ describe('restricted nodes keep their allocations', () => {
     expect(stats.gpu).toMatchObject({ allocated: 0, available: 0, unavailable: 2 });
   });
 
-  test('normal MIXED leaves unallocated capacity idle, normal ALLOCATED is fully allocated', async () => {
-    const { stats } = await serviceFor([
+  test('normal MIXED leaves unallocated capacity idle, normal ALLOCATED is fully allocated', async () => {    const { stats } = await serviceFor([
       makeNode({ state: 'MIXED', allocCpus: 4, cpuLoad: 1, allocMemoryMiB: 16000 }),
       makeNode({
         name: 'test02',
@@ -271,11 +275,103 @@ describe('restricted nodes keep their allocations', () => {
       }),
     ]).getStats(null);
     expect(stats.cpu).toMatchObject({ allocatedCpus: 20, unavailableCpus: 0 });
+    expect(stats.cpu.availableCpus).toBe(12);
     expect(stats.cpu.loadGroups).toMatchObject({ low: 4, high: 16 });
     expect(stats.memory).toMatchObject({
       allocatedMiB: 80000,
       unallocatedMiB: 48000,
       unavailableMiB: 0,
+    });
+  });
+});
+
+describe('CPU capacity invariant', () => {
+  function makeNode(overrides: Partial<ClusterNode>): ClusterNode {
+    return {
+      name: 'test01',
+      partitions: ['p'],
+      state: 'IDLE',
+      stateFlags: [],
+      cpus: 16,
+      effectiveCpus: 16,
+      allocCpus: 0,
+      allocIdleCpus: 0,
+      cpuLoad: null,
+      totalMemoryMiB: 64000,
+      allocMemoryMiB: 0,
+      freeMemoryMiB: 64000,
+      gresRaw: null,
+      gresUsedRaw: null,
+      gpu: { total: 0, allocated: 0, byType: {} },
+      ...overrides,
+    };
+  }
+
+  function expectCpuInvariant(nodes: ClusterNode[]) {
+    return serviceFor(nodes)
+      .getStats(null)
+      .then(({ stats }) => {
+        expect(
+          stats.cpu.allocatedCpus + stats.cpu.availableCpus + stats.cpu.unavailableCpus
+        ).toBe(stats.cpu.configuredCpus);
+        return stats.cpu;
+      });
+  }
+
+  test('idle node: everything schedulable is available', async () => {
+    const cpu = await expectCpuInvariant([makeNode({})]);
+    expect(cpu).toMatchObject({
+      configuredCpus: 16,
+      allocatedCpus: 0,
+      availableCpus: 16,
+      unavailableCpus: 0,
+    });
+  });
+
+  test('specialized capacity counts as unavailable, not available', async () => {
+    const cpu = await expectCpuInvariant([makeNode({ effectiveCpus: 12 })]);
+    expect(cpu).toMatchObject({
+      configuredCpus: 16,
+      allocatedCpus: 0,
+      availableCpus: 12,
+      unavailableCpus: 4,
+    });
+  });
+
+  test('restricted node keeps allocations, remainder unavailable', async () => {
+    const cpu = await expectCpuInvariant([
+      makeNode({ state: 'MIXED', stateFlags: ['DRAIN'], allocCpus: 6 }),
+    ]);
+    expect(cpu).toMatchObject({
+      configuredCpus: 16,
+      allocatedCpus: 6,
+      availableCpus: 0,
+      unavailableCpus: 10,
+    });
+  });
+
+  test('hard-down node counts whole configured capacity unavailable', async () => {
+    const cpu = await expectCpuInvariant([makeNode({ state: 'DOWN', allocCpus: 8 })]);
+    expect(cpu).toMatchObject({
+      configuredCpus: 16,
+      allocatedCpus: 0,
+      availableCpus: 0,
+      unavailableCpus: 16,
+    });
+  });
+
+  test('mixed cluster satisfies the invariant', async () => {
+    const cpu = await expectCpuInvariant([
+      makeNode({ name: 'idle01' }),
+      makeNode({ name: 'mix01', state: 'MIXED', allocCpus: 4 }),
+      makeNode({ name: 'drain01', stateFlags: ['DRAIN'] }),
+      makeNode({ name: 'down01', state: 'DOWN' }),
+    ]);
+    expect(cpu).toMatchObject({
+      configuredCpus: 64,
+      allocatedCpus: 4,
+      availableCpus: 28,
+      unavailableCpus: 32,
     });
   });
 });

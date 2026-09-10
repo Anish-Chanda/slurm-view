@@ -12,8 +12,11 @@ import type {
 
 // Aggregates CPU/memory/GPU from one node snapshot.
 //
-// Restricted nodes keep their allocations; only their unallocated remainder
-// counts as unavailable. Down nodes count whole. Memory invariant:
+// CPU invariant: allocated + available + unavailable === configured.
+// Hard-down nodes count whole as unavailable. Otherwise configured
+// capacity outside the effective set counts as unavailable, allocations
+// persist, and only the unallocated effective remainder is available on
+// schedulable nodes or unavailable on restricted ones. Memory invariant:
 // allocated + unallocated + unavailable === total. `freeMiB` sums
 // OS-reported FreeMem over every node except hard-down ones and sits
 // outside that invariant.
@@ -31,6 +34,7 @@ function emptyCpuStats(): CpuStats {
     configuredCpus: 0,
     effectiveCpus: 0,
     allocatedCpus: 0,
+    availableCpus: 0,
     unavailableCpus: 0,
     loadGroups: { ...emptyCpuLoadGroups(), unclassified: 0 },
   };
@@ -54,6 +58,9 @@ function summarizeCpu(nodes: readonly ClusterNode[], thresholds: CpuLoadThreshol
       stats.unavailableCpus += node.cpus;
       continue;
     }
+    // Configured capacity outside the effective set is specialized away
+    // from scheduling entirely.
+    stats.unavailableCpus += Math.max(0, node.cpus - node.effectiveCpus);
     stats.allocatedCpus += node.allocCpus;
     if (node.allocCpus > 0) {
       if (node.cpuLoad === null) {
@@ -63,8 +70,11 @@ function summarizeCpu(nodes: readonly ClusterNode[], thresholds: CpuLoadThreshol
         stats.loadGroups[bucket] += node.allocCpus;
       }
     }
+    const remainingEffective = Math.max(0, node.effectiveCpus - node.allocCpus);
     if (availability === 'restricted') {
-      stats.unavailableCpus += Math.max(0, node.effectiveCpus - node.allocCpus);
+      stats.unavailableCpus += remainingEffective;
+    } else {
+      stats.availableCpus += remainingEffective;
     }
   }
   return stats;

@@ -30,6 +30,9 @@ interface CpuStats {
   configuredCpus: number;
   effectiveCpus: number;
   allocatedCpus: number;
+  // Schedulable and unallocated. Invariant:
+  // allocatedCpus + availableCpus + unavailableCpus === configuredCpus.
+  availableCpus: number;
   unavailableCpus: number;
   loadGroups: {
     low: number;
