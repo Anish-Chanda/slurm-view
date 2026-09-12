@@ -1,8 +1,16 @@
 /** @jest-environment jsdom */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import {
+  RouterProvider,
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+} from '@tanstack/react-router';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { JobsSection } from '../../src/client/features/jobs/JobsSection';
+import { parseDashboardSearch } from '../../src/client/features/jobs/jobs-search';
 
 interface JobOverrides {
   id?: string;
@@ -84,11 +92,21 @@ function setupFetch(jobsHandler: (url: string) => Promise<Response> | Response) 
 }
 
 function renderSection(initialUrl: string) {
-  window.history.replaceState(null, '', initialUrl);
+  const rootRoute = createRootRoute();
+  const indexRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/',
+    validateSearch: (search: Record<string, unknown>) => parseDashboardSearch(search),
+    component: JobsSection,
+  });
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([indexRoute]),
+    history: createMemoryHistory({ initialEntries: [initialUrl] }),
+  });
   const client = new QueryClient();
   return render(
     <QueryClientProvider client={client}>
-      <JobsSection />
+      <RouterProvider router={router} />
     </QueryClientProvider>
   );
 }

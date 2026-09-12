@@ -38,6 +38,7 @@ interface GpuRequest {
 interface JobResources {
   cpus: number | null;
   memoryMiB: number | null;
+  nodes: number | null;
   gpus: GpuRequest;
 }
 
@@ -61,8 +62,14 @@ interface Job {
   readonly stateReason: string | null;
   readonly timeLimit: TimeLimit;
   readonly submitTime: Date | null;
+  readonly eligibleTime: Date | null;
   readonly startTime: Date | null;
   readonly endTime: Date | null;
+  readonly priority: number | null;
+  readonly taskCount: number | null;
+  readonly cpusPerTask: number | null;
+  readonly constraints: string | null;
+  readonly reservation: string | null;
   readonly nodeCount: number | null;
   readonly nodeExpression: string | null;
   readonly requested: JobResources;
@@ -70,9 +77,12 @@ interface Job {
   readonly workdir: string | null;
   readonly command: string | null;
   readonly stdoutPath: string | null;
+  readonly stderrPath: string | null;
   readonly dependency: string | null;
   readonly exitCode: string | null;
   readonly derivedExitCode: string | null;
+  readonly wckey: string | null;
+  readonly batchHost: string | null;
   readonly flags: readonly string[];
 }
 

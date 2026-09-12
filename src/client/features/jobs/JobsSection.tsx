@@ -1,8 +1,7 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useTable } from '@tanstack/react-table';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { JOB_STATES, JOBS_PAGE_DEFAULT, JOBS_PAGE_SIZE_DEFAULT } from '../../../shared/api/v1/jobs.ts';
-import type { JobState } from '../../../shared/api/v1/jobs.ts';
+import { useCallback, useEffect, useMemo } from 'react';
 import { errorMessage } from '../../api/client.ts';
 import { fetchJobs } from '../../api/jobs.ts';
 import { fetchPartitions } from '../../api/partitions.ts';
@@ -14,36 +13,9 @@ import { RefreshWarning } from '../../components/RefreshWarning.tsx';
 import { columns, jobsTableFeatures } from './columns.tsx';
 import { EMPTY_FILTERS, JobsFilters, filtersEqual } from './JobsFilters.tsx';
 import type { JobsFilterValues } from './JobsFilters.tsx';
-import { JobsPagination, PAGE_SIZE_OPTIONS } from './JobsPagination.tsx';
+import { JobsPagination } from './JobsPagination.tsx';
 import { JobsTable, JobsTableSkeleton } from './JobsTable.tsx';
-
-const PARTITION_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
-
-function readTextParam(params: URLSearchParams, key: string, maxLength: number): string {
-  const value = (params.get(key) ?? '').trim();
-  return value.length > 0 && value.length <= maxLength ? value : '';
-}
-
-function readJobsUrlState(): { filters: JobsFilterValues; page: number; pageSize: number } {
-  const params = new URLSearchParams(window.location.search);
-  const rawPartition = readTextParam(params, 'partition', 64);
-  const rawState = readTextParam(params, 'state', 64);
-  const parsedPage = Number.parseInt(params.get('page') ?? '', 10);
-  const parsedPageSize = Number.parseInt(params.get('pageSize') ?? '', 10);
-  return {
-    filters: {
-      id: readTextParam(params, 'id', 64),
-      partition: PARTITION_PATTERN.test(rawPartition) ? rawPartition : '',
-      name: readTextParam(params, 'name', 200),
-      user: readTextParam(params, 'user', 64),
-      account: readTextParam(params, 'account', 64),
-      state: (JOB_STATES as readonly string[]).includes(rawState) ? (rawState as JobState) : '',
-      stateReason: readTextParam(params, 'stateReason', 128),
-    },
-    page: Number.isInteger(parsedPage) && parsedPage >= 1 ? parsedPage : JOBS_PAGE_DEFAULT,
-    pageSize: PAGE_SIZE_OPTIONS.includes(parsedPageSize) ? parsedPageSize : JOBS_PAGE_SIZE_DEFAULT,
-  };
-}
+import { dashboardSearchParams, readDashboardSearch } from './jobs-search.ts';
 
 function toQueryInput(filters: JobsFilterValues, page: number, pageSize: number): JobsListInput {
   return {
@@ -60,29 +32,27 @@ function toQueryInput(filters: JobsFilterValues, page: number, pageSize: number)
 }
 
 function JobsSection() {
-  const [urlState] = useState(readJobsUrlState);
-  const [filters, setFilters] = useState<JobsFilterValues>(urlState.filters);
-  const [page, setPage] = useState(urlState.page);
-  const [pageSize, setPageSize] = useState(urlState.pageSize);
+  const search = useSearch({ from: '/' });
+  const navigate = useNavigate();
+  const { filters, page, pageSize } = useMemo(() => readDashboardSearch(search), [search]);
 
-  useEffect(() => {
-    const params = new URLSearchParams();
-    params.set('page', String(page));
-    params.set('pageSize', String(pageSize));
-    if (filters.id !== '') params.set('id', filters.id);
-    if (filters.partition !== '') params.set('partition', filters.partition);
-    if (filters.name !== '') params.set('name', filters.name);
-    if (filters.user !== '') params.set('user', filters.user);
-    if (filters.account !== '') params.set('account', filters.account);
-    if (filters.state !== '') params.set('state', filters.state);
-    if (filters.stateReason !== '') params.set('stateReason', filters.stateReason);
-    window.history.replaceState(null, '', `?${params.toString()}`);
-  }, [filters, page, pageSize]);
+  const commitSearch = useCallback(
+    (nextFilters: JobsFilterValues, nextPage: number, nextPageSize: number) => {
+      void navigate({
+        to: '/',
+        search: dashboardSearchParams(nextFilters, nextPage, nextPageSize),
+        replace: true,
+      });
+    },
+    [navigate]
+  );
 
-  const handleFiltersChange = useCallback((next: JobsFilterValues) => {
-    setFilters(next);
-    setPage(1);
-  }, []);
+  const handleFiltersChange = useCallback(
+    (next: JobsFilterValues) => {
+      commitSearch(next, 1, pageSize);
+    },
+    [commitSearch, pageSize]
+  );
 
   const queryInput = useMemo(() => toQueryInput(filters, page, pageSize), [filters, page, pageSize]);
 
@@ -107,9 +77,9 @@ function JobsSection() {
   const totalPages = jobsQuery.data?.pagination.totalPages ?? 0;
   useEffect(() => {
     if (jobsQuery.data !== undefined && totalPages > 0 && page > totalPages) {
-      setPage(totalPages);
+      commitSearch(filters, totalPages, pageSize);
     }
-  }, [jobsQuery.data, totalPages, page]);
+  }, [jobsQuery.data, totalPages, page, filters, pageSize, commitSearch]);
 
   const table = useTable({
     features: jobsTableFeatures,
@@ -123,10 +93,9 @@ function JobsSection() {
       const prev = { pageIndex: page - 1, pageSize };
       const next = typeof updater === 'function' ? updater(prev) : updater;
       if (next.pageSize !== prev.pageSize) {
-        setPageSize(next.pageSize);
-        setPage(1);
+        commitSearch(filters, 1, next.pageSize);
       } else if (next.pageIndex !== prev.pageIndex) {
-        setPage(next.pageIndex + 1);
+        commitSearch(filters, next.pageIndex + 1, pageSize);
       }
     },
   });

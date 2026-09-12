@@ -25,6 +25,7 @@ export default {
     '^(\\.{1,2}/.*)\\.js$': '$1',
   },
   testMatch: ['**/tests/**/*.test.[jt]s?(x)'],
+  setupFiles: ['<rootDir>/tests/setup-web-globals.js'],
   // d3 and TanStack Table v9 ship ESM only; transform them instead of
   // ignoring the whole node_modules tree. babel-jest handles the .js output.
   transformIgnorePatterns: ['/node_modules/(?!(@tanstack|d3|d3-.*|delaunator|internmap|robust-predicates)/)'],

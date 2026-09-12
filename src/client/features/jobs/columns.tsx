@@ -1,5 +1,6 @@
 import { createColumnHelper, rowPaginationFeature, tableFeatures } from '@tanstack/react-table';
 import type { ReactTable } from '@tanstack/react-table';
+import { Link } from '@tanstack/react-router';
 import type { JobDto } from '../../../shared/api/v1/jobs.ts';
 import { StateBadge } from '../../components/StateBadge.tsx';
 import { MISSING, formatDateTime, formatTimeLeft, formatTimeLimit } from './formatting.ts';
@@ -20,9 +21,8 @@ interface JobsColumnMeta {
   responsiveClass?: string;
 }
 
-// Future job-details boundary: row expansion will be driven by an
-// `onExpand(jobId)` callback passed to the table. No visible affordance
-// is rendered until the real details/pending-reason view exists.
+// The job ID links to the job page. The Link carries a queue-origin marker
+// so "Back to jobs" can restore filters/page/scroll via history back.
 
 // No sorting: the jobs API owns filtering and pagination server-side, and it
 // offers no global sort. Page-local sorting would misrepresent the full set.
@@ -31,9 +31,15 @@ const columns = columnHelper.columns([
     id: 'id',
     header: 'Job ID',
     cell: (info) => (
-      <span className="font-mono" title={info.row.original.jobId}>
+      <Link
+        to="/jobs/$jobId"
+        params={{ jobId: info.row.original.id }}
+        state={{ fromJobsQueue: true }}
+        className="font-mono text-blue-700 underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+        title={info.row.original.jobId}
+      >
         {info.getValue()}
-      </span>
+      </Link>
     ),
   }),
   columnHelper.accessor('partition', {

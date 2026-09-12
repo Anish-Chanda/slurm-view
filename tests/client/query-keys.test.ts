@@ -1,4 +1,7 @@
-import { jobsKeys, partitionKeys, statsKeys, uiSettingsKeys } from '../../src/client/api/query-keys';
+import { efficiencyKeys, jobsKeys, partitionKeys, statsKeys, uiSettingsKeys } from '../../src/client/api/query-keys';
+import { EFFICIENCY_GC_TIME_MS, EFFICIENCY_STALE_TIME_MS } from '../../src/client/api/efficiency';
+import { efficiencyQueryOptions } from '../../src/client/api/efficiency';
+import { jobDetailQueryOptions } from '../../src/client/api/job-details';
 
 describe('query keys', () => {
   test('jobs list key contains every server-side input and omits unset filters', () => {
@@ -30,5 +33,31 @@ describe('query keys', () => {
 
   test('ui-settings has a single stable key (fetched once, cached indefinitely)', () => {
     expect(uiSettingsKeys.detail).toEqual(['ui-settings', 'detail']);
+  });
+
+  test('job detail keys are per canonical ID', () => {
+    expect(jobsKeys.detail('101')).toEqual(['jobs', 'detail', { id: '101' }]);
+    expect(jobsKeys.detail('101')).not.toEqual(jobsKeys.detail('100_2'));
+  });
+
+  test('efficiency keys are per job ID', () => {
+    expect(efficiencyKeys.detail('103')).toEqual(['efficiency', 'detail', { id: '103' }]);
+  });
+
+  test('efficiency uses finite freshness without polling', () => {
+    expect(EFFICIENCY_STALE_TIME_MS).toBe(10 * 60 * 1000);
+    expect(EFFICIENCY_GC_TIME_MS).toBe(30 * 60 * 1000);
+    const options = efficiencyQueryOptions('103');
+    expect(options.staleTime).toBe(EFFICIENCY_STALE_TIME_MS);
+    expect(options.gcTime).toBe(EFFICIENCY_GC_TIME_MS);
+    expect(options.refetchInterval).toBe(false);
+    expect(options.refetchOnWindowFocus).toBe(false);
+    expect(options.refetchOnReconnect).toBe(false);
+  });
+
+  test('job detail options never use placeholder data', () => {
+    const options = jobDetailQueryOptions('101');
+    expect(options).not.toHaveProperty('placeholderData');
+    expect(options.staleTime).toBe(30_000);
   });
 });
