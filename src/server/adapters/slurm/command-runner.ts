@@ -51,6 +51,14 @@ interface RunCommandResult {
   stderr: string;
 }
 
+// Preserves output for non-zero exits. Only seff needs this: it can print
+// usable data and still exit non-zero.
+interface CapturedCommandResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
+
 type ExecFileLike = (
   file: string,
   args: readonly string[],
@@ -138,15 +146,14 @@ function toCommandError(
   });
 }
 
-// Runs a binary with an explicit argv array via execFile (no shell, so
-// arguments pass through verbatim). Accepts any executable so tests can
-// drive process.execPath; Slurm adapters hard-code their own binaries.
-async function runCommand(
+// Same safety as runCommand (argv via execFile, no shell, bounded timeout
+// and output, AbortSignal) but resolves non-zero exits instead of throwing.
+async function runCommandCapture(
   executable: string,
   args: readonly string[],
   options: RunCommandOptions = {},
   deps: RunCommandDeps = {}
-): Promise<RunCommandResult> {
+): Promise<CapturedCommandResult> {
   if (typeof executable !== 'string' || executable.length === 0) {
     throw new TypeError('executable must be a non-empty string');
   }
@@ -159,7 +166,7 @@ async function runCommand(
   const timeoutMs = options.timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS;
   const maxBufferBytes = options.maxBufferBytes ?? DEFAULT_COMMAND_MAX_BUFFER_BYTES;
 
-  return new Promise<RunCommandResult>((resolve, reject) => {
+  return new Promise<CapturedCommandResult>((resolve, reject) => {
     execFileFn(
       executable,
       args,
@@ -171,26 +178,51 @@ async function runCommand(
         shell: false,
       },
       (error, stdout, stderr) => {
-        if (error) {
-          reject(
-            toCommandError(
-              executable,
-              args,
-              error,
-              typeof stderr === 'string' ? stderr : '',
-              options.signal?.aborted === true
-            )
-          );
+        const out = typeof stdout === 'string' ? stdout : '';
+        const err = typeof stderr === 'string' ? stderr : '';
+        if (!error) {
+          resolve({ stdout: out, stderr: err, exitCode: 0 });
           return;
         }
-        resolve({
-          stdout: typeof stdout === 'string' ? stdout : '',
-          stderr: typeof stderr === 'string' ? stderr : '',
-        });
+        const commandError = toCommandError(
+          executable,
+          args,
+          error,
+          err,
+          options.signal?.aborted === true
+        );
+        if (commandError.kind === 'non-zero-exit' && commandError.exitCode !== null) {
+          resolve({ stdout: out, stderr: err, exitCode: commandError.exitCode });
+          return;
+        }
+        reject(commandError);
       }
     );
   });
 }
 
-export { CommandError, runCommand };
-export type { ExecFileLike, RunCommandDeps, RunCommandOptions, RunCommandResult };
+// Runs a binary with an explicit argv array via execFile (no shell, so
+// arguments pass through verbatim). Accepts any executable so tests can
+// drive process.execPath; Slurm adapters hard-code their own binaries.
+async function runCommand(
+  executable: string,
+  args: readonly string[],
+  options: RunCommandOptions = {},
+  deps: RunCommandDeps = {}
+): Promise<RunCommandResult> {
+  const captured = await runCommandCapture(executable, args, options, deps);
+  if (captured.exitCode !== 0) {
+    throw new CommandError({
+      kind: 'non-zero-exit',
+      executable,
+      args,
+      exitCode: captured.exitCode,
+      stderrSnippet: snippet(captured.stderr),
+      message: `Command exited with code ${captured.exitCode}: ${executable}`,
+    });
+  }
+  return { stdout: captured.stdout, stderr: captured.stderr };
+}
+
+export { CommandError, runCommand, runCommandCapture };
+export type { CapturedCommandResult, ExecFileLike, RunCommandDeps, RunCommandOptions, RunCommandResult };
