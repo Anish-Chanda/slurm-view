@@ -129,3 +129,23 @@ describe('JobsService.listJobs', () => {
     await expect(new JobsService(failing).listJobs({}, PAGE)).rejects.toThrow('controller down');
   });
 });
+
+describe('JobsService.getJobById', () => {
+  test('returns the job with the snapshot timestamp', async () => {
+    const result = await serviceFor(loadJobs()).getJobById('101');
+    expect(result?.job.id).toBe('101');
+    expect(result?.updatedAt).toEqual(new Date('2026-09-09T12:00:00.000Z'));
+  });
+
+  test('resolves composite array task IDs exactly', async () => {
+    const service = serviceFor(loadJobs());
+    await expect(service.getJobById('100_2').then((r) => r?.job.id)).resolves.toBe('100_2');
+    await expect(service.getJobById('100')).resolves.toBeNull();
+    await expect(service.getJobById('10')).resolves.toBeNull();
+  });
+
+  test('unknown IDs resolve to null for the handler 404', async () => {
+    await expect(serviceFor(loadJobs()).getJobById('99999')).resolves.toBeNull();
+    await expect(serviceFor([]).getJobById('101')).resolves.toBeNull();
+  });
+});

@@ -42,6 +42,15 @@ function normalizeArrayId(input: unknown, field: string, jobId: string): string 
   );
 }
 
+// Unset numeric wrappers mean "unknown", never zero.
+function normalizeCount(input: unknown): number | null {
+  const { value } = normalizeSlurmNumber(input);
+  if (value === null || !Number.isFinite(value) || value < 0) {
+    return null;
+  }
+  return Math.floor(value);
+}
+
 // Only the numeric return code is consumed; signal/status ride along
 // unvalidated. An unusable return code means "no exit code", not zero.
 function normalizeExitCode(input: RawJob['exit_code']): string | null {
@@ -117,14 +126,21 @@ function normalizeJob(raw: RawJob): Job {
     stateReason: normalizeStateReason(raw.state_reason),
     timeLimit: normalizeTimeLimitMinutes(raw.time_limit ?? null),
     submitTime: normalizeEpochSeconds(raw.submit_time ?? null),
+    eligibleTime: normalizeEpochSeconds(raw.eligible_time ?? null),
     startTime: normalizeEpochSeconds(raw.start_time ?? null),
     endTime: normalizeEpochSeconds(raw.end_time ?? null),
+    priority: normalizeCount(raw.priority ?? null),
+    taskCount: normalizeCount(raw.tasks ?? null),
+    cpusPerTask: normalizeCount(raw.cpus_per_task ?? null),
+    constraints: cleanString(raw.features ?? null),
+    reservation: normalizeReservation(raw.resv_name ?? null),
     nodeCount:
       nodeCountValue === null ? null : Math.max(0, Math.floor(nodeCountValue)),
     nodeExpression: normalizeNodeExpression(raw.nodes ?? null),
     requested: {
       cpus: requested.cpus,
       memoryMiB: requested.memoryMiB,
+      nodes: requested.nodes,
       gpus: requested.gpus,
     },
     allocated: {
@@ -136,15 +152,27 @@ function normalizeJob(raw: RawJob): Job {
     workdir: cleanString(raw.current_working_directory),
     command: cleanString(raw.command),
     stdoutPath: cleanString(raw.standard_output),
+    stderrPath: cleanString(raw.standard_error ?? null),
     dependency: cleanString(raw.dependency),
     exitCode: normalizeExitCode(raw.exit_code ?? null),
     derivedExitCode: normalizeExitCode(raw.derived_exit_code ?? null),
+    wckey: cleanString(raw.wckey ?? null),
+    batchHost: cleanString(raw.batch_host ?? null),
     flags: Array.isArray(raw.flags)
       ? raw.flags.filter((flag) => flag.trim().length > 0)
       : typeof raw.flags === 'string' && raw.flags.trim().length > 0
         ? [raw.flags.trim()]
         : [],
   };
+}
+
+// Slurm reports "None" when the job has no reservation.
+function normalizeReservation(input: unknown): string | null {
+  const cleaned = cleanString(input);
+  if (cleaned === null || cleaned.toUpperCase() === 'NONE') {
+    return null;
+  }
+  return cleaned;
 }
 
 // Slurm reports "None" when there is no state reason.

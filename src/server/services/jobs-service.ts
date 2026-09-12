@@ -32,6 +32,11 @@ interface JobsResult {
   updatedAt: Date;
 }
 
+interface JobDetailsResult {
+  job: Job;
+  updatedAt: Date;
+}
+
 function escapeRegExp(text: string): string {
   return text.replace(/[.+^${}()|[\]\\?]/g, '\\$&');
 }
@@ -101,6 +106,15 @@ function applyJobsFilter(jobs: readonly Job[], filter: JobsFilter): Job[] {
 class JobsService {
   constructor(private readonly source: JobsSource) {}
 
+  async getJobById(id: string): Promise<JobDetailsResult | null> {
+    const snapshot = await this.source.getOrLoad();
+    const job = snapshot.byId.get(id) ?? null;
+    if (job === null) {
+      return null;
+    }
+    return { job, updatedAt: snapshot.capturedAt };
+  }
+
   async listJobs(filter: JobsFilter, pagination: PaginationInput): Promise<JobsResult> {
     const snapshot = await this.source.getOrLoad();
     const filtered = applyJobsFilter(snapshot.jobs, filter);
@@ -121,4 +135,4 @@ class JobsService {
 }
 
 export { JobsService, applyJobsFilter };
-export type { JobsFilter, JobsResult, JobsSource, Pagination, PaginationInput };
+export type { JobDetailsResult, JobsFilter, JobsResult, JobsSource, Pagination, PaginationInput };

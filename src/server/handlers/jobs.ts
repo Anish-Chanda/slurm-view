@@ -7,12 +7,13 @@ import {
   JOBS_PAGE_SIZE_DEFAULT,
   JOBS_PAGE_SIZE_MAX,
 } from '../../shared/api/v1/jobs.js';
-import type { JobDto, JobsResponse } from '../../shared/api/v1/jobs.js';
+import type { JobDto, JobDetailsResponse, JobsResponse } from '../../shared/api/v1/jobs.js';
 import { JOB_BASE_STATES } from '../models/job.js';
 import type { JobsCache } from '../cache/jobs-cache.js';
 import type { Job } from '../models/job.js';
 import { JobsService } from '../services/jobs-service.js';
-import type { JobsFilter, JobsResult } from '../services/jobs-service.js';
+import type { JobDetailsResult, JobsFilter, JobsResult } from '../services/jobs-service.js';
+import { canonicalJobIdSchema } from '../validation/job-id.js';
 import { toHttpError } from './errors.js';
 
 // Unknown query parameters are rejected rather than ignored.
@@ -55,13 +56,20 @@ function toJobDto(job: Job): JobDto {
           ? { kind: 'infinite' }
           : { kind: 'finite', seconds: job.timeLimit.seconds },
     submitTime: toIsoDate(job.submitTime),
+    eligibleTime: toIsoDate(job.eligibleTime),
     startTime: toIsoDate(job.startTime),
     endTime: toIsoDate(job.endTime),
+    priority: job.priority,
+    taskCount: job.taskCount,
+    cpusPerTask: job.cpusPerTask,
+    constraints: job.constraints,
+    reservation: job.reservation,
     nodeCount: job.nodeCount,
     nodeExpression: job.nodeExpression,
     requested: {
       cpus: job.requested.cpus,
       memoryMiB: job.requested.memoryMiB,
+      nodes: job.requested.nodes,
       gpus: { total: job.requested.gpus.total, byType: { ...job.requested.gpus.byType } },
     },
     allocated: {
@@ -73,9 +81,12 @@ function toJobDto(job: Job): JobDto {
     workdir: job.workdir,
     command: job.command,
     stdoutPath: job.stdoutPath,
+    stderrPath: job.stderrPath,
     dependency: job.dependency,
     exitCode: job.exitCode,
     derivedExitCode: job.derivedExitCode,
+    wckey: job.wckey,
+    batchHost: job.batchHost,
     flags: [...job.flags],
   };
 }
@@ -84,6 +95,13 @@ function toJobsResponse(result: JobsResult): JobsResponse {
   return {
     jobs: result.jobs.map(toJobDto),
     pagination: result.pagination,
+    updatedAt: result.updatedAt.toISOString(),
+  };
+}
+
+function toJobDetailsResponse(result: JobDetailsResult): JobDetailsResponse {
+  return {
+    job: toJobDto(result.job),
     updatedAt: result.updatedAt.toISOString(),
   };
 }
@@ -128,5 +146,33 @@ function createJobsHandler(jobsCache: JobsCache | undefined) {
   });
 }
 
-export { createJobsHandler, jobsQuerySchema, toJobDto, toJobsResponse };
+function createJobDetailsHandler(jobsCache: JobsCache | undefined) {
+  return asyncHandler(async (req, res) => {
+    if (!jobsCache) {
+      throw new HttpError(
+        ProblemCode.SlurmUnavailable,
+        'Jobs snapshot is not initialized.'
+      );
+    }
+    const parsed = canonicalJobIdSchema.safeParse(req.params.id);
+    if (!parsed.success) {
+      throw new HttpError(ProblemCode.BadRequest, `Invalid job ID: ${req.params.id}`);
+    }
+    try {
+      const service = new JobsService(jobsCache);
+      const result = await service.getJobById(parsed.data);
+      if (result === null) {
+        throw new HttpError(
+          ProblemCode.NotFound,
+          `Job ${parsed.data} is no longer available in the live scheduler data. Historical accounting is not queried.`
+        );
+      }
+      res.json(toJobDetailsResponse(result));
+    } catch (error) {
+      throw toHttpError(error);
+    }
+  });
+}
+
+export { createJobDetailsHandler, createJobsHandler, jobsQuerySchema, toJobDetailsResponse, toJobDto, toJobsResponse };
 export type { JobsQuery };

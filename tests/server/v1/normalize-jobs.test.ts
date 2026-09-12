@@ -148,7 +148,84 @@ describe('parseJobsStdout', () => {
       UpstreamInvalidError
     );
   });
+});
 
+describe('normalizeJob detail fields', () => {
+  function jobWith(overrides: Record<string, unknown>) {
+    const [job] = parseJobsStdout(
+      'v0.0.45',
+      JSON.stringify({ jobs: [{ job_id: 300, ...overrides }] })
+    );
+    return job!;
+  }
+
+  test('normalizes eligible time, priority, stderr, tasks, and scheduling fields', () => {
+    const job = jobWith({
+      eligible_time: { number: 1725799100, set: true, infinite: false },
+      priority: { number: 12345, set: true, infinite: false },
+      standard_error: '/home/alice/slurm-300.err',
+      tasks: { number: 16, set: true, infinite: false },
+      cpus_per_task: { number: 2, set: true, infinite: false },
+      features: 'a100,ib',
+      resv_name: 'weekend',
+      wckey: 'mykey',
+      batch_host: 'node01',
+      tres_req_str: 'cpu=32,mem=65536M,node=2',
+    });
+    expect(job.eligibleTime).toEqual(new Date(1725799100 * 1000));
+    expect(job.priority).toBe(12345);
+    expect(job.stderrPath).toBe('/home/alice/slurm-300.err');
+    expect(job.taskCount).toBe(16);
+    expect(job.cpusPerTask).toBe(2);
+    expect(job.constraints).toBe('a100,ib');
+    expect(job.reservation).toBe('weekend');
+    expect(job.wckey).toBe('mykey');
+    expect(job.batchHost).toBe('node01');
+    expect(job.requested.nodes).toBe(2);
+  });
+
+  test('absent detail fields normalize to null without failing', () => {
+    const job = jobWith({});
+    expect(job.eligibleTime).toBeNull();
+    expect(job.priority).toBeNull();
+    expect(job.stderrPath).toBeNull();
+    expect(job.taskCount).toBeNull();
+    expect(job.cpusPerTask).toBeNull();
+    expect(job.constraints).toBeNull();
+    expect(job.reservation).toBeNull();
+    expect(job.wckey).toBeNull();
+    expect(job.batchHost).toBeNull();
+    expect(job.requested.nodes).toBeNull();
+  });
+
+  test('unset wrappers and sentinels become null', () => {
+    const job = jobWith({
+      eligible_time: { number: 0, set: false, infinite: false },
+      priority: { number: 0, set: false, infinite: false },
+      standard_error: '(null)',
+      tasks: 'N/A',
+      features: '',
+      resv_name: 'None',
+    });
+    expect(job.eligibleTime).toBeNull();
+    expect(job.priority).toBeNull();
+    expect(job.stderrPath).toBeNull();
+    expect(job.taskCount).toBeNull();
+    expect(job.constraints).toBeNull();
+    expect(job.reservation).toBeNull();
+  });
+
+  test('existing fixtures without detail fields stay valid with nulls', () => {
+    for (const parser of ['v0.0.43', 'v0.0.44', 'v0.0.45'] as SupportedDataParser[]) {
+      const jobs = parseJobsStdout(parser, jobsFixture(parser === 'v0.0.45' ? 'v45' : parser === 'v0.0.44' ? 'v44' : 'v43'));
+      expect(jobs[0]!.eligibleTime).toBeNull();
+      expect(jobs[0]!.stderrPath).toBeNull();
+      expect(jobs[0]!.requested.nodes).toBe(2);
+    }
+  });
+});
+
+describe('parseJobsStdout envelope', () => {
   test('non-empty Slurm errors fail; warnings only log', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     try {

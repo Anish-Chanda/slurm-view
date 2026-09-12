@@ -28,6 +28,7 @@ export interface GpuBreakdownDto {
 export interface RequestedResourcesDto {
   cpus: number | null;
   memoryMiB: number | null;
+  nodes: number | null;
   gpus: GpuBreakdownDto;
 }
 
@@ -50,8 +51,14 @@ export interface JobDto {
   stateReason: string | null;
   timeLimit: TimeLimitDto;
   submitTime: string | null;
+  eligibleTime: string | null;
   startTime: string | null;
   endTime: string | null;
+  priority: number | null;
+  taskCount: number | null;
+  cpusPerTask: number | null;
+  constraints: string | null;
+  reservation: string | null;
   nodeCount: number | null;
   nodeExpression: string | null;
   requested: RequestedResourcesDto;
@@ -59,9 +66,12 @@ export interface JobDto {
   workdir: string | null;
   command: string | null;
   stdoutPath: string | null;
+  stderrPath: string | null;
   dependency: string | null;
   exitCode: string | null;
   derivedExitCode: string | null;
+  wckey: string | null;
+  batchHost: string | null;
   flags: string[];
 }
 
@@ -77,6 +87,16 @@ export interface JobsResponse {
   pagination: JobsPaginationDto;
   updatedAt: string;
 }
+
+// Detail reuses JobDto so list and page share one normalization path.
+export interface JobDetailsResponse {
+  job: JobDto;
+  updatedAt: string;
+}
+
+// Canonical IDs the jobs API can emit: a job id, or an array task id.
+// Step suffixes (".batch", ".extern", ".0") are not part of this space.
+export const CANONICAL_JOB_ID_PATTERN = /^[0-9]+(_[0-9]+)?$/;
 
 export const JOBS_PAGE_DEFAULT = 1;
 export const JOBS_PAGE_SIZE_DEFAULT = 20;

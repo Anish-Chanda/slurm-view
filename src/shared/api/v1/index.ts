@@ -4,6 +4,7 @@ export type { HealthResponse } from './health.js';
 export type {
   AllocatedResourcesDto,
   GpuBreakdownDto,
+  JobDetailsResponse,
   JobDto,
   JobState,
   JobsPaginationDto,
@@ -11,7 +12,7 @@ export type {
   RequestedResourcesDto,
   TimeLimitDto,
 } from './jobs.js';
-export { JOB_STATES, JOBS_PAGE_DEFAULT, JOBS_PAGE_SIZE_DEFAULT, JOBS_PAGE_SIZE_MAX } from './jobs.js';
+export { CANONICAL_JOB_ID_PATTERN, JOB_STATES, JOBS_PAGE_DEFAULT, JOBS_PAGE_SIZE_DEFAULT, JOBS_PAGE_SIZE_MAX } from './jobs.js';
 export type { PartitionsResponse } from './partitions.js';
 export type { UiSettingsResponse, ChartViewPolicy, NavbarViewPolicy } from './ui-settings.js';
 export type {
