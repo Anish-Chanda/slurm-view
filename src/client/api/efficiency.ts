@@ -18,10 +18,6 @@ function efficiencyQueryOptions(id: string) {
     queryFn: ({ signal }: { signal: AbortSignal }) => fetchEfficiency(id, { signal }),
     staleTime: EFFICIENCY_STALE_TIME_MS,
     gcTime: EFFICIENCY_GC_TIME_MS,
-    refetchInterval: false as const,
-    refetchOnWindowFocus: false as const,
-    refetchOnReconnect: false as const,
-    retry: 1,
   };
 }
 

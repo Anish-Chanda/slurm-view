@@ -1,6 +1,6 @@
 import { createFileRoute, notFound } from '@tanstack/react-router';
 import { CANONICAL_JOB_ID_PATTERN } from '../../shared/api/v1/jobs.ts';
-import { jobDetailQueryOptions } from '../api/job-details.ts';
+import { prepareJobVisitSnapshot } from '../api/job-details.ts';
 import { JobPage } from '../features/job-details/JobPage.tsx';
 
 export const Route = createFileRoute('/jobs/$jobId')({
@@ -8,7 +8,7 @@ export const Route = createFileRoute('/jobs/$jobId')({
     if (!CANONICAL_JOB_ID_PATTERN.test(params.jobId)) {
       throw notFound();
     }
-    void context.queryClient.prefetchQuery(jobDetailQueryOptions(params.jobId));
+    prepareJobVisitSnapshot(context.queryClient, params.jobId);
   },
   component: JobRouteComponent,
 });

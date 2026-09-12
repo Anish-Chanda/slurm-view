@@ -1,4 +1,4 @@
-import type { JobDto } from '../../../shared/api/v1/jobs.ts';
+import type { JobDto, JobState } from '../../../shared/api/v1/jobs.ts';
 
 function parseTimeMs(iso: string | null): number | null {
   if (iso === null) {
@@ -67,4 +67,25 @@ function remainingSeconds(
   return Math.max(0, (end - nowMs) / 1000);
 }
 
-export { parseTimeMs, queueWaitSeconds, remainingSeconds, runtimeSeconds, waitingSeconds };
+// Exit results, derived results, and usage data are only meaningful once
+// the scheduler is done with the job. Active jobs may still carry a raw
+// "0" in these fields, so callers gate on state, never on nullness.
+// UNKNOWN is deliberately absent: it marks uncertainty in Slurm-View's
+// state model, not proof of termination.
+const TERMINAL_STATES: ReadonlySet<JobState> = new Set([
+  'BOOT_FAIL',
+  'CANCELLED',
+  'COMPLETED',
+  'DEADLINE',
+  'FAILED',
+  'NODE_FAIL',
+  'OUT_OF_MEMORY',
+  'PREEMPTED',
+  'TIMEOUT',
+]);
+
+function isTerminalState(state: JobState): boolean {
+  return TERMINAL_STATES.has(state);
+}
+
+export { isTerminalState, parseTimeMs, queueWaitSeconds, remainingSeconds, runtimeSeconds, waitingSeconds };

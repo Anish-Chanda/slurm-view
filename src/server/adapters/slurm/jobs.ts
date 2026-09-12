@@ -25,7 +25,9 @@ function cleanString(input: unknown): string | null {
 
 // Array identifiers arrive as Slurm numeric wrappers. Absent or unset
 // values mean "not an array job"; present-but-unusable values reject the
-// payload instead of becoming a fabricated identifier.
+// payload instead of becoming a fabricated identifier. A numeric 0 for the
+// array job id is Slurm's "no array" sentinel (real job ids start at 1),
+// observed on live clusters as `{"number": 0, "set": true}`.
 function normalizeArrayId(input: unknown, field: string, jobId: string): string | null {
   if (input === null || input === undefined) {
     return null;
@@ -35,6 +37,9 @@ function normalizeArrayId(input: unknown, field: string, jobId: string): string 
   }
   const { value, infinite } = normalizeSlurmNumber(input);
   if (!infinite && value !== null && Number.isInteger(value) && value >= 0) {
+    if (value === 0 && field === 'array_job_id') {
+      return null;
+    }
     return String(value);
   }
   throw new UpstreamInvalidError(

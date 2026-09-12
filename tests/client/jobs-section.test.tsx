@@ -1,5 +1,6 @@
 /** @jest-environment jsdom */
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, focusManager, onlineManager } from '@tanstack/react-query';
+import { createTestQueryClient } from './test-query-client';
 import {
   RouterProvider,
   createMemoryHistory,
@@ -7,7 +8,7 @@ import {
   createRoute,
   createRouter,
 } from '@tanstack/react-router';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { JobsSection } from '../../src/client/features/jobs/JobsSection';
 import { parseDashboardSearch } from '../../src/client/features/jobs/jobs-search';
@@ -91,7 +92,7 @@ function setupFetch(jobsHandler: (url: string) => Promise<Response> | Response) 
   return fetchMock;
 }
 
-function renderSection(initialUrl: string) {
+function renderSection(initialUrl: string, options: { client?: QueryClient } = {}) {
   const rootRoute = createRootRoute();
   const indexRoute = createRoute({
     getParentRoute: () => rootRoute,
@@ -103,7 +104,7 @@ function renderSection(initialUrl: string) {
     routeTree: rootRoute.addChildren([indexRoute]),
     history: createMemoryHistory({ initialEntries: [initialUrl] }),
   });
-  const client = new QueryClient();
+  const client = options.client ?? createTestQueryClient();
   return render(
     <QueryClientProvider client={client}>
       <RouterProvider router={router} />
@@ -115,6 +116,8 @@ const originalFetch = global.fetch;
 
 afterEach(() => {
   global.fetch = originalFetch;
+  focusManager.setFocused(true);
+  onlineManager.setOnline(true);
   jest.restoreAllMocks();
 });
 
@@ -256,6 +259,7 @@ describe('JobsSection', () => {
       'Nodes',
       'Account',
       'Submitted',
+      'Open',
     ]);
   });
 
@@ -390,5 +394,35 @@ describe('JobsSection', () => {
     await user.type(screen.getByLabelText('Filter value'), 'partition:g');
     await waitFor(() => expect(screen.getByRole('listbox')).toBeTruthy());
     expect(screen.getByRole('option', { name: /gpu/ })).toBeTruthy();
+  });
+
+  test('stale queue refreshes on remount but ignores focus and reconnect', async () => {
+    const fetchMock = setupFetch(() => okJson(jobsPage(['1'], 1, 20, 1)));
+    const client = createTestQueryClient();
+    const jobsCalls = () =>
+      fetchMock.mock.calls.filter(([url]) => (url as string).includes('/api/v1/jobs?')).length;
+    const first = renderSection('/', { client });
+
+    await waitFor(() => expect(screen.getByText('job-1')).toBeTruthy());
+    expect(jobsCalls()).toBe(1);
+    first.unmount();
+
+    // Past the list stale time: the explicitly live queue refetches as
+    // soon as it mounts again.
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 31_000);
+    renderSection('/', { client });
+    await waitFor(() => expect(screen.getByText('job-1')).toBeTruthy());
+    expect(jobsCalls()).toBe(2);
+
+    // Focus and reconnect stay silent for the live queue.
+    focusManager.setFocused(false);
+    await act(async () => {
+      focusManager.setFocused(true);
+    });
+    onlineManager.setOnline(false);
+    await act(async () => {
+      onlineManager.setOnline(true);
+    });
+    expect(jobsCalls()).toBe(2);
   });
 });

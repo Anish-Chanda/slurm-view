@@ -1,4 +1,5 @@
 import {
+  isTerminalState,
   queueWaitSeconds,
   remainingSeconds,
   runtimeSeconds,
@@ -54,6 +55,29 @@ describe('runtimeSeconds', () => {
 
   test('needs a start time', () => {
     expect(runtimeSeconds({ startTime: null, endTime: null }, Date.now())).toBeNull();
+  });
+});
+
+describe('isTerminalState', () => {
+  test('only known terminal states are terminal', () => {
+    expect(isTerminalState('PENDING')).toBe(false);
+    expect(isTerminalState('RUNNING')).toBe(false);
+    expect(isTerminalState('SUSPENDED')).toBe(false);
+    // UNKNOWN marks uncertainty, never proven termination.
+    expect(isTerminalState('UNKNOWN')).toBe(false);
+    for (const state of [
+      'COMPLETED',
+      'FAILED',
+      'TIMEOUT',
+      'OUT_OF_MEMORY',
+      'CANCELLED',
+      'NODE_FAIL',
+      'PREEMPTED',
+      'BOOT_FAIL',
+      'DEADLINE',
+    ] as const) {
+      expect(isTerminalState(state)).toBe(true);
+    }
   });
 });
 

@@ -27,8 +27,6 @@ function StatsDashboard() {
     queryKey: partitionKeys.list,
     queryFn: ({ signal }) => fetchPartitions({ signal }),
     staleTime: 600_000,
-    refetchOnWindowFocus: false,
-    retry: 1,
   });
 
   // View policy is effectively immutable for the server lifetime: fetch
@@ -39,9 +37,6 @@ function StatsDashboard() {
     queryFn: ({ signal }) => fetchUiSettings({ signal }),
     staleTime: Infinity,
     gcTime: Infinity,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-    retry: 1,
   });
 
   // No placeholder data: a scope change must show the new scope loading,
@@ -51,9 +46,10 @@ function StatsDashboard() {
     queryKey: statsKeys.detail(partition),
     queryFn: ({ signal }) => fetchStats(partition, { signal }),
     staleTime: 15_000,
+    // Explicitly live: cluster stats poll and refresh on remount. Focus
+    // and reconnect refetching stay off via project defaults.
     refetchInterval: 30_000,
-    refetchOnWindowFocus: false,
-    retry: 1,
+    refetchOnMount: true,
   });
 
   const partitionsUnavailable =

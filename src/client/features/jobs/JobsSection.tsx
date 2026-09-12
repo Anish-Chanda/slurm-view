@@ -60,17 +60,16 @@ function JobsSection() {
     queryKey: partitionKeys.list,
     queryFn: ({ signal }) => fetchPartitions({ signal }),
     staleTime: 600_000,
-    refetchOnWindowFocus: false,
-    retry: 1,
   });
 
   const jobsQuery = useQuery({
     queryKey: jobsKeys.list(queryInput),
     queryFn: ({ signal }) => fetchJobs(queryInput, { signal }),
     staleTime: 30_000,
+    // Explicitly live: the queue polls and refreshes on remount. Focus
+    // and reconnect refetching stay off via project defaults.
     refetchInterval: 30_000,
-    refetchOnWindowFocus: false,
-    retry: 1,
+    refetchOnMount: true,
     placeholderData: keepPreviousData,
   });
 

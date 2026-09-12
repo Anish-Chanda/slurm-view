@@ -12,9 +12,9 @@ function UsageBar({ percent }: { percent: number | null }) {
     return null;
   }
   return (
-    <div aria-hidden="true" className="mt-2 h-2 w-full rounded bg-gray-200">
+    <div aria-hidden="true" className="mt-1.5 h-1.5 w-full rounded bg-gray-200">
       <div
-        className="h-2 rounded bg-blue-600"
+        className="h-1.5 rounded bg-blue-600"
         style={{ width: `${Math.min(percent, 100)}%` }}
       />
     </div>
@@ -25,66 +25,37 @@ function formatPercent(value: number | null): string {
   return value === null ? MISSING : `${value}%`;
 }
 
-function CpuBlock({ cpu }: { cpu: CpuEfficiencyDto }) {
+function UsageBlock({
+  label,
+  percent,
+  evidence,
+}: {
+  label: string;
+  percent: number | null;
+  evidence: string;
+}) {
   return (
     <div>
       <div className="flex items-baseline justify-between gap-3">
-        <h3 className="text-sm font-medium text-gray-700">CPU</h3>
-        <span className="text-lg font-semibold text-gray-900">{formatPercent(cpu.efficiencyPercent)}</span>
+        <h3 className="text-sm font-medium text-gray-700">{label}</h3>
+        <span className="text-lg font-semibold tabular-nums text-gray-900">{formatPercent(percent)}</span>
       </div>
-      <UsageBar percent={cpu.efficiencyPercent} />
-      <dl className="mt-2 space-y-1 text-sm">
-        <div className="flex justify-between gap-3">
-          <dt className="text-gray-500">CPU time used</dt>
-          <dd className="text-gray-900">
-            {cpu.utilizedSeconds !== null ? formatDuration(cpu.utilizedSeconds) : MISSING}
-          </dd>
-        </div>
-        <div className="flex justify-between gap-3">
-          <dt className="text-gray-500">Allocated core time</dt>
-          <dd className="text-gray-900">
-            {cpu.allocatedCoreSeconds !== null ? formatDuration(cpu.allocatedCoreSeconds) : MISSING}
-          </dd>
-        </div>
-      </dl>
-      {cpu.efficiencyPercent !== null ? (
-        <p className="mt-1 text-sm text-gray-600">
-          {cpu.efficiencyPercent}% of the allocated CPU time was used.
-        </p>
-      ) : null}
+      <UsageBar percent={percent} />
+      <p className="mt-1.5 text-sm tabular-nums text-gray-600">{evidence}</p>
     </div>
   );
 }
 
+function CpuBlock({ cpu }: { cpu: CpuEfficiencyDto }) {
+  const used = cpu.utilizedSeconds !== null ? formatDuration(cpu.utilizedSeconds) : MISSING;
+  const allocated = cpu.allocatedCoreSeconds !== null ? formatDuration(cpu.allocatedCoreSeconds) : MISSING;
+  return <UsageBlock label="CPU" percent={cpu.efficiencyPercent} evidence={`${used} used / ${allocated} allocated`} />;
+}
+
 function MemoryBlock({ memory }: { memory: MemoryEfficiencyDto }) {
-  return (
-    <div>
-      <div className="flex items-baseline justify-between gap-3">
-        <h3 className="text-sm font-medium text-gray-700">Memory</h3>
-        <span className="text-lg font-semibold text-gray-900">{formatPercent(memory.efficiencyPercent)}</span>
-      </div>
-      <UsageBar percent={memory.efficiencyPercent} />
-      <dl className="mt-2 space-y-1 text-sm">
-        <div className="flex justify-between gap-3">
-          <dt className="text-gray-500">Peak used</dt>
-          <dd className="text-gray-900">
-            {memory.utilizedMiB !== null ? formatMemoryMiB(memory.utilizedMiB) : MISSING}
-          </dd>
-        </div>
-        <div className="flex justify-between gap-3">
-          <dt className="text-gray-500">Allocated</dt>
-          <dd className="text-gray-900">
-            {memory.allocatedMiB !== null ? formatMemoryMiB(memory.allocatedMiB) : MISSING}
-          </dd>
-        </div>
-      </dl>
-      {memory.efficiencyPercent !== null ? (
-        <p className="mt-1 text-sm text-gray-600">
-          Peak memory usage reached {memory.efficiencyPercent}% of the allocation.
-        </p>
-      ) : null}
-    </div>
-  );
+  const used = memory.utilizedMiB !== null ? formatMemoryMiB(memory.utilizedMiB) : MISSING;
+  const allocated = memory.allocatedMiB !== null ? formatMemoryMiB(memory.allocatedMiB) : MISSING;
+  return <UsageBlock label="Memory" percent={memory.efficiencyPercent} evidence={`${used} peak / ${allocated} allocated`} />;
 }
 
 function ResourceUsageSkeleton() {
@@ -94,16 +65,16 @@ function ResourceUsageSkeleton() {
         <div key={index}>
           <div className="h-5 w-24 animate-pulse rounded bg-gray-200" />
           <div className="mt-2 h-2 animate-pulse rounded bg-gray-200" />
-          <div className="mt-2 h-4 animate-pulse rounded bg-gray-200" />
-          <div className="mt-1 h-4 w-2/3 animate-pulse rounded bg-gray-200" />
+          <div className="mt-2 h-4 w-2/3 animate-pulse rounded bg-gray-200" />
         </div>
       ))}
     </div>
   );
 }
 
-// Mounted only for completed jobs. A future GPU block slots in beside CPU
-// and Memory.
+// Mounted only for completed jobs: seff data describes finished execution.
+// Percentages are descriptive data as reported, never grades. A future GPU
+// block slots in beside CPU and Memory.
 function ResourceUsage({ jobId }: { jobId: string }) {
   const efficiencyQuery = useQuery(efficiencyQueryOptions(jobId));
 
@@ -112,7 +83,7 @@ function ResourceUsage({ jobId }: { jobId: string }) {
     body = efficiencyQuery.isPending ? (
       <ResourceUsageSkeleton />
     ) : (
-      <div className="rounded-md border border-gray-200 bg-white px-4 py-3">
+      <div className="border border-gray-200 bg-white px-4 py-3">
         <p className="text-sm text-gray-700">Efficiency data is unavailable for this job.</p>
         <p className="mt-1 text-xs text-gray-500">{errorMessage(efficiencyQuery.error)}</p>
         <button
@@ -126,7 +97,7 @@ function ResourceUsage({ jobId }: { jobId: string }) {
     );
   } else {
     body = (
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className="grid gap-x-8 gap-y-4 md:grid-cols-2">
         <CpuBlock cpu={efficiencyQuery.data.cpu} />
         <MemoryBlock memory={efficiencyQuery.data.memory} />
       </div>
@@ -134,8 +105,8 @@ function ResourceUsage({ jobId }: { jobId: string }) {
   }
 
   return (
-    <section id="resource-usage" aria-label="Resource usage" className="border-t border-gray-200 py-6">
-      <h2 className="text-lg font-semibold tracking-tight text-gray-900">Resource usage</h2>
+    <section id="resource-usage" aria-label="Resource usage">
+      <h2 className="text-base font-semibold tracking-tight text-gray-900">Resource usage</h2>
       <div className="mt-3">{body}</div>
       {efficiencyQuery.data !== undefined && efficiencyQuery.isError ? (
         <div className="mt-3">

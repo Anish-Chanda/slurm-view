@@ -1,6 +1,7 @@
 import { createColumnHelper, rowPaginationFeature, tableFeatures } from '@tanstack/react-table';
 import type { ReactTable } from '@tanstack/react-table';
 import { Link } from '@tanstack/react-router';
+import { ChevronRight } from 'lucide-react';
 import type { JobDto } from '../../../shared/api/v1/jobs.ts';
 import { StateBadge } from '../../components/StateBadge.tsx';
 import { MISSING, formatDateTime, formatTimeLeft, formatTimeLimit } from './formatting.ts';
@@ -108,6 +109,24 @@ const columns = columnHelper.columns([
     header: 'Submitted',
     meta: { responsiveClass: 'hidden xl:table-cell' } satisfies JobsColumnMeta,
     cell: (info) => formatDateTime(info.getValue()),
+  }),
+  // Trailing navigational affordance: the whole row opens the job, and this
+  // chevron makes that discoverable. A real link preserves keyboard access
+  // and modifier/new-tab behavior.
+  columnHelper.display({
+    id: 'open',
+    header: () => <span className="sr-only">Open</span>,
+    cell: ({ row }) => (
+      <Link
+        to="/jobs/$jobId"
+        params={{ jobId: row.original.id }}
+        state={{ fromJobsQueue: true }}
+        aria-label={`Open job ${row.original.id} details`}
+        className="inline-flex rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+      >
+        <ChevronRight className="h-4 w-4" aria-hidden="true" />
+      </Link>
+    ),
   }),
 ]);
 

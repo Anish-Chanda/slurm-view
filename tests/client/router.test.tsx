@@ -3,6 +3,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/react-router';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { JOB_DETAIL_STALE_TIME_MS } from '../../src/client/api/job-details';
+import { createTestQueryClient } from './test-query-client';
 import { routeTree } from '../../src/client/routeTree.gen';
 
 function makeJob(id: string, name: string, state = 'RUNNING'): Record<string, unknown> {
@@ -145,21 +147,25 @@ function setupFetch(handlers: RouterHandlers) {
   return fetchMock;
 }
 
-function renderRouter(initialEntries: string[], handlers: RouterHandlers) {
+function renderRouter(
+  initialEntries: string[],
+  handlers: RouterHandlers,
+  options: { queryClient?: QueryClient } = {}
+) {
   const fetchMock = setupFetch(handlers);
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const queryClient = options.queryClient ?? createTestQueryClient({ retry: false });
   const router = createRouter({
     routeTree,
     history: createMemoryHistory({ initialEntries }),
     context: { queryClient },
     defaultPreload: 'intent',
   });
-  render(
+  const view = render(
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
     </QueryClientProvider>
   );
-  return { router, queryClient, fetchMock };
+  return { router, queryClient, fetchMock, unmount: view.unmount };
 }
 
 const originalFetch = global.fetch;
@@ -181,7 +187,7 @@ describe('app router', () => {
     renderRouter(['/jobs/101'], { details: { '101': makeJob('101', 'job-101') } });
 
     await waitFor(() => expect(screen.getAllByText('job-101').length).toBeGreaterThan(0));
-    expect(screen.getByText('Current allocation')).toBeTruthy();
+    expect(screen.getByText('Resources')).toBeTruthy();
   });
 
   test('job table links navigate to the job page', async () => {
@@ -191,8 +197,48 @@ describe('app router', () => {
     await waitFor(() => expect(screen.getByText('job-101')).toBeTruthy());
     await user.click(screen.getByRole('link', { name: '101' }));
 
-    await waitFor(() => expect(screen.getByText('Current allocation')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Resources')).toBeTruthy());
     expect(router.state.location.pathname).toBe('/jobs/101');
+  });
+
+  test('clicking a row body navigates to the job page', async () => {
+    const user = userEvent.setup();
+    const { router } = renderRouter(['/'], { details: { '101': makeJob('101', 'job-101') } });
+
+    await waitFor(() => expect(screen.getByText('job-101')).toBeTruthy());
+    await user.click(screen.getByText('job-101'));
+
+    await waitFor(() => expect(screen.getByText('Resources')).toBeTruthy());
+    expect(router.state.location.pathname).toBe('/jobs/101');
+  });
+
+  test('the chevron affordance links to the job with queue origin', async () => {
+    const user = userEvent.setup();
+    const { router } = renderRouter(['/'], { details: { '101': makeJob('101', 'job-101') } });
+
+    await waitFor(() => expect(screen.getByText('job-101')).toBeTruthy());
+    const chevron = screen.getByRole('link', { name: 'Open job 101 details' });
+    expect(chevron.getAttribute('href')).toBe('/jobs/101');
+    await user.click(chevron);
+
+    await waitFor(() => expect(screen.getByText('Resources')).toBeTruthy());
+    expect(router.state.location.pathname).toBe('/jobs/101');
+
+    await user.click(screen.getByRole('link', { name: 'Back to jobs' }));
+    await waitFor(() => expect(screen.getByText('job-101')).toBeTruthy());
+    expect(router.state.location.pathname).toBe('/');
+  });
+
+  test('modifier clicks on a row keep normal browser behavior', async () => {
+    const user = userEvent.setup();
+    const { router } = renderRouter(['/'], { details: { '101': makeJob('101', 'job-101') } });
+
+    await waitFor(() => expect(screen.getByText('job-101')).toBeTruthy());
+    await user.keyboard('{Control>}');
+    await user.click(screen.getByText('job-101'));
+    await user.keyboard('{/Control}');
+    expect(router.state.location.pathname).toBe('/');
+    expect(screen.getByText('job-101')).toBeTruthy();
   });
 
   test('back from a job restores the queue search state', async () => {
@@ -204,7 +250,7 @@ describe('app router', () => {
     await waitFor(() => expect(screen.getByText('User: alice')).toBeTruthy());
     await waitFor(() => expect(screen.getByRole('link', { name: '101' })).toBeTruthy());
     await user.click(screen.getByRole('link', { name: '101' }));
-    await waitFor(() => expect(screen.getByText('Current allocation')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Resources')).toBeTruthy());
 
     await user.click(screen.getByRole('link', { name: 'Back to jobs' }));
     await waitFor(() => expect(screen.getByText('User: alice')).toBeTruthy());
@@ -277,6 +323,55 @@ describe('app router', () => {
     expect(
       fetchMock.mock.calls.some(([url]) => (url as string).includes('/api/v1/jobs/102'))
     ).toBe(false);
+
+    // Entering after an intent preload adopts the fresh snapshot: the
+    // visit performs no second detail request.
+    await user.click(screen.getByRole('link', { name: '101' }));
+    await waitFor(() => expect(screen.getByText('Resources')).toBeTruthy());
+    expect(
+      fetchMock.mock.calls.filter(([url]) => (url as string).includes('/api/v1/jobs/101')).length
+    ).toBe(1);
+  });
+
+  test('a new visit past the stale time refetches and honors a fresh 404', async () => {
+    const handlers: RouterHandlers = { details: { '123': makeJob('123', 'job-one-two-three') } };
+    const queryClient = createTestQueryClient({ retry: false });
+    const first = renderRouter(['/jobs/123'], handlers, { queryClient });
+    const visitedAt = Date.now();
+    await waitFor(() => expect(screen.getByText('job-one-two-three')).toBeTruthy());
+    first.unmount();
+
+    // Time passes beyond the detail stale time, and the job leaves the
+    // live scheduler data before the user visits again.
+    jest.spyOn(Date, 'now').mockReturnValue(visitedAt + JOB_DETAIL_STALE_TIME_MS + 1000);
+    delete handlers.details!['123'];
+    const second = renderRouter(['/jobs/123'], handlers, { queryClient });
+
+    await waitFor(() => expect(screen.getByText(/is no longer available/)).toBeTruthy());
+    // A fresh request occurred for the new visit…
+    expect(
+      second.fetchMock.mock.calls.some(([url]) => (url as string).includes('/api/v1/jobs/123'))
+    ).toBe(true);
+    // …and the previous visit's snapshot was never rendered, so the fresh
+    // 404 is not misclassified as a later refresh failure.
+    expect(screen.queryByText('job-one-two-three')).toBeNull();
+    expect(screen.queryByText(/Showing the captured snapshot/)).toBeNull();
+  });
+
+  test('a new visit past the stale time receives the new snapshot', async () => {
+    const handlers: RouterHandlers = { details: { '123': makeJob('123', 'job-one-two-three') } };
+    const queryClient = createTestQueryClient({ retry: false });
+    const first = renderRouter(['/jobs/123'], handlers, { queryClient });
+    const visitedAt = Date.now();
+    await waitFor(() => expect(screen.getByText('job-one-two-three')).toBeTruthy());
+    first.unmount();
+
+    jest.spyOn(Date, 'now').mockReturnValue(visitedAt + JOB_DETAIL_STALE_TIME_MS + 1000);
+    handlers.details!['123'] = makeJob('123', 'job-four-five-six');
+    renderRouter(['/jobs/123'], handlers, { queryClient });
+
+    await waitFor(() => expect(screen.getByText('job-four-five-six')).toBeTruthy());
+    expect(screen.queryByText('job-one-two-three')).toBeNull();
   });
 
   test('job-to-job navigation never shows the previous job', async () => {

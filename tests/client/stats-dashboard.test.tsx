@@ -1,6 +1,7 @@
 /** @jest-environment jsdom */
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider, focusManager, onlineManager } from '@tanstack/react-query';
+import { createTestQueryClient } from './test-query-client';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { StatsDashboard } from '../../src/client/features/stats/StatsDashboard';
 import { partitionKeys } from '../../src/client/api/query-keys';
@@ -103,7 +104,7 @@ function setupFetch(overrides: FetchOverrides = {}) {
   return fetchMock;
 }
 
-function renderDashboard(client: QueryClient = new QueryClient()) {
+function renderDashboard(client: QueryClient = createTestQueryClient()) {
   return render(
     <QueryClientProvider client={client}>
       <StatsDashboard />
@@ -115,6 +116,8 @@ const originalFetch = global.fetch;
 
 afterEach(() => {
   global.fetch = originalFetch;
+  focusManager.setFocused(true);
+  onlineManager.setOnline(true);
   jest.restoreAllMocks();
 });
 
@@ -399,7 +402,7 @@ describe('StatsDashboard', () => {
       }
       return Promise.resolve(okJson(statsForScope(new URL(url).searchParams.get('partition'))));
     }) as unknown as typeof fetch;
-    const client = new QueryClient();
+    const client = createTestQueryClient();
     renderDashboard(client);
     const user = userEvent.setup();
 
@@ -419,5 +422,35 @@ describe('StatsDashboard', () => {
       )
     ).toBe(true);
     expect(screen.getByText('64')).toBeTruthy();
+  });
+
+  test('stale stats refresh on remount but ignore focus and reconnect', async () => {
+    const fetchMock = setupFetch();
+    const client = createTestQueryClient();
+    const statsCalls = () =>
+      fetchMock.mock.calls.filter(([url]) => (url as string).includes('/api/v1/stats')).length;
+    const first = renderDashboard(client);
+
+    await waitFor(() => expect(screen.getByText('108')).toBeTruthy());
+    expect(statsCalls()).toBe(1);
+    first.unmount();
+
+    // Past the stats stale time: the explicitly live stats refetch as soon
+    // as they mount again.
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 31_000);
+    renderDashboard(client);
+    await waitFor(() => expect(screen.getByText('108')).toBeTruthy());
+    expect(statsCalls()).toBe(2);
+
+    // Focus and reconnect stay silent for live stats.
+    focusManager.setFocused(false);
+    await act(async () => {
+      focusManager.setFocused(true);
+    });
+    onlineManager.setOnline(false);
+    await act(async () => {
+      onlineManager.setOnline(true);
+    });
+    expect(statsCalls()).toBe(2);
   });
 });

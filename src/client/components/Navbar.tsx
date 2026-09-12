@@ -30,9 +30,6 @@ function Navbar({ actions }: { actions?: ReactNode }) {
     queryFn: ({ signal }) => fetchUiSettings({ signal }),
     staleTime: Infinity,
     gcTime: Infinity,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-    retry: 1,
   });
 
   const navbar = uiSettingsQuery.data?.navbar;

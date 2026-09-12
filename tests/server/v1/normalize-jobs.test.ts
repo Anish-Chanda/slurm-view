@@ -113,6 +113,41 @@ describe('parseJobsStdout', () => {
     expect(running.exitCode).toBeNull();
   });
 
+  test('a zero array job id is the unset sentinel, never an identifier', () => {
+    for (const arrayJobId of [
+      { number: 0, set: true, infinite: false },
+      { number: 0, set: false, infinite: false },
+      0,
+      '0',
+    ]) {
+      const [job] = parseJobsStdout(
+        'v0.0.45',
+        JSON.stringify({ jobs: [{ job_id: 115, array_job_id: arrayJobId }] })
+      );
+      expect(job!.id).toBe('115');
+      expect(job!.jobId).toBe('115');
+      expect(job!.arrayJobId).toBeNull();
+    }
+  });
+
+  test('a zero array task id stays meaningful under a real parent', () => {
+    const [job] = parseJobsStdout(
+      'v0.0.45',
+      JSON.stringify({
+        jobs: [
+          {
+            job_id: 803,
+            array_job_id: { number: 11519620, set: true, infinite: false },
+            array_task_id: { number: 0, set: true, infinite: false },
+          },
+        ],
+      })
+    );
+    expect(job!.arrayJobId).toBe('11519620');
+    expect(job!.arrayTaskId).toBe('0');
+    expect(job!.id).toBe('11519620_0');
+  });
+
   test('malformed array wrapper data rejects the payload', () => {
     const badTask = {
       job_id: 9,

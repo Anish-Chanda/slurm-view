@@ -1,3 +1,5 @@
+import { useNavigate } from '@tanstack/react-router';
+import type { MouseEvent } from 'react';
 import type { JobsTableInstance } from './columns.tsx';
 import type { JobsColumnMeta } from './columns.tsx';
 
@@ -8,6 +10,28 @@ function responsiveClass(table: JobsTableInstance, columnId: string): string {
 }
 
 function JobsTable({ table }: { table: JobsTableInstance }) {
+  const navigate = useNavigate();
+
+  // The whole row opens the job. Links inside the row (ID, chevron) keep
+  // their native behavior for keyboard, modifier, and new-tab use; clicks
+  // that select text never navigate away from the queue.
+  function onRowClick(event: MouseEvent<HTMLTableRowElement>, jobId: string) {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+      return;
+    }
+    if ((event.target as HTMLElement).closest('a,button')) {
+      return;
+    }
+    try {
+      if (window.getSelection()?.toString()) {
+        return;
+      }
+    } catch {
+      // Selection inspection is best-effort; navigate normally.
+    }
+    void navigate({ to: '/jobs/$jobId', params: { jobId }, state: { fromJobsQueue: true } });
+  }
+
   return (
     <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
       <table className="w-full border-collapse text-sm">
@@ -28,7 +52,11 @@ function JobsTable({ table }: { table: JobsTableInstance }) {
         </thead>
         <tbody>
           {table.getRowModel().rows.map((row) => (
-            <tr key={row.id} className="even:bg-gray-50 hover:bg-gray-100">
+            <tr
+              key={row.id}
+              onClick={(event) => onRowClick(event, row.original.id)}
+              className="cursor-pointer even:bg-gray-50 hover:bg-gray-100 focus-within:bg-gray-100"
+            >
               {row.getAllCells().map((cell) => (
                 <td
                   key={cell.id}

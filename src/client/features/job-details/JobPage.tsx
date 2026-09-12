@@ -10,15 +10,14 @@ import { Execution } from './Execution.tsx';
 import { BackToJobs, JobHeader } from './JobHeader.tsx';
 import { Resources } from './Resources.tsx';
 import { ResourceUsage } from './ResourceUsage.tsx';
-import { JobStateDetails } from './StateDetails.tsx';
-import { TechnicalDetails } from './TechnicalDetails.tsx';
+import { StateLead } from './StateLead.tsx';
 import { TimingScheduling } from './TimingScheduling.tsx';
 
 function JobPageLayout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-gray-100 font-sans text-gray-900">
       <Navbar />
-      <main className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">{children}</main>
+      <main className="mx-auto max-w-[1440px] px-4 py-6 md:px-8">{children}</main>
     </div>
   );
 }
@@ -59,19 +58,27 @@ function JobSkeleton() {
 }
 
 function JobDetailsContent({ job, updatedAt }: { job: JobDto; updatedAt: string }) {
-  const nowMs = Date.now();
-  const lastUpdated = new Date(updatedAt).toLocaleTimeString();
+  // All lifecycle arithmetic describes the captured snapshot, never the
+  // wall clock: a tab left open for hours must not invent newer job state
+  // than the scheduler data actually represents.
+  const parsed = Date.parse(updatedAt);
+  const snapshotMs = Number.isNaN(parsed) ? Date.now() : parsed;
+  const snapshotTaken = new Date(updatedAt).toLocaleString();
   return (
     <>
-      <JobHeader job={job} nowMs={nowMs} />
-      <p className="mt-2 text-xs text-gray-500">Last updated: {lastUpdated}</p>
-      <div className="mt-4">
-        <JobStateDetails job={job} />
-        <Resources job={job} />
-        {job.state === 'COMPLETED' ? <ResourceUsage jobId={job.id} /> : null}
-        <TimingScheduling job={job} nowMs={nowMs} />
-        <Execution job={job} />
-        <TechnicalDetails job={job} />
+      <JobHeader job={job} snapshotMs={snapshotMs} snapshotTaken={snapshotTaken} />
+      <StateLead job={job} />
+      <div className="mt-8 grid grid-cols-12 gap-x-10 gap-y-10">
+        <div className="col-span-12 space-y-10 xl:col-span-7">
+          <Resources job={job} />
+          {job.state === 'COMPLETED' ? <ResourceUsage jobId={job.id} /> : null}
+        </div>
+        <div className="col-span-12 xl:col-span-5">
+          <TimingScheduling job={job} snapshotMs={snapshotMs} />
+        </div>
+        <div className="col-span-12">
+          <Execution job={job} />
+        </div>
       </div>
     </>
   );
@@ -80,6 +87,7 @@ function JobDetailsContent({ job, updatedAt }: { job: JobDto; updatedAt: string 
 function JobPage({ jobId }: { jobId: string }) {
   const detailQuery = useQuery(jobDetailQueryOptions(jobId));
 
+  // No snapshot yet: loading, initial 404, or a hard failure.
   if (detailQuery.data === undefined) {
     if (detailQuery.isPending) {
       return <JobSkeleton />;
@@ -97,23 +105,17 @@ function JobPage({ jobId }: { jobId: string }) {
     );
   }
 
+  // A captured snapshot survives any later refresh failure — including a
+  // 404 when the job leaves the live data. The failure surfaces as a
+  // non-destructive warning, never by replacing the page.
   const { job, updatedAt } = detailQuery.data;
-  // A 404 on refresh means the job left the live data.
-  if (
-    detailQuery.isError &&
-    detailQuery.error instanceof ApiError &&
-    detailQuery.error.status === 404
-  ) {
-    return <JobNotAvailable jobId={jobId} />;
-  }
-
   return (
     <JobPageLayout>
       <JobDetailsContent job={job} updatedAt={updatedAt} />
       {detailQuery.isError ? (
-        <div className="mt-4">
+        <div className="mt-6">
           <RefreshWarning
-            message="Showing previous job details because the latest request failed."
+            message="Showing the captured snapshot because the latest request failed."
             onRetry={() => void detailQuery.refetch()}
           />
         </div>

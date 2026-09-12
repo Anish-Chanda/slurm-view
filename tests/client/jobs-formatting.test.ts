@@ -1,5 +1,6 @@
 import {
   MISSING,
+  formatAdaptiveDuration,
   formatCount,
   formatDateTime,
   formatDuration,
@@ -62,5 +63,16 @@ describe('jobs formatting', () => {
     expect(formatMemoryMiB(512)).toBe('512 MiB');
     expect(formatMemoryMiB(32768)).toBe('32 GiB');
     expect(formatCount(4)).toBe('4');
+  });
+
+  test('adaptive durations shorten long spans for summary copy', () => {
+    expect(formatAdaptiveDuration(42)).toBe('42s');
+    expect(formatAdaptiveDuration(8 * 60 + 12)).toBe('8m 12s');
+    expect(formatAdaptiveDuration(8 * 60)).toBe('8m');
+    expect(formatAdaptiveDuration(3 * 3600 + 14 * 60)).toBe('3h 14m');
+    expect(formatAdaptiveDuration(2 * 3600)).toBe('2h');
+    expect(formatAdaptiveDuration(23 * 86400 + 21 * 3600 + 13 * 60 + 29)).toBe('23d 21h');
+    expect(formatAdaptiveDuration(64 * 86400 + 20 * 3600 + 12 * 60 + 22)).toBe('64d');
+    expect(formatAdaptiveDuration(-5)).toBe('0s');
   });
 });

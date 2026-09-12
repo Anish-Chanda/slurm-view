@@ -22,6 +22,32 @@ function formatTimeLimit(limit: TimeLimitDto): string {
   return formatDuration(limit.seconds);
 }
 
+// Summary copy keeps exact detail rows untouched but shortens long spans:
+// seconds-scale stays precise, hours drop seconds, days drop minutes and
+// seconds, and month-old events collapse to whole days.
+function formatAdaptiveDuration(totalSeconds: number): string {
+  const total = Math.max(0, Math.floor(totalSeconds));
+  if (total < 60) {
+    return `${total}s`;
+  }
+  const minutes = Math.floor(total / 60);
+  if (minutes < 60) {
+    const seconds = total % 60;
+    return seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`;
+  }
+  const hours = Math.floor(total / 3600);
+  if (hours < 48) {
+    const restMinutes = Math.floor((total % 3600) / 60);
+    return restMinutes === 0 ? `${hours}h` : `${hours}h ${restMinutes}m`;
+  }
+  const days = Math.floor(total / 86400);
+  if (days < 30) {
+    const restHours = Math.floor((total % 86400) / 3600);
+    return restHours === 0 ? `${days}d` : `${days}d ${restHours}h`;
+  }
+  return `${days}d`;
+}
+
 function formatTimeLeft(job: Pick<JobDto, 'state' | 'startTime' | 'endTime' | 'timeLimit'>, nowMs: number = Date.now()): string {
   if (job.state === 'PENDING') return 'Not started';
   if (job.state !== 'RUNNING') return MISSING;
@@ -57,4 +83,4 @@ function formatCount(value: number | null): string {
   return value === null ? MISSING : String(value);
 }
 
-export { MISSING, formatCount, formatDateTime, formatDuration, formatMemoryMiB, formatTimeLeft, formatTimeLimit };
+export { MISSING, formatAdaptiveDuration, formatCount, formatDateTime, formatDuration, formatMemoryMiB, formatTimeLeft, formatTimeLimit };
