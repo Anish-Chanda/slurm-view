@@ -35,6 +35,12 @@ function jobsListKey(input: JobsListInput): readonly unknown[] {
 const jobsKeys = {
   all: ['jobs'] as const,
   list: jobsListKey,
+  detail: (id: string) => ['jobs', 'detail', { id }] as const,
+};
+
+const efficiencyKeys = {
+  all: ['efficiency'] as const,
+  detail: (id: string) => ['efficiency', 'detail', { id }] as const,
 };
 
 function statsDetailKey(partition: string | null): readonly unknown[] {
@@ -59,5 +65,5 @@ const uiSettingsKeys = {
   detail: ['ui-settings', 'detail'] as const,
 };
 
-export { JOBS_PAGE_DEFAULT, JOBS_PAGE_SIZE_DEFAULT, jobsKeys, partitionKeys, statsKeys, uiSettingsKeys };
+export { JOBS_PAGE_DEFAULT, JOBS_PAGE_SIZE_DEFAULT, efficiencyKeys, jobsKeys, partitionKeys, statsKeys, uiSettingsKeys };
 export type { JobsListInput };

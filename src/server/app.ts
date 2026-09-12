@@ -1,4 +1,5 @@
 import express, { type Express, type NextFunction, type Request, type Response } from 'express';
+import fs from 'node:fs';
 import path from 'path';
 import { engine } from 'express-handlebars';
 import { createV1Router } from './routes/v1/index.js';
@@ -353,8 +354,49 @@ function createApp(v1Deps: V1RouterDeps = {}): Express {
     res.redirect(`${reactRoute}/`);
   });
   app.use(`${reactRoute}/`, express.static(reactDistPath, { index: false }));
-  app.get(`${reactRoute}/`, (req: Request, res: Response) => {
-    res.sendFile(path.join(reactDistPath, 'index.html'));
+  // The build uses relative asset URLs with a dynamic mount, so deep-link
+  // HTML carries a base tag pointing at the real React mount. Without it,
+  // ./assets/... below /react/jobs/123 would resolve to /react/jobs/assets.
+  let cachedShell: string | null | undefined;
+  function loadReactShell(): string | null {
+    if (cachedShell === undefined) {
+      try {
+        cachedShell = fs.readFileSync(path.join(reactDistPath, 'index.html'), 'utf8');
+      } catch {
+        cachedShell = null;
+      }
+    }
+    return cachedShell;
+  }
+  function sendReactShell(res: Response, next: NextFunction): void {
+    const raw = loadReactShell();
+    if (raw === null) {
+      next();
+      return;
+    }
+    const base = `${reactRoute}/`.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    res.type('html').send(raw.replace(/<head([^>]*)>/i, `<head$1><base href="${base}">`));
+  }
+  app.get(`${reactRoute}/`, (_req: Request, res: Response, next: NextFunction) => {
+    sendReactShell(res, next);
+  });
+  // Client deep links (e.g. /react/jobs/123) serve the shell so the Router
+  // can render the route on refresh. Known job routes win over the file
+  // heuristic below so malformed IDs still reach GlobalNotFound. Assets are
+  // served above; /api/v1/* and legacy routes never reach here. Other
+  // file-like segments still 404.
+  app.get(`${reactRoute}/*`, (req: Request, res: Response, next: NextFunction) => {
+    const relative = req.path.slice(reactRoute.length);
+    if (/^\/jobs\/[^/]+\/?$/.test(relative)) {
+      sendReactShell(res, next);
+      return;
+    }
+    const lastSegment = req.path.split('/').pop() ?? '';
+    if (lastSegment.includes('.')) {
+      next();
+      return;
+    }
+    sendReactShell(res, next);
   });
 
   return app;
