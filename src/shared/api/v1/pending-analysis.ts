@@ -119,6 +119,8 @@ export interface LimitAnalysisDto {
   runningJobs?: number;
   hierarchy?: Array<{
     account: string;
+    user?: string;
+    partition?: string;
     parent: string | null;
     limit: number | null;
     used: number | null;

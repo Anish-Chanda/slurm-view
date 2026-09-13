@@ -2585,27 +2585,28 @@ describe('configured GPU GRES vs unknown inventory', () => {
 });
 
 describe('full association ancestry in hierarchy', () => {
-  // root -> research -> las -> chem -> lab
+  // root -> research -> las -> chem -> venditti-lab -> saydas @ venditti-lab
   const fullChainEntries = [
     assocEntry({ id: '1', parentId: null, account: 'root', parentAccount: null }),
     assocEntry({ id: '2', parentId: '1', account: 'research', parentAccount: 'root' }),
     assocEntry({ id: '3', parentId: '2', account: 'las', parentAccount: 'research', grpTres: { cpu: 84, memMiB: null, node: null, gres: { gpu: 84 } }, maxJobs: 10, grpTresRunMins: { cpu: 100000, memMiB: null, node: null, gres: {} } }),
     assocEntry({ id: '6', parentId: '3', account: 'las', user: 'bob' }),
     assocEntry({ id: '4', parentId: '3', account: 'chem', parentAccount: 'las' }),
-    assocEntry({ id: '5', parentId: '4', account: 'lab', parentAccount: 'chem', user: 'alice', grpTres: { cpu: 5, memMiB: null, node: null, gres: { gpu: 5 } }, maxJobs: 2, grpTresRunMins: { cpu: 10000, memMiB: null, node: null, gres: {} } }),
+    assocEntry({ id: '2283', parentId: '4', account: 'venditti-lab', parentAccount: 'chem', grpTres: { cpu: 5, memMiB: null, node: null, gres: { gpu: 5 } }, maxJobs: 2, grpTresRunMins: { cpu: 10000, memMiB: null, node: null, gres: {} } }),
+    assocEntry({ id: '2981', parentId: '2283', account: 'venditti-lab', user: 'saydas' }),
   ];
 
-  test('TRES CPU limit includes full ancestry leaf to root with nulls for intermediate levels', async () => {
+  test('TRES CPU limit includes full ancestry leaf to root with user and account distinct', async () => {
     const pending = makeJob({
       id: '1001',
       state: 'PENDING',
       stateReason: 'AssocGrpCpuLimit',
-      account: 'lab',
-      user: 'alice',
+      account: 'venditti-lab',
+      user: 'saydas',
       requested: { cpus: 1, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } },
     });
     const jobs = [
-      makeJob({ id: '1002', account: 'lab', user: 'alice', allocated: { cpus: 5, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } } }),
+      makeJob({ id: '1002', account: 'venditti-lab', user: 'saydas', allocated: { cpus: 5, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } } }),
       makeJob({ id: '1003', account: 'las', user: 'bob', allocated: { cpus: 72, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } } }),
     ];
     const ctx = {
@@ -2613,9 +2614,10 @@ describe('full association ancestry in hierarchy', () => {
       assoc: { store: buildAssociationStore(fullChainEntries), capturedAt: new Date() },
     };
     const result = await analyzeAssocLimits(ctx);
-    expect(result?.limitingAccount).toBe('lab');
+    expect(result?.limitingAccount).toBe('venditti-lab');
     expect(result?.hierarchy).toEqual([
-      { account: 'lab', parent: 'chem', limit: 5, used: 5, limiting: true },
+      { account: 'venditti-lab', user: 'saydas', parent: 'venditti-lab', limit: null, used: null, limiting: false },
+      { account: 'venditti-lab', parent: 'chem', limit: 5, used: 5, limiting: true },
       { account: 'chem', parent: 'las', limit: null, used: null, limiting: false },
       { account: 'las', parent: 'research', limit: 84, used: 77, limiting: false },
       { account: 'research', parent: 'root', limit: null, used: null, limiting: false },
@@ -2628,12 +2630,12 @@ describe('full association ancestry in hierarchy', () => {
       id: '1004',
       state: 'PENDING',
       stateReason: 'AssocGrpGRES',
-      account: 'lab',
-      user: 'alice',
+      account: 'venditti-lab',
+      user: 'saydas',
       requested: { cpus: 1, memoryMiB: null, nodes: 1, gpus: { total: 1, byType: {} } },
     });
     const jobs = [
-      makeJob({ id: '1005', account: 'lab', user: 'alice', allocated: { cpus: 1, memoryMiB: null, nodes: 1, gpus: { total: 5, byType: {} }, gpuPresent: true } }),
+      makeJob({ id: '1005', account: 'venditti-lab', user: 'saydas', allocated: { cpus: 1, memoryMiB: null, nodes: 1, gpus: { total: 5, byType: {} }, gpuPresent: true } }),
       makeJob({ id: '1006', account: 'las', user: 'bob', allocated: { cpus: 1, memoryMiB: null, nodes: 1, gpus: { total: 72, byType: {} }, gpuPresent: true } }),
     ];
     const ctx = {
@@ -2641,9 +2643,10 @@ describe('full association ancestry in hierarchy', () => {
       assoc: { store: buildAssociationStore(fullChainEntries), capturedAt: new Date() },
     };
     const result = await analyzeAssocLimits(ctx);
-    expect(result?.limitingAccount).toBe('lab');
+    expect(result?.limitingAccount).toBe('venditti-lab');
     expect(result?.hierarchy).toEqual([
-      { account: 'lab', parent: 'chem', limit: 5, used: 5, limiting: true },
+      { account: 'venditti-lab', user: 'saydas', parent: 'venditti-lab', limit: null, used: null, limiting: false },
+      { account: 'venditti-lab', parent: 'chem', limit: 5, used: 5, limiting: true },
       { account: 'chem', parent: 'las', limit: null, used: null, limiting: false },
       { account: 'las', parent: 'research', limit: 84, used: 77, limiting: false },
       { account: 'research', parent: 'root', limit: null, used: null, limiting: false },
@@ -2656,21 +2659,22 @@ describe('full association ancestry in hierarchy', () => {
       id: '1007',
       state: 'PENDING',
       stateReason: 'AssocMaxJobsLimit',
-      account: 'lab',
-      user: 'alice',
+      account: 'venditti-lab',
+      user: 'saydas',
     });
     const jobs = [
-      makeJob({ id: '1008', account: 'lab', user: 'alice' }),
-      makeJob({ id: '1009', account: 'lab', user: 'alice' }),
+      makeJob({ id: '1008', account: 'venditti-lab', user: 'saydas' }),
+      makeJob({ id: '1009', account: 'venditti-lab', user: 'saydas' }),
     ];
     const ctx = {
       ...makeCtx(pending, { jobs }),
       assoc: { store: buildAssociationStore(fullChainEntries), capturedAt: new Date() },
     };
     const result = await analyzeAssocLimits(ctx);
-    expect(result?.limitingAccount).toBe('lab');
+    expect(result?.limitingAccount).toBe('venditti-lab');
     expect(result?.hierarchy).toEqual([
-      { account: 'lab', parent: 'chem', limit: 2, used: 2, limiting: true },
+      { account: 'venditti-lab', user: 'saydas', parent: 'venditti-lab', limit: null, used: null, limiting: false },
+      { account: 'venditti-lab', parent: 'chem', limit: 2, used: 2, limiting: true },
       { account: 'chem', parent: 'las', limit: null, used: null, limiting: false },
       { account: 'las', parent: 'research', limit: 10, used: 2, limiting: false },
       { account: 'research', parent: 'root', limit: null, used: null, limiting: false },
@@ -2683,15 +2687,16 @@ describe('full association ancestry in hierarchy', () => {
       id: '1010',
       state: 'PENDING',
       stateReason: 'AssocGrpCPURunMinutesLimit',
-      account: 'lab',
-      user: 'alice',
+      account: 'venditti-lab',
+      user: 'saydas',
       timeLimit: { kind: 'finite', seconds: 3600 },
       requested: { cpus: 1, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } },
     });
     const jobs = [
       makeJob({
         id: '1011',
-        account: 'lab',
+        account: 'venditti-lab',
+        user: 'saydas',
         qos: 'normal',
         startTime: new Date(Date.now() - 60_000),
         timeLimit: { kind: 'finite', seconds: 3600 },
@@ -2704,12 +2709,83 @@ describe('full association ancestry in hierarchy', () => {
       qos: { store: buildQosStore([emptyQosEntry('normal')]), capturedAt: new Date() },
     };
     const result = await analyzeAssocLimits(ctx);
-    expect(result?.limitingAccount).toBe('lab');
-    expect(result?.hierarchy).toHaveLength(5);
-    expect(result?.hierarchy?.[0]).toMatchObject({ account: 'lab', parent: 'chem', limit: 10000, limiting: true });
-    expect(result?.hierarchy?.[1]).toEqual({ account: 'chem', parent: 'las', limit: null, used: null, limiting: false });
-    expect(result?.hierarchy?.[2]).toMatchObject({ account: 'las', parent: 'research', limit: 100000, limiting: false });
-    expect(result?.hierarchy?.[3]).toEqual({ account: 'research', parent: 'root', limit: null, used: null, limiting: false });
-    expect(result?.hierarchy?.[4]).toEqual({ account: 'root', parent: null, limit: null, used: null, limiting: false });
+    expect(result?.limitingAccount).toBe('venditti-lab');
+    expect(result?.hierarchy).toHaveLength(6);
+    expect(result?.hierarchy?.[0]).toEqual({ account: 'venditti-lab', user: 'saydas', parent: 'venditti-lab', limit: null, used: null, limiting: false });
+    expect(result?.hierarchy?.[1]).toMatchObject({ account: 'venditti-lab', parent: 'chem', limit: 10000, limiting: true });
+    expect(result?.hierarchy?.[2]).toEqual({ account: 'chem', parent: 'las', limit: null, used: null, limiting: false });
+    expect(result?.hierarchy?.[3]).toMatchObject({ account: 'las', parent: 'research', limit: 100000, limiting: false });
+    expect(result?.hierarchy?.[4]).toEqual({ account: 'research', parent: 'root', limit: null, used: null, limiting: false });
+    expect(result?.hierarchy?.[5]).toEqual({ account: 'root', parent: null, limit: null, used: null, limiting: false });
+  });
+
+  test('partition-specific association includes partition on that entry only', async () => {
+    const partitionChain = [
+      assocEntry({ id: '1', parentId: null, account: 'root' }),
+      assocEntry({ id: '2', parentId: '1', account: 'research' }),
+      assocEntry({ id: '2283', parentId: '2', account: 'venditti-lab', grpTres: { cpu: 10, memMiB: null, node: null, gres: {} } }),
+      assocEntry({ id: '2982', parentId: '2283', account: 'venditti-lab', user: 'saydas', partition: 'scavenger' }),
+    ];
+    const pending = makeJob({
+      id: '1012',
+      state: 'PENDING',
+      stateReason: 'AssocGrpCpuLimit',
+      account: 'venditti-lab',
+      user: 'saydas',
+      partition: 'scavenger',
+      requested: { cpus: 1, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } },
+    });
+    const ctx = {
+      ...makeCtx(pending, { jobs: [makeJob({ id: '1013', account: 'venditti-lab', user: 'saydas', partition: 'scavenger', allocated: { cpus: 10, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } } })] }),
+      assoc: { store: buildAssociationStore(partitionChain), capturedAt: new Date() },
+    };
+    const result = await analyzeAssocLimits(ctx);
+    expect(result?.hierarchy).toHaveLength(4);
+    expect(result?.hierarchy?.[0]).toEqual({
+      account: 'venditti-lab',
+      user: 'saydas',
+      partition: 'scavenger',
+      parent: 'venditti-lab',
+      limit: null,
+      used: null,
+      limiting: false,
+    });
+    expect(result?.hierarchy?.[1]).toEqual({
+      account: 'venditti-lab',
+      parent: 'research',
+      limit: 10,
+      used: 10,
+      limiting: true,
+    });
+    expect(result?.hierarchy?.[2].partition).toBeUndefined();
+    expect(result?.hierarchy?.[3].partition).toBeUndefined();
+  });
+
+  test('user-level limiter appears with user populated and limiting=true', async () => {
+    const userLimitChain = [
+      assocEntry({ id: '1', parentId: null, account: 'root' }),
+      assocEntry({ id: '2', parentId: '1', account: 'venditti-lab', maxJobs: 10 }),
+      assocEntry({ id: '3', parentId: '2', account: 'venditti-lab', user: 'saydas', maxJobs: 1 }),
+    ];
+    const pending = makeJob({
+      id: '1014',
+      state: 'PENDING',
+      stateReason: 'AssocMaxJobsLimit',
+      account: 'venditti-lab',
+      user: 'saydas',
+    });
+    const jobs = [
+      makeJob({ id: '1015', account: 'venditti-lab', user: 'saydas' }),
+    ];
+    const ctx = {
+      ...makeCtx(pending, { jobs }),
+      assoc: { store: buildAssociationStore(userLimitChain), capturedAt: new Date() },
+    };
+    const result = await analyzeAssocLimits(ctx);
+    expect(result?.hierarchy).toEqual([
+      { account: 'venditti-lab', user: 'saydas', parent: 'venditti-lab', limit: 1, used: 1, limiting: true },
+      { account: 'venditti-lab', parent: 'root', limit: 10, used: 1, limiting: false },
+      { account: 'root', parent: null, limit: null, used: null, limiting: false },
+    ]);
   });
 });

@@ -66,11 +66,14 @@ function buildHierarchy(
       measurements.set(level.entry.id, level);
     }
   }
-  return chain.map((entry) => {
+  return chain.map((entry, index) => {
     const level = entry.id !== null ? measurements.get(entry.id) ?? null : null;
+    const parentEntry = chain[index + 1] ?? null;
     return {
       account: entry.account,
-      parent: entry.parentAccount,
+      ...(entry.user !== null ? { user: entry.user } : {}),
+      ...(entry.partition !== null ? { partition: entry.partition } : {}),
+      parent: parentEntry?.account ?? null,
       limit: level?.effectiveLimit ?? null,
       used: level?.used ?? null,
       limiting: limiting !== null && (entry === limiting || (entry.id !== null && entry.id === limiting.id)),
