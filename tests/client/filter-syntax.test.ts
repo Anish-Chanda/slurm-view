@@ -101,7 +101,7 @@ describe('getWordAtCursor', () => {
 });
 
 describe('getSuggestions', () => {
-  const partitions = ['north', 'gpu'];
+  const partitions = ['north', 'alpha', 'gpu'];
 
   test('partition: prefix suggests live partitions', () => {
     expect(getSuggestions({ word: 'partition:n', selectedField: 'user', partitions })).toEqual([
@@ -131,8 +131,11 @@ describe('getSuggestions', () => {
   });
 
   test('bare words also suggest values for the selected field', () => {
-    const suggestions = getSuggestions({ word: 'g', selectedField: 'partition', partitions });
-    expect(suggestions.map((suggestion) => suggestion.id)).toContain('gpu');
+    const suggestions = getSuggestions({ word: 'a', selectedField: 'partition', partitions });
+    const ids = suggestions.map((suggestion) => suggestion.id);
+
+    expect(ids).toContain('alpha');
+    expect(ids).toContain('account:');
   });
 
   test("selected-field values rank above generic keys", () => {

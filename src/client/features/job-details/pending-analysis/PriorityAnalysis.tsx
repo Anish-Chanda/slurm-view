@@ -196,7 +196,7 @@ function PriorityAnalysis({ analysis }: { analysis: PriorityAnalysisDto }) {
       <aside className="mt-6 border-t border-gray-200 pt-5 xl:mt-0 xl:border-t-0 xl:border-l xl:pl-8 xl:pt-0">
         <AnalysisMetricList
           prominent
-          layout="stacked"
+          layout="priority-context"
           items={[
             ["Pending in partition", formatInteger(analysis.pendingJobs)],
             [

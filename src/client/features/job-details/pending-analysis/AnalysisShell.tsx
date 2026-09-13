@@ -33,14 +33,16 @@ function AnalysisMetricList({
 }: {
   items: Array<[string, ReactNode]>;
   prominent?: boolean;
-  layout?: "three-column" | "stacked";
+  layout?: "three-column" | "stacked" | "priority-context";
 }) {
   return (
     <dl
       className={
         layout === "stacked"
           ? "grid gap-y-4 text-sm"
-          : "grid gap-x-6 gap-y-2 text-sm sm:grid-cols-3"
+          : layout === "priority-context"
+            ? "grid grid-cols-1 gap-y-4 text-sm sm:grid-cols-3 sm:gap-x-4 sm:gap-y-2 xl:grid-cols-1 xl:gap-y-4"
+            : "grid gap-x-6 gap-y-2 text-sm sm:grid-cols-3"
       }
     >
       {items.map(([label, value]) => (
@@ -115,17 +117,18 @@ function AnalysisShell({
       <div className="mt-5 border-t border-gray-200 pt-5">{children}</div>
       <div className="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-gray-100 pt-3 text-xs text-gray-500">
         <span>
-          Analyzed {formatDateTime(updatedAt)} · Based on current scheduler
-          state
+          Analyzed {formatDateTime(updatedAt)} · Based on scheduler state at
+          analysis time
         </span>
         {footerNote ? <span>· {footerNote}</span> : null}
         <span
+          aria-hidden="true"
           title={PENDING_REASON_SCOPE_NOTE}
-          aria-label={PENDING_REASON_SCOPE_NOTE}
           className="cursor-help text-gray-400"
         >
           ⓘ
         </span>
+        <span className="sr-only">{PENDING_REASON_SCOPE_NOTE}</span>
       </div>
     </section>
   );

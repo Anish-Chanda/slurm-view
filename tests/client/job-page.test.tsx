@@ -216,7 +216,8 @@ describe('JobPage states', () => {
     await waitFor(() => expect(screen.getByText('Waiting for resources')).toBeTruthy());
     expect(screen.getByText('Slurm: Resources')).toBeTruthy();
     expect(screen.getByText('WHY THIS JOB IS WAITING')).toBeTruthy();
-    expect(screen.getByLabelText(/only the reason encountered by the scheduling attempt/)).toBeTruthy();
+    const scopeNote = screen.getByText(/only the reason encountered by the scheduling attempt/);
+    expect(scopeNote.getAttribute('aria-hidden')).not.toBe('true');
     expect(screen.getByText(/Snapshot taken/)).toBeTruthy();
     expect(screen.queryByText('Resource usage')).toBeNull();
     expect(screen.queryByText('Exit code')).toBeNull();

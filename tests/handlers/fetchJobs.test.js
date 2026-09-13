@@ -277,8 +277,7 @@ describe("getSlurmJobs", () => {
                     submit_time: { number: 1640995200 },
                     start_time: { number: 1640995300 },
                     tres_req_str: "cpu=4,mem=8G,gres/gpu=1",
-                    state_reason: "None",
-                    account: "default"
+                    state_reason: "None"
                 },
                 {
                     job_id: "2", 
@@ -294,8 +293,7 @@ describe("getSlurmJobs", () => {
                     standard_output: "/work/project-b/user-b/workload/train.log",
                     submit_time: { number: 1640995400 },
                     tres_req_str: "cpu=8,mem=16G,gres/gpu=2", 
-                    state_reason: "Resources",
-                    account: "organization-a"
+                    state_reason: "Resources"
                 },
                 {
                     job_id: "3",
@@ -311,8 +309,7 @@ describe("getSlurmJobs", () => {
                     standard_output: "/work/project-c/user-c/workload/matlab.log",
                     submit_time: { number: 1640995500 },
                     tres_req_str: "cpu=2,mem=4G",
-                    state_reason: "Priority", 
-                    account: "teaching"
+                    state_reason: "Priority"
                 }
             ],
         });

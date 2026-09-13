@@ -102,6 +102,85 @@ function LimitUsage({ analysis }: { analysis: LimitAnalysisDto }) {
   );
 }
 
+type AssociationLevel = NonNullable<LimitAnalysisDto["hierarchy"]>[number];
+
+function AssociationTreeLevel({
+  levels,
+  index,
+  metric,
+  gpuType,
+}: {
+  levels: AssociationLevel[];
+  index: number;
+  metric: LimitAnalysisDto["metric"];
+  gpuType?: string;
+}) {
+  const level = levels[index];
+  const limiting = level.limiting;
+  const label = level.user ? `${level.user} @ ${level.account}` : level.account;
+  const usage =
+    level.limit === null
+      ? "No limit"
+      : `${level.used === null ? "Unknown" : metricQuantity(metric, level.used, gpuType)} / ${metricQuantity(metric, level.limit, gpuType)}`;
+  const connectedToParent = index > 0 && index <= 5;
+
+  return (
+    <li
+      className={`relative min-w-0 ${connectedToParent ? "pl-5" : ""}`}
+    >
+      {connectedToParent ? (
+        <span
+          aria-hidden="true"
+          className="absolute left-0 -top-1.5 h-[calc(50%+0.375rem)] w-5 border-b border-l border-gray-300"
+        />
+      ) : null}
+      <div
+        className={`min-w-0 ${limiting ? "rounded-sm bg-red-50 px-2 py-1" : "py-1"}`}
+      >
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+          <span
+            className={
+              limiting
+                ? "font-semibold text-gray-900"
+                : "font-medium text-gray-800"
+            }
+          >
+            {label}
+            {level.user ? (
+              <span className="ml-2 text-xs font-normal text-gray-500">
+                User association
+              </span>
+            ) : null}
+            {level.partition ? (
+              <span className="ml-2 text-xs font-normal text-gray-500">
+                {level.partition}
+              </span>
+            ) : null}
+          </span>
+          <span className="shrink-0 text-xs tabular-nums text-gray-500">
+            {usage}
+          </span>
+        </div>
+        {limiting ? (
+          <p className="mt-0.5 text-xs font-medium text-red-700">
+            Limiting level
+          </p>
+        ) : null}
+      </div>
+      {index < levels.length - 1 ? (
+        <ol className="mt-1.5">
+          <AssociationTreeLevel
+            levels={levels}
+            index={index + 1}
+            metric={metric}
+            gpuType={gpuType}
+          />
+        </ol>
+      ) : null}
+    </li>
+  );
+}
+
 function AssociationTree({ analysis }: { analysis: LimitAnalysisDto }) {
   const levels = [...(analysis.hierarchy ?? [])].reverse();
   if (!levels.length) return null;
@@ -111,71 +190,18 @@ function AssociationTree({ analysis }: { analysis: LimitAnalysisDto }) {
         id="association-hierarchy"
         className="text-sm font-semibold text-gray-900"
       >
-        Account hierarchy
+        Association hierarchy
       </h3>
       <ol
-        className="mt-3 space-y-1"
-        aria-label="Account hierarchy from root to user association"
+        className="mt-3"
+        aria-label="Association hierarchy from root to user association"
       >
-        {levels.map((level, index) => {
-          const limiting = level.limiting;
-          const label = level.user
-            ? `${level.user} @ ${level.account}`
-            : level.account;
-          const usage =
-            level.limit === null
-              ? "No limit"
-              : `${level.used === null ? "Unknown" : metricQuantity(analysis.metric, level.used, analysis.gpuType)} / ${metricQuantity(analysis.metric, level.limit, analysis.gpuType)}`;
-          const depth = Math.min(index, 5);
-          const connector =
-            depth === 0 ? "" : `${"│   ".repeat(depth - 1)}└── `;
-          return (
-            <li
-              key={`${level.account}-${level.user ?? "account"}-${index}`}
-              className="flex min-w-0 items-start"
-            >
-              <span
-                aria-hidden="true"
-                className="shrink-0 whitespace-pre font-mono text-sm leading-6 text-gray-300"
-              >
-                {connector}
-              </span>
-              <div
-                className={`min-w-0 flex-1 ${limiting ? "rounded-sm bg-red-50 px-2 py-1" : "py-1"}`}
-              >
-                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-                  <span
-                    className={
-                      limiting
-                        ? "font-semibold text-gray-900"
-                        : "font-medium text-gray-800"
-                    }
-                  >
-                    {label}
-                    {level.user ? (
-                      <span className="ml-2 text-xs font-normal text-gray-500">
-                        User association
-                      </span>
-                    ) : null}
-                    {level.partition ? (
-                      <span className="ml-2 text-xs font-normal text-gray-500">
-                        {level.partition}
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="shrink-0 text-xs tabular-nums text-gray-500">
-                    {usage}
-                  </span>
-                </div>
-                {limiting ? (
-                  <p className="mt-0.5 text-xs font-medium text-red-700">
-                    Limiting level
-                  </p>
-                ) : null}
-              </div>
-            </li>
-          );
-        })}
+        <AssociationTreeLevel
+          levels={levels}
+          index={0}
+          metric={analysis.metric}
+          gpuType={analysis.gpuType}
+        />
       </ol>
     </section>
   );

@@ -12,6 +12,7 @@ import type { JobDto } from "../../src/shared/api/v1/jobs";
 import type { PendingAnalysisResponse } from "../../src/shared/api/v1/pending-analysis";
 import { pendingAnalysisKeys } from "../../src/client/api/query-keys";
 import { PendingAnalysis } from "../../src/client/features/job-details/PendingAnalysis";
+import { PENDING_REASON_SCOPE_NOTE } from "../../src/client/features/job-details/pending-reasons";
 import { createTestQueryClient } from "./test-query-client";
 
 const job = {
@@ -86,6 +87,13 @@ function renderAnalysis(
 }
 
 describe("PendingAnalysis variants", () => {
+  test("includes the scheduler-reason scope explanation for assistive technology", async () => {
+    renderAnalysis(null);
+
+    const scopeNote = await screen.findByText(PENDING_REASON_SCOPE_NOTE);
+    expect(scopeNote.getAttribute("aria-hidden")).not.toBe("true");
+  });
+
   test("resources uses labeled metrics and an exact detail disclosure", async () => {
     renderAnalysis({
       kind: "resources",
@@ -105,6 +113,48 @@ describe("PendingAnalysis variants", () => {
     expect(await screen.findByText("Shortage found")).toBeTruthy();
     expect(screen.getByText("95")).toBeTruthy();
     expect(screen.getByText("Show 1 more detailed nodes")).toBeTruthy();
+  });
+
+  test("resources keeps each shortage dimension readable within node evidence", async () => {
+    renderAnalysis({
+      kind: "resources",
+      scope: "partition",
+      analyzedNodes: 1,
+      sufficientNodes: 0,
+      insufficientNodes: 1,
+      unknownNodes: 0,
+      bottlenecks: [],
+      nodes: [
+        {
+          name: "compute-gpu-001",
+          state: "IDLE",
+          status: "insufficient",
+          shortages: [
+            { resource: "cpus", requested: 16, currentlyUnallocated: 10 },
+            {
+              resource: "memoryMiB",
+              requested: 245_760,
+              currentlyUnallocated: 14_746,
+            },
+            {
+              resource: "gpus",
+              gpuType: "h200",
+              requested: 2,
+              currentlyUnallocated: 0,
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(await screen.findByText("compute-gpu-001")).toBeTruthy();
+    expect(screen.getByRole("cell", { name: "Shortage" })).toBeTruthy();
+    const shortageCell = screen.getByRole("cell", {
+      name: /CPU.*requested.*16.*Memory.*requested.*240 GiB.*h200 GPU/,
+    });
+    expect(shortageCell.textContent).toContain("unallocated 10");
+    expect(shortageCell.textContent).toContain("unallocated 14.4 GiB");
+    expect(shortageCell.textContent).toContain("unallocated 0");
   });
 
   test("priority, dependency, and limits retain structured evidence", async () => {
@@ -227,7 +277,7 @@ describe("PendingAnalysis variants", () => {
     expect((await screen.findAllByText("No limit")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("20 CPU-minutes").length).toBeGreaterThan(0);
     const hierarchy = screen.getByRole("list", {
-      name: "Account hierarchy from root to user association",
+      name: "Association hierarchy from root to user association",
     });
     const hierarchyText = hierarchy.textContent ?? "";
     const labels = [
@@ -244,6 +294,9 @@ describe("PendingAnalysis variants", () => {
       expect(position).toBeGreaterThan(previous);
       previous = position;
     }
+    expect(
+      screen.getByRole("heading", { name: "Association hierarchy" }),
+    ).toBeTruthy();
     expect(screen.getByText("gpu")).toBeTruthy();
     expect(screen.getByText("Limiting level")).toBeTruthy();
     unmount();
@@ -297,6 +350,34 @@ describe("PendingAnalysis variants", () => {
     );
 
     expect(await screen.findByText("120%")).toBeTruthy();
+  });
+
+  test("priority keeps its context metric wording in the diagnostic", async () => {
+    renderAnalysis(
+      {
+        kind: "priority",
+        partition: "partition-a",
+        priority: 10,
+        factors: [],
+        pendingJobs: 915,
+        higherPriorityJobs: 169,
+        runningJobs: 619,
+        competitors: [],
+      },
+      "Priority",
+    );
+
+    expect(await screen.findByText("Pending in partition")).toBeTruthy();
+    expect(screen.getByText("Higher numeric priority")).toBeTruthy();
+    expect(screen.getByText("Running in partition")).toBeTruthy();
+  });
+
+  test("footer identifies scheduler state at the analysis time", async () => {
+    renderAnalysis(null);
+
+    expect(
+      await screen.findByText(/Based on scheduler state at analysis time/),
+    ).toBeTruthy();
   });
 
   test("required nodes, partition, reservation, array throttle, null analysis, and unknown reason stay conservative", async () => {

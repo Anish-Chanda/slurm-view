@@ -1,4 +1,8 @@
-import type { ResourcesAnalysisDto } from "../../../../shared/api/v1/pending-analysis.ts";
+import type {
+  ResourceShortageDto,
+  ResourcesAnalysisDto,
+} from "../../../../shared/api/v1/pending-analysis.ts";
+import { formatMemoryMiB } from "../../jobs/formatting.ts";
 import {
   AnalysisMetricList,
   EvidenceDisclosure,
@@ -7,7 +11,7 @@ import {
   EVIDENCE_TABLE_ROW,
   EVIDENCE_TABLE_WRAPPER,
 } from "./AnalysisShell.tsx";
-import { formatInteger, shortageText } from "./analysis-formatting.ts";
+import { formatInteger } from "./analysis-formatting.ts";
 
 function resourceLabel(
   resource: ResourcesAnalysisDto["bottlenecks"][number],
@@ -20,20 +24,72 @@ function resourceLabel(
 function resultLabel(status: ResourcesAnalysisDto["nodes"][number]["status"]) {
   if (status === "insufficient")
     return (
-      <span className="text-amber-800">
-        <span aria-hidden="true">● </span>Shortage
+      <span className="inline-flex items-center gap-1 whitespace-nowrap text-amber-800">
+        <span aria-hidden="true">●</span>
+        Shortage
       </span>
     );
   if (status === "sufficient")
     return (
-      <span className="text-slate-600">
-        <span aria-hidden="true">○ </span>No analyzed shortage
+      <span className="inline-flex items-center gap-1 whitespace-nowrap text-slate-600">
+        <span aria-hidden="true">○</span>
+        No analyzed shortage
       </span>
     );
   return (
-    <span className="text-gray-600">
-      <span aria-hidden="true">? </span>Unknown
+    <span className="inline-flex items-center gap-1 whitespace-nowrap text-gray-600">
+      <span aria-hidden="true">?</span>
+      Unknown
     </span>
+  );
+}
+
+function shortageResourceName(shortage: ResourceShortageDto): string {
+  if (shortage.resource === "cpus") return "CPU";
+  if (shortage.resource === "memoryMiB") return "Memory";
+  return shortage.gpuType ? `${shortage.gpuType} GPU` : "GPU";
+}
+
+function shortageValue(shortage: ResourceShortageDto, value: number): string {
+  if (shortage.resource === "memoryMiB") {
+    return formatMemoryMiB(value);
+  }
+  return formatInteger(value);
+}
+
+function ShortageLines({ shortages }: { shortages: ResourceShortageDto[] }) {
+  if (!shortages.length) return <>—</>;
+  return (
+    <div className="space-y-0.5 leading-5">
+      {shortages.map((shortage, index) => (
+        <div
+          key={`${shortage.resource}-${shortage.gpuType ?? ""}-${index}`}
+          className="flex flex-wrap items-baseline gap-x-2"
+        >
+          <span className="min-w-16 whitespace-nowrap font-medium text-gray-800">
+            {shortageResourceName(shortage)}
+          </span>
+          <span aria-hidden="true" className="text-gray-400">
+            ·
+          </span>
+          <span>
+            requested{" "}
+            <span className="tabular-nums">
+              {shortageValue(shortage, shortage.requested)}
+            </span>
+          </span>
+          <span aria-hidden="true" className="text-gray-400">
+            ·
+          </span>
+          <span>
+            unallocated{" "}
+            <span className="tabular-nums">
+              {shortageValue(shortage, shortage.currentlyUnallocated)}
+            </span>
+          </span>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -42,17 +98,17 @@ function NodeRows({ nodes }: Pick<ResourcesAnalysisDto, "nodes">) {
     <>
       {nodes.map((node) => (
         <tr key={node.name} className={EVIDENCE_TABLE_ROW}>
-          <td className="break-all px-3 py-2.5 font-mono font-medium text-gray-900">
+          <td className="whitespace-nowrap px-3 py-2.5 font-mono font-medium text-gray-900">
             {node.name}
           </td>
-          <td className="px-3 py-2.5 text-gray-600">
+          <td className="whitespace-nowrap px-3 py-2.5 text-gray-600">
             {node.state ?? "Unknown"}
           </td>
-          <td className="px-3 py-2.5 font-medium">
+          <td className="whitespace-nowrap px-3 py-2.5 font-medium">
             {resultLabel(node.status)}
           </td>
           <td className="px-3 py-2.5 text-gray-700">
-            {node.shortages.map(shortageText).join("; ") || "—"}
+            <ShortageLines shortages={node.shortages} />
           </td>
         </tr>
       ))}
@@ -63,7 +119,13 @@ function NodeRows({ nodes }: Pick<ResourcesAnalysisDto, "nodes">) {
 function NodeTable({ nodes }: Pick<ResourcesAnalysisDto, "nodes">) {
   return (
     <div className={EVIDENCE_TABLE_WRAPPER}>
-      <table className={`${EVIDENCE_TABLE} min-w-[680px]`}>
+      <table className={`${EVIDENCE_TABLE} min-w-[680px] table-fixed`}>
+        <colgroup>
+          <col className="w-[140px]" />
+          <col className="w-[105px]" />
+          <col className="w-[150px]" />
+          <col />
+        </colgroup>
         <thead className={EVIDENCE_TABLE_HEAD}>
           <tr>
             <th scope="col" className="px-3 py-2.5">
