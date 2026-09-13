@@ -11,6 +11,7 @@ import { BackToJobs, JobHeader } from './JobHeader.tsx';
 import { Resources } from './Resources.tsx';
 import { ResourceUsage } from './ResourceUsage.tsx';
 import { StateLead } from './StateLead.tsx';
+import { PendingAnalysis } from './PendingAnalysis.tsx';
 import { TimingScheduling } from './TimingScheduling.tsx';
 
 function JobPageLayout({ children }: { children: ReactNode }) {
@@ -67,6 +68,7 @@ function JobDetailsContent({ job, updatedAt }: { job: JobDto; updatedAt: string 
   return (
     <>
       <JobHeader job={job} snapshotMs={snapshotMs} snapshotTaken={snapshotTaken} />
+      {job.state === 'PENDING' ? <PendingAnalysis job={job} /> : null}
       <StateLead job={job} />
       <div className="mt-8 grid grid-cols-12 gap-x-10 gap-y-10">
         <div className="col-span-12 space-y-10 xl:col-span-7">

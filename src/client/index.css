@@ -1,1 +1,10 @@
 @import "tailwindcss";
+
+@theme {
+  --color-priority-blue: oklch(0.61 0.16 250);
+  --color-priority-teal: oklch(0.62 0.12 190);
+  --color-priority-violet: oklch(0.59 0.16 300);
+  --color-priority-indigo: oklch(0.56 0.15 275);
+  --color-priority-cyan: oklch(0.66 0.12 220);
+  --color-priority-fuchsia: oklch(0.62 0.12 330);
+}
