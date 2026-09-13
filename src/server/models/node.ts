@@ -69,6 +69,7 @@ interface ClusterNode {
   readonly gresRaw: string | null;
   readonly gresUsedRaw: string | null;
   readonly gpu: GpuInventory;
+  readonly gpuInventoryKnown: boolean;
 }
 
 export { NODE_BASE_STATES, nodeAvailability };

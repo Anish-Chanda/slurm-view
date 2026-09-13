@@ -3,6 +3,7 @@ import { parseTargetedJobStdout } from '../../../src/server/adapters/slurm/targe
 import type { MemoryRequirement } from '../../../src/server/adapters/slurm/targeted-job.js';
 import { fetchAssocSnapshot, parseAssocStdout } from '../../../src/server/adapters/slurm/sacctmgr-assoc.js';
 import { normalizeJob } from '../../../src/server/adapters/slurm/jobs.js';
+import { normalizeNode } from '../../../src/server/adapters/slurm/nodes.js';
 import { fetchLocalClusterName, parseClusterName } from '../../../src/server/adapters/slurm/cluster-name.js';
 import { UpstreamInvalidError } from '../../../src/server/adapters/slurm/errors.js';
 import { parseReservationJson, parseReservationText } from '../../../src/server/adapters/slurm/reservation.js';
@@ -81,6 +82,13 @@ function makeJob(partial: Partial<Job> & { id: string }): Job {
 }
 
 function makeNode(partial: Partial<ClusterNode> & { name: string }): ClusterNode {
+  const gpuInventoryKnown =
+    partial.gpuInventoryKnown ??
+    (partial.gresRaw !== undefined
+      ? partial.gresRaw !== null
+      : partial.gpu !== undefined
+        ? partial.gpu.total > 0
+        : false);
   return {
     partitions: ['debug'],
     state: 'IDLE',
@@ -97,6 +105,7 @@ function makeNode(partial: Partial<ClusterNode> & { name: string }): ClusterNode
     gresRaw: null,
     gresUsedRaw: null,
     gpu: { total: 0, allocated: 0, byType: {} },
+    gpuInventoryKnown,
     ...partial,
   };
 }
@@ -2439,5 +2448,268 @@ describe('Resources memory-request detection from memory modes', () => {
       nodes: [makeNode({ name: 'node01' })],
     });
     await expect(analyzeResources(single)).resolves.toBeNull();
+  });
+});
+
+describe('configured GPU GRES vs unknown inventory', () => {
+  const gpuJob = makeJob({
+    id: '910',
+    state: 'PENDING',
+    stateReason: 'Resources',
+    requested: { cpus: 1, memoryMiB: 1024, nodes: 1, gpus: { total: 1, byType: { a100: 1 } } },
+  });
+
+  test('raw gres="" means known zero GPU inventory: A100 request is insufficient', async () => {
+    const node = normalizeNode({
+      name: 'node-no-gpu',
+      partitions: ['debug'],
+      state: 'IDLE',
+      cpus: 8,
+      effective_cpus: 8,
+      real_memory: 16384,
+      alloc_cpus: 0,
+      alloc_memory: 0,
+      gres: '',
+    } as any);
+    expect(node.gpuInventoryKnown).toBe(true);
+    expect(node.gpu.total).toBe(0);
+    const result = await analyzeResources(makeCtx(gpuJob, { nodes: [node] }));
+    expect(result?.insufficientNodes).toBe(1);
+    expect(result?.unknownNodes).toBe(0);
+    expect(result?.nodes[0]?.status).toBe('insufficient');
+    expect(result?.nodes[0]?.shortages).toEqual([
+      { resource: 'gpus', gpuType: 'a100', requested: 1, currentlyUnallocated: 0 },
+    ]);
+  });
+
+  test('raw gres=null / omitted means GPU inventory unknown', async () => {
+    const node = normalizeNode({
+      name: 'node-omitted-gpu',
+      partitions: ['debug'],
+      state: 'IDLE',
+      cpus: 8,
+      effective_cpus: 8,
+      real_memory: 16384,
+      alloc_cpus: 0,
+      alloc_memory: 0,
+    } as any);
+    expect(node.gpuInventoryKnown).toBe(false);
+    const result = await analyzeResources(makeCtx(gpuJob, { nodes: [node] }));
+    expect(result?.unknownNodes).toBe(1);
+    expect(result?.insufficientNodes).toBe(0);
+    expect(result?.nodes[0]?.status).toBe('unknown');
+
+    const cpuShortNode = normalizeNode({
+      name: 'node-cpu-short',
+      partitions: ['debug'],
+      state: 'MIXED',
+      cpus: 8,
+      effective_cpus: 8,
+      real_memory: 16384,
+      alloc_cpus: 8,
+      alloc_memory: 0,
+    } as any);
+    const resultWithShort = await analyzeResources(makeCtx(gpuJob, { nodes: [cpuShortNode] }));
+    expect(resultWithShort?.nodes[0]?.status).toBe('insufficient');
+  });
+
+  test('raw gres="gpu:a100:4" calculates normal GPU capacity', async () => {
+    const node = normalizeNode({
+      name: 'node-with-gpu',
+      partitions: ['debug'],
+      state: 'MIXED',
+      cpus: 8,
+      effective_cpus: 8,
+      real_memory: 16384,
+      alloc_cpus: 0,
+      alloc_memory: 0,
+      gres: 'gpu:a100:4',
+      gres_used: 'gpu:a100:2',
+    } as any);
+    expect(node.gpuInventoryKnown).toBe(true);
+    expect(node.gpu.total).toBe(4);
+    expect(node.gpu.allocated).toBe(2);
+
+    const fit = await analyzeResources(makeCtx(gpuJob, {
+      nodes: [node],
+      memory: { kind: 'perNode', memoryMiB: 1024 },
+    }));
+    expect(fit?.nodes[0]?.status).toBe('sufficient');
+
+    const bigGpuJob = makeJob({
+      id: '911',
+      state: 'PENDING',
+      stateReason: 'Resources',
+      requested: { cpus: 1, memoryMiB: 1024, nodes: 1, gpus: { total: 3, byType: { a100: 3 } } },
+    });
+    const short = await analyzeResources(makeCtx(bigGpuJob, {
+      nodes: [node],
+      memory: { kind: 'perNode', memoryMiB: 1024 },
+    }));
+    expect(short?.nodes[0]?.status).toBe('insufficient');
+    expect(short?.nodes[0]?.shortages).toEqual([
+      { resource: 'gpus', gpuType: 'a100', requested: 3, currentlyUnallocated: 2 },
+    ]);
+  });
+
+  test('Nova scavenger partition fixture: gres="" with A100 request yields shortage of 0', async () => {
+    const novaNode = normalizeNode({
+      name: 'nova-scavenger-01',
+      partitions: ['scavenger'],
+      state: 'IDLE',
+      cpus: 72,
+      effective_cpus: 72,
+      real_memory: 189000,
+      alloc_cpus: 0,
+      alloc_memory: 0,
+      gres: '',
+      gres_used: '',
+      tres: 'cpu=72,mem=189000M,billing=1',
+    } as any);
+    expect(novaNode.gpuInventoryKnown).toBe(true);
+    expect(novaNode.gpu.total).toBe(0);
+
+    const novaJob = makeJob({
+      id: '12261244',
+      partition: 'scavenger',
+      state: 'PENDING',
+      stateReason: 'Resources',
+      requested: { cpus: 8, memoryMiB: 32768, nodes: 1, gpus: { total: 1, byType: { a100: 1 } } },
+    });
+    const result = await analyzeResources(makeCtx(novaJob, { nodes: [novaNode] }));
+    expect(result?.nodes[0]?.status).toBe('insufficient');
+    expect(result?.nodes[0]?.shortages).toEqual([
+      { resource: 'gpus', gpuType: 'a100', requested: 1, currentlyUnallocated: 0 },
+    ]);
+  });
+});
+
+describe('full association ancestry in hierarchy', () => {
+  // root -> research -> las -> chem -> lab
+  const fullChainEntries = [
+    assocEntry({ id: '1', parentId: null, account: 'root', parentAccount: null }),
+    assocEntry({ id: '2', parentId: '1', account: 'research', parentAccount: 'root' }),
+    assocEntry({ id: '3', parentId: '2', account: 'las', parentAccount: 'research', grpTres: { cpu: 84, memMiB: null, node: null, gres: { gpu: 84 } }, maxJobs: 10, grpTresRunMins: { cpu: 100000, memMiB: null, node: null, gres: {} } }),
+    assocEntry({ id: '6', parentId: '3', account: 'las', user: 'bob' }),
+    assocEntry({ id: '4', parentId: '3', account: 'chem', parentAccount: 'las' }),
+    assocEntry({ id: '5', parentId: '4', account: 'lab', parentAccount: 'chem', user: 'alice', grpTres: { cpu: 5, memMiB: null, node: null, gres: { gpu: 5 } }, maxJobs: 2, grpTresRunMins: { cpu: 10000, memMiB: null, node: null, gres: {} } }),
+  ];
+
+  test('TRES CPU limit includes full ancestry leaf to root with nulls for intermediate levels', async () => {
+    const pending = makeJob({
+      id: '1001',
+      state: 'PENDING',
+      stateReason: 'AssocGrpCpuLimit',
+      account: 'lab',
+      user: 'alice',
+      requested: { cpus: 1, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } },
+    });
+    const jobs = [
+      makeJob({ id: '1002', account: 'lab', user: 'alice', allocated: { cpus: 5, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } } }),
+      makeJob({ id: '1003', account: 'las', user: 'bob', allocated: { cpus: 72, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } } }),
+    ];
+    const ctx = {
+      ...makeCtx(pending, { jobs }),
+      assoc: { store: buildAssociationStore(fullChainEntries), capturedAt: new Date() },
+    };
+    const result = await analyzeAssocLimits(ctx);
+    expect(result?.limitingAccount).toBe('lab');
+    expect(result?.hierarchy).toEqual([
+      { account: 'lab', parent: 'chem', limit: 5, used: 5, limiting: true },
+      { account: 'chem', parent: 'las', limit: null, used: null, limiting: false },
+      { account: 'las', parent: 'research', limit: 84, used: 77, limiting: false },
+      { account: 'research', parent: 'root', limit: null, used: null, limiting: false },
+      { account: 'root', parent: null, limit: null, used: null, limiting: false },
+    ]);
+  });
+
+  test('GPU/GRES limit includes full ancestry leaf to root (Nova 12246026 pattern)', async () => {
+    const pending = makeJob({
+      id: '1004',
+      state: 'PENDING',
+      stateReason: 'AssocGrpGRES',
+      account: 'lab',
+      user: 'alice',
+      requested: { cpus: 1, memoryMiB: null, nodes: 1, gpus: { total: 1, byType: {} } },
+    });
+    const jobs = [
+      makeJob({ id: '1005', account: 'lab', user: 'alice', allocated: { cpus: 1, memoryMiB: null, nodes: 1, gpus: { total: 5, byType: {} }, gpuPresent: true } }),
+      makeJob({ id: '1006', account: 'las', user: 'bob', allocated: { cpus: 1, memoryMiB: null, nodes: 1, gpus: { total: 72, byType: {} }, gpuPresent: true } }),
+    ];
+    const ctx = {
+      ...makeCtx(pending, { jobs }),
+      assoc: { store: buildAssociationStore(fullChainEntries), capturedAt: new Date() },
+    };
+    const result = await analyzeAssocLimits(ctx);
+    expect(result?.limitingAccount).toBe('lab');
+    expect(result?.hierarchy).toEqual([
+      { account: 'lab', parent: 'chem', limit: 5, used: 5, limiting: true },
+      { account: 'chem', parent: 'las', limit: null, used: null, limiting: false },
+      { account: 'las', parent: 'research', limit: 84, used: 77, limiting: false },
+      { account: 'research', parent: 'root', limit: null, used: null, limiting: false },
+      { account: 'root', parent: null, limit: null, used: null, limiting: false },
+    ]);
+  });
+
+  test('MaxJobs includes full ancestry leaf to root', async () => {
+    const pending = makeJob({
+      id: '1007',
+      state: 'PENDING',
+      stateReason: 'AssocMaxJobsLimit',
+      account: 'lab',
+      user: 'alice',
+    });
+    const jobs = [
+      makeJob({ id: '1008', account: 'lab', user: 'alice' }),
+      makeJob({ id: '1009', account: 'lab', user: 'alice' }),
+    ];
+    const ctx = {
+      ...makeCtx(pending, { jobs }),
+      assoc: { store: buildAssociationStore(fullChainEntries), capturedAt: new Date() },
+    };
+    const result = await analyzeAssocLimits(ctx);
+    expect(result?.limitingAccount).toBe('lab');
+    expect(result?.hierarchy).toEqual([
+      { account: 'lab', parent: 'chem', limit: 2, used: 2, limiting: true },
+      { account: 'chem', parent: 'las', limit: null, used: null, limiting: false },
+      { account: 'las', parent: 'research', limit: 10, used: 2, limiting: false },
+      { account: 'research', parent: 'root', limit: null, used: null, limiting: false },
+      { account: 'root', parent: null, limit: null, used: null, limiting: false },
+    ]);
+  });
+
+  test('run-minute limit includes full ancestry leaf to root', async () => {
+    const pending = makeJob({
+      id: '1010',
+      state: 'PENDING',
+      stateReason: 'AssocGrpCPURunMinutesLimit',
+      account: 'lab',
+      user: 'alice',
+      timeLimit: { kind: 'finite', seconds: 3600 },
+      requested: { cpus: 1, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } },
+    });
+    const jobs = [
+      makeJob({
+        id: '1011',
+        account: 'lab',
+        qos: 'normal',
+        startTime: new Date(Date.now() - 60_000),
+        timeLimit: { kind: 'finite', seconds: 3600 },
+        allocated: { cpus: 1000, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} }, gpuPresent: true },
+      }),
+    ];
+    const ctx = {
+      ...makeCtx(pending, { jobs }),
+      assoc: { store: buildAssociationStore(fullChainEntries), capturedAt: new Date() },
+      qos: { store: buildQosStore([emptyQosEntry('normal')]), capturedAt: new Date() },
+    };
+    const result = await analyzeAssocLimits(ctx);
+    expect(result?.limitingAccount).toBe('lab');
+    expect(result?.hierarchy).toHaveLength(5);
+    expect(result?.hierarchy?.[0]).toMatchObject({ account: 'lab', parent: 'chem', limit: 10000, limiting: true });
+    expect(result?.hierarchy?.[1]).toEqual({ account: 'chem', parent: 'las', limit: null, used: null, limiting: false });
+    expect(result?.hierarchy?.[2]).toMatchObject({ account: 'las', parent: 'research', limit: 100000, limiting: false });
+    expect(result?.hierarchy?.[3]).toEqual({ account: 'research', parent: 'root', limit: null, used: null, limiting: false });
+    expect(result?.hierarchy?.[4]).toEqual({ account: 'root', parent: null, limit: null, used: null, limiting: false });
   });
 });

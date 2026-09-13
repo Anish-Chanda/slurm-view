@@ -55,14 +55,27 @@ interface LevelMeasurement {
   runningJobs: number;
 }
 
-function buildHierarchy(levels: LevelMeasurement[], limiting: AssociationEntry | null): LimitAnalysisDto['hierarchy'] {
-  return levels.map((level) => ({
-    account: level.entry.account,
-    parent: level.entry.parentAccount,
-    limit: level.effectiveLimit,
-    used: level.used,
-    limiting: limiting !== null && level.entry === limiting,
-  }));
+function buildHierarchy(
+  chain: AssociationEntry[],
+  levels: LevelMeasurement[],
+  limiting: AssociationEntry | null
+): LimitAnalysisDto['hierarchy'] {
+  const measurements = new Map<string, LevelMeasurement>();
+  for (const level of levels) {
+    if (level.entry.id !== null) {
+      measurements.set(level.entry.id, level);
+    }
+  }
+  return chain.map((entry) => {
+    const level = entry.id !== null ? measurements.get(entry.id) ?? null : null;
+    return {
+      account: entry.account,
+      parent: entry.parentAccount,
+      limit: level?.effectiveLimit ?? null,
+      used: level?.used ?? null,
+      limiting: limiting !== null && (entry === limiting || (entry.id !== null && entry.id === limiting.id)),
+    };
+  });
 }
 
 // The winner is the first proven level from the user association toward
@@ -178,7 +191,7 @@ async function analyzeAssocLimits(ctx: AnalyzerContext): Promise<LimitAnalysisDt
           account,
           user: job.user ?? undefined,
           runningJobs: tightest.runningJobs,
-          hierarchy: buildHierarchy(levels, null),
+          hierarchy: buildHierarchy(chain, levels, null),
         };
       }
       const limitingLevel = levels.find((level) => level.entry === limiting) as LevelMeasurement;
@@ -193,7 +206,7 @@ async function analyzeAssocLimits(ctx: AnalyzerContext): Promise<LimitAnalysisDt
         limitingAccount: limiting.account,
         user: job.user ?? undefined,
         runningJobs: limitingLevel.runningJobs,
-        hierarchy: buildHierarchy(levels, limiting),
+        hierarchy: buildHierarchy(chain, levels, limiting),
       };
     }
     case 'AssocGrpGRES': {
@@ -241,7 +254,7 @@ async function analyzeAssocLimits(ctx: AnalyzerContext): Promise<LimitAnalysisDt
           account,
           user: job.user ?? undefined,
           runningJobs: tightest.runningJobs,
-          hierarchy: buildHierarchy(levels, null),
+          hierarchy: buildHierarchy(chain, levels, null),
         };
       }
       const limitingLevel = levels.find((level) => level.entry === limiting) as LevelMeasurement;
@@ -257,7 +270,7 @@ async function analyzeAssocLimits(ctx: AnalyzerContext): Promise<LimitAnalysisDt
         limitingAccount: limiting?.account ?? undefined,
         user: job.user ?? undefined,
         runningJobs: limitingLevel.runningJobs,
-        hierarchy: buildHierarchy(levels, limiting),
+        hierarchy: buildHierarchy(chain, levels, limiting),
       };
     }
     case 'AssocMaxJobsLimit': {
@@ -288,6 +301,18 @@ async function analyzeAssocLimits(ctx: AnalyzerContext): Promise<LimitAnalysisDt
         })
         .slice(0, TOP_CONSUMERS_CAP)
         .map((entry) => ({ jobId: entry.id, user: entry.user, account: entry.account, value: 1 }));
+      const maxJobsLevels: LevelMeasurement[] = chain
+        .filter((entry) => entry.maxJobs !== null)
+        .map((entry) => {
+          const entryUsage = calculateAssociationEntryUserUsage(entry, assocStore, job.user as string, resolved, { jobs }, () => 1);
+          return {
+            entry,
+            effectiveLimit: entry.maxJobs,
+            used: entryUsage.unknown > 0 ? null : entryUsage.total,
+            knownUsed: entryUsage.total,
+            runningJobs: entryUsage.runningJobs,
+          };
+        });
       return {
         kind: 'limit',
         domain: 'association',
@@ -299,21 +324,7 @@ async function analyzeAssocLimits(ctx: AnalyzerContext): Promise<LimitAnalysisDt
         limitingAccount: winner.account,
         user: job.user,
         runningJobs: usage.runningJobs,
-        hierarchy: buildHierarchy(
-          chain
-            .filter((entry) => entry.maxJobs !== null)
-            .map((entry) => {
-              const entryUsage = calculateAssociationEntryUserUsage(entry, assocStore, job.user as string, resolved, { jobs }, () => 1);
-              return {
-                entry,
-                effectiveLimit: entry.maxJobs,
-                used: entryUsage.unknown > 0 ? null : entryUsage.total,
-                knownUsed: entryUsage.total,
-                runningJobs: entryUsage.runningJobs,
-              };
-            }),
-          winner
-        ),
+        hierarchy: buildHierarchy(chain, maxJobsLevels, winner),
         topConsumers,
       };
     }
@@ -375,7 +386,7 @@ async function analyzeAssocLimits(ctx: AnalyzerContext): Promise<LimitAnalysisDt
         limitingAccount: limiting?.account ?? undefined,
         user: job.user ?? undefined,
         runningJobs: limitingLevel.runningJobs,
-        hierarchy: buildHierarchy(levels, limiting),
+        hierarchy: buildHierarchy(chain, levels, limiting),
         topConsumers: [...topByJob.values()]
           .sort((a, b) => b.value - a.value)
           .slice(0, TOP_CONSUMERS_CAP)

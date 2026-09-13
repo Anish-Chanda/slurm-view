@@ -56,6 +56,7 @@ function normalizeNodeReason(input: unknown): string | null {
 }
 
 function normalizeNode(raw: RawNode): ClusterNode {
+  const gpuInventoryKnown = typeof raw.gres === 'string';
   const gres = typeof raw.gres === 'string' && raw.gres.trim().length > 0 ? raw.gres.trim() : null;
   const gresUsed =
     typeof raw.gres_used === 'string' && raw.gres_used.trim().length > 0
@@ -80,6 +81,7 @@ function normalizeNode(raw: RawNode): ClusterNode {
     gresRaw: gres,
     gresUsedRaw: gresUsed,
     gpu: parseNodeGres(gres, gresUsed),
+    gpuInventoryKnown,
   };
 }
 

@@ -85,6 +85,25 @@ describe('parseNodesStdout', () => {
     );
     expect(nodes[0]).toMatchObject({ allocCpus: 0, allocMemoryMiB: 0, freeMemoryMiB: null, cpuLoad: null });
   });
+
+  test('gpuInventoryKnown reflects presence of gres string', () => {
+    const nodes = parseNodesStdout(
+      'v0.0.45',
+      JSON.stringify({
+        nodes: [
+          { name: 'empty-gres', cpus: 4, effective_cpus: 4, real_memory: 8000, alloc_cpus: 0, alloc_memory: 0, gres: '' },
+          { name: 'with-gres', cpus: 4, effective_cpus: 4, real_memory: 8000, alloc_cpus: 0, alloc_memory: 0, gres: 'gpu:1' },
+          { name: 'no-gres', cpus: 4, effective_cpus: 4, real_memory: 8000, alloc_cpus: 0, alloc_memory: 0 },
+        ],
+      })
+    );
+    expect(nodes[0]?.gpuInventoryKnown).toBe(true);
+    expect(nodes[0]?.gresRaw).toBeNull();
+    expect(nodes[1]?.gpuInventoryKnown).toBe(true);
+    expect(nodes[1]?.gresRaw).toBe('gpu:1');
+    expect(nodes[2]?.gpuInventoryKnown).toBe(false);
+    expect(nodes[2]?.gresRaw).toBeNull();
+  });
 });
 
 describe('fetchNodes', () => {

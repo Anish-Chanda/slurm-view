@@ -4,6 +4,7 @@
 import { expandSlurmHostlist } from '../../../adapters/slurm/hostlist.js';
 import type { MemoryRequirement } from '../../../adapters/slurm/targeted-job.js';
 import type { AnalyzerContext } from '../types.js';
+import type { ClusterNode } from '../../../models/node.js';
 import type {
   ResourceKind,
   ResourceNodeAnalysisDto,
@@ -21,20 +22,12 @@ interface NodeCapacity {
   gpuKnown: boolean;
 }
 
-function nodeCapacity(node: {
-  effectiveCpus: number;
-  allocCpus: number;
-  totalMemoryMiB: number;
-  allocMemoryMiB: number;
-  gresRaw: string | null;
-  gresUsedRaw: string | null;
-  gpu: { total: number; allocated: number; byType: Record<string, { total: number; allocated: number }> };
-}): NodeCapacity {
+function nodeCapacity(node: ClusterNode): NodeCapacity {
   const gpuByType: Record<string, number> = {};
   for (const [type, inventory] of Object.entries(node.gpu.byType)) {
     gpuByType[type] = Math.max(0, inventory.total - inventory.allocated);
   }
-  const gpuKnown = node.gresRaw !== null || node.gresUsedRaw !== null;
+  const gpuKnown = node.gpuInventoryKnown;
   return {
     // Effective set minus allocated; configured CPUs outside the effective
     // set are not usable.

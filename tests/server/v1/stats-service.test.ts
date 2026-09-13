@@ -192,6 +192,7 @@ describe('restricted nodes keep their allocations', () => {
       partitions: ['p'],
       state: 'IDLE',
       stateFlags: [],
+      reason: null,
       cpus: 16,
       effectiveCpus: 16,
       allocCpus: 0,
@@ -203,6 +204,7 @@ describe('restricted nodes keep their allocations', () => {
       gresRaw: null,
       gresUsedRaw: null,
       gpu: { total: 0, allocated: 0, byType: {} },
+      gpuInventoryKnown: false,
       ...overrides,
     };
   }
@@ -325,6 +327,7 @@ describe('CPU capacity invariant', () => {
       partitions: ['p'],
       state: 'IDLE',
       stateFlags: [],
+      reason: null,
       cpus: 16,
       effectiveCpus: 16,
       allocCpus: 0,
@@ -336,6 +339,7 @@ describe('CPU capacity invariant', () => {
       gresRaw: null,
       gresUsedRaw: null,
       gpu: { total: 0, allocated: 0, byType: {} },
+      gpuInventoryKnown: false,
       ...overrides,
     };
   }
