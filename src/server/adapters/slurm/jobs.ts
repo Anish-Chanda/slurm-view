@@ -92,6 +92,15 @@ function normalizeNodeExpression(input: RawJob['nodes']): string | null {  if (t
   return null;
 }
 
+// Slurm omits zero counts in TRES alloc records, but names core resources
+// (cpu/mem/node/billing) when the allocation is known.
+function mentionsCompleteTresRecord(input: unknown): boolean {
+  if (typeof input !== 'string') {
+    return false;
+  }
+  return /(^|,)cpu=|(^|,)mem=|(^|,)node=|(^|,)billing=/i.test(input.trim());
+}
+
 function normalizeJob(raw: RawJob): Job {
   const jobId = String(raw.job_id).trim();
   const arrayJobId = normalizeArrayId(raw.array_job_id ?? null, 'array_job_id', jobId);
@@ -105,6 +114,7 @@ function normalizeJob(raw: RawJob): Job {
   const { base, flags } = splitJobState(raw.job_state);
   const requested = parseTresString(raw.tres_req_str ?? null);
   const allocated = parseTresString(raw.tres_alloc_str ?? null);
+  const hasGresDetail = Array.isArray(raw.gres_detail) && raw.gres_detail.length > 0;
   if (Array.isArray(raw.gres_detail)) {
     const detail = parseGresDetailEntries(raw.gres_detail);
     if (allocated.gpus.total === 0) {
@@ -153,6 +163,7 @@ function normalizeJob(raw: RawJob): Job {
       memoryMiB: allocated.memoryMiB,
       nodes: allocated.nodes,
       gpus: allocated.gpus,
+      gpuPresent: hasGresDetail || mentionsCompleteTresRecord(raw.tres_alloc_str ?? null),
     },
     workdir: cleanString(raw.current_working_directory),
     command: cleanString(raw.command),

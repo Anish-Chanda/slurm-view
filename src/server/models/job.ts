@@ -44,6 +44,9 @@ interface JobResources {
 
 interface AllocatedJobResources extends JobResources {
   nodes: number | null;
+  // Whether Slurm reported GPU allocation data. Absent data means unknown
+  // GPU usage, not zero.
+  readonly gpuPresent: boolean;
 }
 
 interface Job {

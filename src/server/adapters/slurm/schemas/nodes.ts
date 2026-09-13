@@ -17,6 +17,7 @@ const rawNodeSchema = z.object({
   gres: z.string().nullish(),
   gres_used: z.string().nullish(),
   gres_drained: z.string().nullish(),
+  reason: z.string().nullish(),
 });
 
 type RawNode = z.infer<typeof rawNodeSchema>;

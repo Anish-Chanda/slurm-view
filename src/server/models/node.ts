@@ -51,11 +51,13 @@ interface GpuInventory {
 }
 
 // Memory fields are MiB. freeMemoryMiB is null when Slurm omits it.
+// reason is the node reason text (e.g. down/drained), or null.
 interface ClusterNode {
   readonly name: string;
   readonly partitions: readonly string[];
   readonly state: NodeBaseState;
   readonly stateFlags: readonly string[];
+  readonly reason: string | null;
   readonly cpus: number;
   readonly effectiveCpus: number;
   readonly allocCpus: number;

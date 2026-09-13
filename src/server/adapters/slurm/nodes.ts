@@ -47,6 +47,14 @@ function normalizeFreeMemory(input: unknown): number | null {
   return Math.round(value);
 }
 
+function normalizeNodeReason(input: unknown): string | null {
+  if (typeof input !== 'string') {
+    return null;
+  }
+  const trimmed = input.trim();
+  return trimmed.length > 0 && trimmed !== '(null)' ? trimmed : null;
+}
+
 function normalizeNode(raw: RawNode): ClusterNode {
   const gres = typeof raw.gres === 'string' && raw.gres.trim().length > 0 ? raw.gres.trim() : null;
   const gresUsed =
@@ -60,6 +68,7 @@ function normalizeNode(raw: RawNode): ClusterNode {
     partitions: Array.isArray(raw.partitions) ? [...raw.partitions] : [],
     state: base,
     stateFlags: flags,
+    reason: normalizeNodeReason(raw.reason ?? null),
     cpus: requiredSlurmNumber(raw.cpus ?? null, 'cpus', raw.name, Math.floor),
     effectiveCpus: requiredSlurmNumber(raw.effective_cpus ?? null, 'effective_cpus', raw.name, Math.floor),
     allocCpus: requiredSlurmNumber(raw.alloc_cpus ?? null, 'alloc_cpus', raw.name, Math.floor),

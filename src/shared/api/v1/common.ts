@@ -1,6 +1,7 @@
 // RFC 9457 Problem Details for HTTP APIs.
 export const ProblemCode = {
   BadRequest: 'BAD_REQUEST',
+  JobNotPending: 'JOB_NOT_PENDING',
   NotFound: 'NOT_FOUND',
   SlurmUnavailable: 'SLURM_UNAVAILABLE',
   UpstreamInvalidResponse: 'UPSTREAM_INVALID_RESPONSE',
@@ -14,6 +15,11 @@ export const ProblemDefinitions = {
     type: 'urn:slurm-view:problem:bad-request',
     status: 400,
     title: 'Bad Request',
+  },
+  [ProblemCode.JobNotPending]: {
+    type: 'urn:slurm-view:problem:job-not-pending',
+    status: 409,
+    title: 'Job Not Pending',
   },
   [ProblemCode.NotFound]: {
     type: 'urn:slurm-view:problem:not-found',

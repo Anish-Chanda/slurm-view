@@ -14,6 +14,26 @@ export type {
   TimeLimitDto,
 } from './jobs.js';
 export { CANONICAL_JOB_ID_PATTERN, JOB_STATES, JOBS_PAGE_DEFAULT, JOBS_PAGE_SIZE_DEFAULT, JOBS_PAGE_SIZE_MAX } from './jobs.js';
+export type {
+  PendingAnalysisDto,
+  PendingAnalysisResponse,
+  PartitionAnalysisDto,
+  RequiredNodesAnalysisDto,
+  ReservationAnalysisDto,
+  ArrayThrottleAnalysisDto,
+  DependencyAnalysisDto,
+  DependencyClauseDto,
+  DependencyStatus,
+  DependencyTargetDto,
+  LimitAnalysisDto,
+  LimitMetric,
+  PriorityAnalysisDto,
+  PriorityFactorDto,
+  ResourceKind,
+  ResourceNodeAnalysisDto,
+  ResourceShortageDto,
+  ResourcesAnalysisDto,
+} from './pending-analysis.js';
 export type { PartitionsResponse } from './partitions.js';
 export type { UiSettingsResponse, ChartViewPolicy, NavbarViewPolicy } from './ui-settings.js';
 export type {
