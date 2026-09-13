@@ -123,15 +123,14 @@ function AssociationTreeLevel({
       ? "No limit"
       : `${level.used === null ? "Unknown" : metricQuantity(metric, level.used, gpuType)} / ${metricQuantity(metric, level.limit, gpuType)}`;
   const connectedToParent = index > 0 && index <= 5;
+  const canIndentChild = index < 5;
 
   return (
-    <li
-      className={`relative min-w-0 ${connectedToParent ? "pl-5" : ""}`}
-    >
+    <li className="relative min-w-0">
       {connectedToParent ? (
         <span
           aria-hidden="true"
-          className="absolute left-0 -top-1.5 h-[calc(50%+0.375rem)] w-5 border-b border-l border-gray-300"
+          className="absolute -left-5 top-3.5 w-5 border-t border-gray-300"
         />
       ) : null}
       <div
@@ -168,7 +167,13 @@ function AssociationTreeLevel({
         ) : null}
       </div>
       {index < levels.length - 1 ? (
-        <ol className="mt-1.5">
+        <ol
+          className={
+            canIndentChild
+              ? "relative mt-1.5 pl-5 before:absolute before:left-0 before:-top-1.5 before:h-6 before:border-l before:border-gray-300 before:content-['']"
+              : "mt-1.5"
+          }
+        >
           <AssociationTreeLevel
             levels={levels}
             index={index + 1}
@@ -276,18 +281,12 @@ function LimitAnalysis({ analysis }: { analysis: LimitAnalysisDto }) {
   return (
     <div>
       {context ? <p className="mb-4 text-sm text-gray-600">{context}</p> : null}
-      <div
-        className={
-          analysis.domain === "association" && analysis.hierarchy?.length
-            ? "grid gap-8 xl:grid-cols-[minmax(15rem,2fr)_minmax(0,3fr)]"
-            : undefined
-        }
-      >
-        <LimitUsage analysis={analysis} />
-        {analysis.domain === "association" ? (
+      <LimitUsage analysis={analysis} />
+      {analysis.domain === "association" && analysis.hierarchy?.length ? (
+        <div className="mt-6 border-t border-gray-100 pt-6">
           <AssociationTree analysis={analysis} />
-        ) : null}
-      </div>
+        </div>
+      ) : null}
       <Consumers analysis={analysis} />
     </div>
   );
