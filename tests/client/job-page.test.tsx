@@ -94,6 +94,8 @@ interface PageHandlers {
   updatedAt?: string;
   efficiency?: unknown;
   efficiencyStatus?: number;
+  pendingAnalysis?: unknown;
+  pendingAnalysisStatus?: number;
 }
 
 function setupFetch(handlers: PageHandlers) {
@@ -106,6 +108,17 @@ function setupFetch(handlers: PageHandlers) {
         return Promise.resolve(problemJson('UPSTREAM_INVALID_RESPONSE', handlers.efficiencyStatus));
       }
       return Promise.resolve(okJson(handlers.efficiency ?? EFFICIENCY_BODY));
+    }
+    if (url.includes('/pending-analysis')) {
+      if (handlers.pendingAnalysisStatus && handlers.pendingAnalysisStatus >= 400) {
+        const code = handlers.pendingAnalysisStatus === 409 ? 'JOB_NOT_PENDING' : 'UPSTREAM_INVALID_RESPONSE';
+        return Promise.resolve(problemJson(code, handlers.pendingAnalysisStatus));
+      }
+      return Promise.resolve(okJson(handlers.pendingAnalysis ?? {
+        stateReason: handlers.job?.stateReason ?? null,
+        analysis: null,
+        updatedAt: handlers.updatedAt ?? '2026-09-12T16:00:00.000Z',
+      }));
     }
     if (url.includes('/api/v1/jobs/')) {
       if (handlers.jobStatus && handlers.jobStatus >= 400) {
@@ -141,7 +154,7 @@ function timingValue(label: string): string | null {
 }
 
 function detailFetchCount(fetchMock: jest.Mock): number {
-  return fetchMock.mock.calls.filter(([url]) => (url as string).includes('/api/v1/jobs/101')).length;
+  return fetchMock.mock.calls.filter(([url]) => (url as string).includes('/api/v1/jobs/101') && !(url as string).includes('/pending-analysis')).length;
 }
 
 function renderJobPage(
@@ -195,16 +208,14 @@ afterEach(() => {
 });
 
 describe('JobPage states', () => {
-  test('pending leads with a documented reason label plus the raw code', async () => {
+  test('pending diagnostic shows a documented reason label plus the raw code', async () => {
     renderJobPage('100_2', {
       job: makeJob({ id: '100_2', state: 'PENDING', stateReason: 'Resources', startTime: null, endTime: null }),
     });
 
     await waitFor(() => expect(screen.getByText('Waiting for resources')).toBeTruthy());
-    expect(screen.getByText(/Slurm reason:/)).toBeTruthy();
-    // Raw code plus the Resources section heading, never a third copy from
-    // Scheduling: the lead owns the reason for waiting jobs.
-    expect(screen.getAllByText('Resources').length).toBe(2);
+    expect(screen.getByText('Slurm: Resources')).toBeTruthy();
+    expect(screen.getByText('WHY THIS JOB IS WAITING')).toBeTruthy();
     expect(screen.getByText(/only the reason encountered by the scheduling attempt/)).toBeTruthy();
     expect(screen.getByText(/Snapshot taken/)).toBeTruthy();
     expect(screen.queryByText('Resource usage')).toBeNull();
@@ -217,7 +228,7 @@ describe('JobPage states', () => {
     });
 
     await waitFor(() => expect(screen.getByText('Held by user or account coordinator')).toBeTruthy());
-    expect(screen.getByText('JobHeldUser')).toBeTruthy();
+    expect(screen.getByText('Slurm: JobHeldUser')).toBeTruthy();
   });
 
   test('unknown reasons show the raw code without guessing', async () => {
@@ -225,7 +236,7 @@ describe('JobPage states', () => {
       job: makeJob({ id: '100_2', state: 'PENDING', stateReason: 'SomethingNew', startTime: null, endTime: null }),
     });
 
-    await waitFor(() => expect(screen.getByText('SomethingNew')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Slurm: SomethingNew')).toBeTruthy());
     expect(screen.getByText('Waiting')).toBeTruthy();
   });
 
@@ -246,9 +257,7 @@ describe('JobPage states', () => {
     });
 
     await waitFor(() => expect(screen.getByText('Waiting 64d')).toBeTruthy());
-    expect(
-      screen.getByText('Higher-priority jobs exist for this partition or reservation')
-    ).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('Higher-priority jobs exist for this partition or reservation')).toBeTruthy());
   });
 
   test('running summarizes allocation once with canonical detail below', async () => {
@@ -907,5 +916,51 @@ describe('job details snapshot behavior', () => {
 
     expect(screen.getByText('train-model')).toBeTruthy();
     expect(screen.queryByText(/is no longer available/)).toBeNull();
+  });
+
+  test.each([123, {}, { kind: 'somethingNew' }, { kind: 'resources' }])(
+    'malformed pending analysis %p stays contained without replacing job details',
+    async (pendingAnalysis) => {
+      const view = renderJobPage('101', {
+        job: makeJob({ state: 'PENDING', stateReason: 'Resources', startTime: null }),
+        pendingAnalysis,
+      });
+
+      await waitFor(() => expect(screen.getByText('Pending analysis returned malformed data.')).toBeTruthy());
+      expect(screen.getByText('train-model')).toBeTruthy();
+      expect(screen.queryByText(/Analyzed at/)).toBeNull();
+      expect(screen.queryByText('Resource evidence')).toBeNull();
+      view.unmount();
+    }
+  );
+
+  test('pending analysis has contained 409 and 404 states', async () => {
+    const changed = renderJobPage('101', { job: makeJob({ state: 'PENDING', startTime: null }), pendingAnalysisStatus: 409 });
+    await waitFor(() => expect(screen.getByText(/Job state changed/)).toBeTruthy());
+    expect(screen.getByText('train-model')).toBeTruthy();
+    changed.unmount();
+
+    renderJobPage('101', { job: makeJob({ state: 'PENDING', startTime: null }), pendingAnalysisStatus: 404 });
+    await waitFor(() => expect(screen.getByText(/Pending analysis is no longer available/)).toBeTruthy());
+    expect(screen.getByText('train-model')).toBeTruthy();
+  });
+
+  test('a transient pending-analysis failure can be retried', async () => {
+    const handlers: PageHandlers = { job: makeJob({ state: 'PENDING', startTime: null }), pendingAnalysisStatus: 503 };
+    renderJobPage('101', handlers);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy());
+    handlers.pendingAnalysisStatus = undefined;
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.getByText('WHY THIS JOB IS WAITING')).toBeTruthy());
+  });
+
+  test('only PENDING jobs request pending analysis', async () => {
+    const pending = renderJobPage('101', { job: makeJob({ state: 'PENDING', startTime: null }) });
+    await waitFor(() => expect(pending.fetchMock.mock.calls.filter(([url]) => (url as string).includes('/pending-analysis'))).toHaveLength(1));
+    pending.unmount();
+
+    const running = renderJobPage('101', { job: makeJob({ state: 'RUNNING' }) });
+    await waitFor(() => expect(screen.getByText('train-model')).toBeTruthy());
+    expect(running.fetchMock.mock.calls.filter(([url]) => (url as string).includes('/pending-analysis'))).toHaveLength(0);
   });
 });
