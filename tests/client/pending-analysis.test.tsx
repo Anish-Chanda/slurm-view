@@ -129,7 +129,7 @@ describe("PendingAnalysis variants", () => {
     expect(
       await screen.findByText("Negative factor contributions"),
     ).toBeTruthy();
-    expect(screen.getByText("site: -2")).toBeTruthy();
+    expect(screen.getByText("Site: -2")).toBeTruthy();
     expect(screen.getByText("0.507817")).toBeTruthy();
     expect(screen.getByText("0.001817")).toBeTruthy();
     expect(screen.getByText("0.000001")).toBeTruthy();
@@ -174,19 +174,78 @@ describe("PendingAnalysis variants", () => {
         requested: null,
         hierarchy: [
           {
-            account: "a",
+            account: "project-a",
+            user: "user-a",
+            partition: "gpu",
+            parent: "project-a",
+            limit: null,
+            used: null,
+            limiting: false,
+          },
+          {
+            account: "project-a",
+            parent: "department-a",
+            limit: 5,
+            used: 5,
+            limiting: true,
+          },
+          {
+            account: "department-a",
+            parent: "division-a",
+            limit: null,
+            used: null,
+            limiting: false,
+          },
+          {
+            account: "division-a",
+            parent: "organization-a",
+            limit: 84,
+            used: 76,
+            limiting: false,
+          },
+          {
+            account: "organization-a",
+            parent: "root",
+            limit: null,
+            used: null,
+            limiting: false,
+          },
+          {
+            account: "root",
             parent: null,
             limit: null,
             used: null,
             limiting: false,
           },
         ],
-        topConsumers: [{ jobId: "99", user: "u", account: "a", value: 20 }],
+        topConsumers: [
+          { jobId: "99", user: "user-b", account: "project-a", value: 20 },
+        ],
       },
       "AssociationResourceLimit",
     );
-    expect(await screen.findByText(/No limit at this level/)).toBeTruthy();
+    expect((await screen.findAllByText("No limit")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("20 CPU-minutes").length).toBeGreaterThan(0);
+    const hierarchy = screen.getByRole("list", {
+      name: "Account hierarchy from root to user association",
+    });
+    const hierarchyText = hierarchy.textContent ?? "";
+    const labels = [
+      "root",
+      "organization-a",
+      "division-a",
+      "department-a",
+      "project-a",
+      "user-a @ project-a",
+    ];
+    let previous = -1;
+    for (const label of labels) {
+      const position = hierarchyText.indexOf(label);
+      expect(position).toBeGreaterThan(previous);
+      previous = position;
+    }
+    expect(screen.getByText("gpu")).toBeTruthy();
+    expect(screen.getByText("Limiting level")).toBeTruthy();
     unmount();
     renderAnalysis(
       {
@@ -204,6 +263,40 @@ describe("PendingAnalysis variants", () => {
     expect(
       await screen.findByText("Current jobs in this limit scope"),
     ).toBeTruthy();
+    unmount();
+    renderAnalysis(
+      {
+        kind: "limit",
+        domain: "qos",
+        metric: "gpus",
+        gpuType: "customType",
+        limit: 4,
+        used: 4,
+        requested: 1,
+        qos: "q",
+      },
+      "QOSGrpGRES",
+    );
+    expect(await screen.findByText("customType GPU limit")).toBeTruthy();
+    expect(screen.getByText(/4 customType GPUs currently in use/)).toBeTruthy();
+    expect(screen.getByText("1 customType GPU")).toBeTruthy();
+  });
+
+  test("limit usage reports the actual percentage above the visual bar maximum", async () => {
+    renderAnalysis(
+      {
+        kind: "limit",
+        domain: "qos",
+        metric: "gpus",
+        limit: 5,
+        used: 6,
+        requested: 1,
+        qos: "q",
+      },
+      "QOSGrpGRES",
+    );
+
+    expect(await screen.findByText("120%")).toBeTruthy();
   });
 
   test("required nodes, partition, reservation, array throttle, null analysis, and unknown reason stay conservative", async () => {

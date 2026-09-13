@@ -116,7 +116,15 @@ function PendingAnalysis({ job }: { job: JobDto }) {
 
   return (
     <>
-      <AnalysisShell reason={stateReason} updatedAt={updatedAt}>
+      <AnalysisShell
+        reason={stateReason}
+        updatedAt={updatedAt}
+        footerNote={
+          analysis?.kind === "resources"
+            ? "Resource fit is not scheduler eligibility"
+            : undefined
+        }
+      >
         {body}
       </AnalysisShell>
       {query.isError ? (

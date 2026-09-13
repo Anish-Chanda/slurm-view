@@ -12,7 +12,7 @@ import { UpstreamInvalidError } from '../../../src/server/adapters/slurm/errors.
 
 const COMPLETED_SEFF = `Job ID: 12345
 Cluster: mycluster
-User/Group: alice/research
+User/Group: alice/organization-a
 State: COMPLETED (exit code 0)
 Nodes: 2
 Cores per node: 16
@@ -37,7 +37,7 @@ Memory Efficiency: 25.00% of 2.00 GB (2.00 GB/core)
 
 const PER_CORE_MULTI_NODE_SEFF = `Job ID: 99
 Cluster: mycluster
-User/Group: carol/research
+User/Group: carol/organization-a
 State: COMPLETED (exit code 0)
 Nodes: 4
 Cores per node: 16

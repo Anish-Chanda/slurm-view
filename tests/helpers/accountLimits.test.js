@@ -106,17 +106,17 @@ describe('accountLimits', () => {
     describe('fetchQOSLimits', () => {
         it('should parse QOS MaxTRESPerUser and MaxJobsPerUser limits', () => {
             executeCommand.mockReturnValue([
-                ['400thread', '0', '', '', '', '', '', '', 'cpu=20000,mem=150T,node=150', '', 'cpu=2000,mem=18T,node=16', ''].join('|'),
+                ['qos-a', '0', '', '', '', '', '', '', 'cpu=20000,mem=150T,node=150', '', 'cpu=2000,mem=18T,node=16', ''].join('|'),
                 ['memlimit', '0', '', '', '', '', '', '', '', '', 'cpu=2000,mem=18T,node=16', '25'].join('|')
             ].join('\n'));
 
             const result = fetchQOSLimits();
 
-            expect(result.qos['400thread'].grpTRES.cpu).toBe(20000);
-            expect(result.qos['400thread'].grpTRES.node).toBe(150);
-            expect(result.qos['400thread'].maxTRESPerUser.cpu).toBe(2000);
-            expect(result.qos['400thread'].maxTRESPerUser.mem).toBe(18874368);
-            expect(result.qos['400thread'].maxTRESPerUser.node).toBe(16);
+            expect(result.qos['qos-a'].grpTRES.cpu).toBe(20000);
+            expect(result.qos['qos-a'].grpTRES.node).toBe(150);
+            expect(result.qos['qos-a'].maxTRESPerUser.cpu).toBe(2000);
+            expect(result.qos['qos-a'].maxTRESPerUser.mem).toBe(18874368);
+            expect(result.qos['qos-a'].maxTRESPerUser.node).toBe(16);
             expect(result.qos.memlimit.maxJobsPerUser).toBe(25);
         });
     });
@@ -124,17 +124,17 @@ describe('accountLimits', () => {
     describe('buildAncestorChain', () => {
         const mockLimits = {
             accounts: {
-                'niemi-lab': { parent: 'stat' },
-                'stat': { parent: 'las' },
-                'las': { parent: 'research' },
-                'research': { parent: 'root' },
+                'project-a': { parent: 'department-a' },
+                'department-a': { parent: 'division-a' },
+                'division-a': { parent: 'organization-a' },
+                'organization-a': { parent: 'root' },
                 'root': { parent: null }
             }
         };
 
         it('should build correct ancestor chain', () => {
-            const chain = buildAncestorChain('niemi-lab', mockLimits);
-            expect(chain).toEqual(['niemi-lab', 'stat', 'las', 'research', 'root']);
+            const chain = buildAncestorChain('project-a', mockLimits);
+            expect(chain).toEqual(['project-a', 'department-a', 'division-a', 'organization-a', 'root']);
         });
 
         it('should handle root account', () => {
@@ -143,8 +143,8 @@ describe('accountLimits', () => {
         });
 
         it('should handle single-level account', () => {
-            const chain = buildAncestorChain('research', mockLimits);
-            expect(chain).toEqual(['research', 'root']);
+            const chain = buildAncestorChain('organization-a', mockLimits);
+            expect(chain).toEqual(['organization-a', 'root']);
         });
 
         it('should prevent infinite loops with circular references', () => {
@@ -199,12 +199,12 @@ describe('accountLimits', () => {
 
     describe('fetchAccountLimits', () => {
         const mockSacctmgrOutput = `Cluster|Account|User|ParentName|GrpMem|GrpCPUs|GrpTRES|GrpSubmitJobs|MaxJobs|MaxSubmitJobs|
-nova|root|||||||||||
-nova|research||root||||||||||
-nova|las||research|93959424|17000|cpu=17000,gres/gpu=80,mem=93959424M|||||||
-nova|stat||las||||||||||
-nova|niemi-lab||stat|38000000|7200|cpu=7200,gres/gpu=5,mem=38000000M|||||||
-nova|niemi-lab|user1||100|10|cpu=10,mem=100M|||||||`;
+cluster-a|root|||||||||||
+cluster-a|organization-a||root||||||||||
+cluster-a|division-a||organization-a|93959424|17000|cpu=17000,gres/gpu=80,mem=93959424M|||||||
+cluster-a|department-a||division-a||||||||||
+cluster-a|project-a||department-a|38000000|7200|cpu=7200,gres/gpu=5,mem=38000000M|||||||
+cluster-a|project-a|user-a||100|10|cpu=10,mem=100M|||||||`;
 
         beforeEach(() => {
             jest.clearAllMocks();
@@ -217,10 +217,10 @@ nova|niemi-lab|user1||100|10|cpu=10,mem=100M|||||||`;
 
             expect(result).toHaveProperty('timestamp');
             expect(result).toHaveProperty('accounts');
-            expect(result.accounts['niemi-lab']).toBeDefined();
-            expect(result.accounts['niemi-lab'].parent).toBe('stat');
-            expect(result.accounts['niemi-lab'].grpMem).toBe(38000000);
-            expect(result.accounts['niemi-lab'].grpCPUs).toBe(7200);
+            expect(result.accounts['project-a']).toBeDefined();
+            expect(result.accounts['project-a'].parent).toBe('department-a');
+            expect(result.accounts['project-a'].grpMem).toBe(38000000);
+            expect(result.accounts['project-a'].grpCPUs).toBe(7200);
         });
 
         it('should parse TRES limits correctly', () => {
@@ -228,12 +228,12 @@ nova|niemi-lab|user1||100|10|cpu=10,mem=100M|||||||`;
 
             const result = fetchAccountLimits();
 
-            expect(result.accounts['las'].grpMem).toBe(93959424);
-            expect(result.accounts['las'].grpCPUs).toBe(17000);
-            expect(result.accounts['las'].grpTRES).toBeDefined();
-            expect(result.accounts['las'].grpTRES.mem).toBe(93959424);
-            expect(result.accounts['las'].grpTRES.cpu).toBe(17000);
-            expect(result.accounts['las'].grpTRES.gres.gpu).toBe(80);
+            expect(result.accounts['division-a'].grpMem).toBe(93959424);
+            expect(result.accounts['division-a'].grpCPUs).toBe(17000);
+            expect(result.accounts['division-a'].grpTRES).toBeDefined();
+            expect(result.accounts['division-a'].grpTRES.mem).toBe(93959424);
+            expect(result.accounts['division-a'].grpTRES.cpu).toBe(17000);
+            expect(result.accounts['division-a'].grpTRES.gres.gpu).toBe(80);
         });
 
         it('should handle accounts without limits', () => {
@@ -241,9 +241,9 @@ nova|niemi-lab|user1||100|10|cpu=10,mem=100M|||||||`;
 
             const result = fetchAccountLimits();
 
-            expect(result.accounts['research']).toBeDefined();
-            expect(result.accounts['research'].grpMem).toBeNull();
-            expect(result.accounts['research'].grpCPUs).toBeNull();
+            expect(result.accounts['organization-a']).toBeDefined();
+            expect(result.accounts['organization-a'].grpMem).toBeNull();
+            expect(result.accounts['organization-a'].grpCPUs).toBeNull();
         });
 
         it('should group user associations under accounts', () => {
@@ -251,9 +251,9 @@ nova|niemi-lab|user1||100|10|cpu=10,mem=100M|||||||`;
 
             const result = fetchAccountLimits();
 
-            expect(result.accounts['niemi-lab'].users).toBeDefined();
-            expect(typeof result.accounts['niemi-lab'].users).toBe('object');
-            expect(result.accounts['niemi-lab'].users['user1']).toBeDefined();
+            expect(result.accounts['project-a'].users).toBeDefined();
+            expect(typeof result.accounts['project-a'].users).toBe('object');
+            expect(result.accounts['project-a'].users['user-a']).toBeDefined();
         });
 
         it('should handle sacctmgr command failure', () => {
@@ -266,9 +266,9 @@ nova|niemi-lab|user1||100|10|cpu=10,mem=100M|||||||`;
 
         it('should skip empty lines', () => {
             const outputWithEmpty = `Cluster|Account|User|ParentName|GrpMem|GrpCPUs|GrpTRES|
-nova|root|||||||
+cluster-a|root|||||||
 
-nova|research||root||||||`;
+cluster-a|organization-a||root||||||`;
             executeCommand.mockReturnValue(outputWithEmpty);
 
             const result = fetchAccountLimits();

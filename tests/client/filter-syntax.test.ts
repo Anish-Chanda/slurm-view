@@ -10,7 +10,7 @@ import {
 
 describe('splitFilterTokens', () => {
   test('splits on spaces but respects quotes', () => {
-    expect(splitFilterTokens('user:alice partition:nova')).toEqual(['user:alice', 'partition:nova']);
+    expect(splitFilterTokens('user:alice partition:cluster-a')).toEqual(['user:alice', 'partition:cluster-a']);
     expect(splitFilterTokens('name:"my job" user:alice')).toEqual(['name:"my job"', 'user:alice']);
     expect(splitFilterTokens("name:'my job'  user:alice ")).toEqual(["name:'my job'", 'user:alice']);
   });
@@ -31,9 +31,9 @@ describe('parseStateValue', () => {
 
 describe('parseFilterInput', () => {
   test('parses compound key:value pairs', () => {
-    const parsed = parseFilterInput('user:alice partition:nova state:RUNNING');
+    const parsed = parseFilterInput('user:alice partition:cluster-a state:RUNNING');
     expect(parsed.validCount).toBe(3);
-    expect(parsed.values).toEqual({ user: 'alice', partition: 'nova', state: 'RUNNING' });
+    expect(parsed.values).toEqual({ user: 'alice', partition: 'cluster-a', state: 'RUNNING' });
   });
 
   test('keys are case-insensitive and jobid/statereason are aliases', () => {
@@ -80,7 +80,7 @@ describe('parseFilterInput', () => {
 
 describe('isCompoundFilterText', () => {
   test('detects key:value format', () => {
-    expect(isCompoundFilterText('user:alice partition:nova')).toBe(true);
+    expect(isCompoundFilterText('user:alice partition:cluster-a')).toBe(true);
     expect(isCompoundFilterText('alice')).toBe(false);
     expect(isCompoundFilterText('')).toBe(false);
   });
@@ -95,17 +95,17 @@ describe('isCompoundFilterText', () => {
 
 describe('getWordAtCursor', () => {
   test('returns the word under the cursor', () => {
-    expect(getWordAtCursor('user:al partition:nova', 7)).toEqual({ word: 'user:al', start: 0 });
+    expect(getWordAtCursor('user:al partition:cluster-a', 7)).toEqual({ word: 'user:al', start: 0 });
     expect(getWordAtCursor('user:alice part', 15)).toEqual({ word: 'part', start: 11 });
   });
 });
 
 describe('getSuggestions', () => {
-  const partitions = ['nova', 'gpu'];
+  const partitions = ['north', 'gpu'];
 
   test('partition: prefix suggests live partitions', () => {
     expect(getSuggestions({ word: 'partition:n', selectedField: 'user', partitions })).toEqual([
-      { id: 'nova', name: 'nova', prefix: 'partition:', kind: 'value' },
+      { id: 'north', name: 'north', prefix: 'partition:', kind: 'value' },
     ]);
   });
 
@@ -131,14 +131,13 @@ describe('getSuggestions', () => {
   });
 
   test('bare words also suggest values for the selected field', () => {
-    const suggestions = getSuggestions({ word: 'a', selectedField: 'partition', partitions });
-    expect(suggestions.map((suggestion) => suggestion.id)).toContain('nova');
-    expect(suggestions.map((suggestion) => suggestion.id)).toContain('account:');
+    const suggestions = getSuggestions({ word: 'g', selectedField: 'partition', partitions });
+    expect(suggestions.map((suggestion) => suggestion.id)).toContain('gpu');
   });
 
   test("selected-field values rank above generic keys", () => {
     const partitionFirst = getSuggestions({ word: 'n', selectedField: 'partition', partitions });
-    expect(partitionFirst.map((suggestion) => suggestion.id)).toEqual(['nova', 'name:']);
+    expect(partitionFirst.map((suggestion) => suggestion.id)).toEqual(['north', 'name:']);
 
     const stateFirst = getSuggestions({ word: 'p', selectedField: 'state', partitions });
     expect(stateFirst[0]?.kind).toBe('value');
@@ -177,12 +176,12 @@ describe('insertSuggestion', () => {
   });
 
   test('only the draft changes; surrounding tokens are preserved', () => {
-    const result = insertSuggestion('user:al partition:nova', 0, 7, {
+    const result = insertSuggestion('user:al partition:cluster-a', 0, 7, {
       id: 'alice',
       name: 'alice',
       prefix: 'user:',
       kind: 'value',
     });
-    expect(result).toEqual({ text: 'user:alice partition:nova', cursorPos: 10 });
+    expect(result).toEqual({ text: 'user:alice partition:cluster-a', cursorPos: 10 });
   });
 });

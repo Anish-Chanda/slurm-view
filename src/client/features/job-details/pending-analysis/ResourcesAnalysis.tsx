@@ -1,36 +1,93 @@
 import type { ResourcesAnalysisDto } from "../../../../shared/api/v1/pending-analysis.ts";
-import { EvidenceDisclosure, AnalysisMetricList } from "./AnalysisShell.tsx";
 import {
-  formatInteger,
-  shortageText,
-  statusText,
-} from "./analysis-formatting.ts";
-function Rows({ nodes }: Pick<ResourcesAnalysisDto, "nodes">) {
+  AnalysisMetricList,
+  EvidenceDisclosure,
+  EVIDENCE_TABLE,
+  EVIDENCE_TABLE_HEAD,
+  EVIDENCE_TABLE_ROW,
+  EVIDENCE_TABLE_WRAPPER,
+} from "./AnalysisShell.tsx";
+import { formatInteger, shortageText } from "./analysis-formatting.ts";
+
+function resourceLabel(
+  resource: ResourcesAnalysisDto["bottlenecks"][number],
+): string {
+  if (resource.gpuType) return `${resource.gpuType} GPU`;
+  if (resource.resource === "memoryMiB") return "Memory";
+  return resource.resource === "cpus" ? "CPU" : "GPU";
+}
+
+function resultLabel(status: ResourcesAnalysisDto["nodes"][number]["status"]) {
+  if (status === "insufficient")
+    return (
+      <span className="text-amber-800">
+        <span aria-hidden="true">● </span>Shortage
+      </span>
+    );
+  if (status === "sufficient")
+    return (
+      <span className="text-slate-600">
+        <span aria-hidden="true">○ </span>No analyzed shortage
+      </span>
+    );
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left text-sm">
-        <thead className="border-b border-gray-200 text-gray-500">
+    <span className="text-gray-600">
+      <span aria-hidden="true">? </span>Unknown
+    </span>
+  );
+}
+
+function NodeRows({ nodes }: Pick<ResourcesAnalysisDto, "nodes">) {
+  return (
+    <>
+      {nodes.map((node) => (
+        <tr key={node.name} className={EVIDENCE_TABLE_ROW}>
+          <td className="break-all px-3 py-2.5 font-mono font-medium text-gray-900">
+            {node.name}
+          </td>
+          <td className="px-3 py-2.5 text-gray-600">
+            {node.state ?? "Unknown"}
+          </td>
+          <td className="px-3 py-2.5 font-medium">
+            {resultLabel(node.status)}
+          </td>
+          <td className="px-3 py-2.5 text-gray-700">
+            {node.shortages.map(shortageText).join("; ") || "—"}
+          </td>
+        </tr>
+      ))}
+    </>
+  );
+}
+
+function NodeTable({ nodes }: Pick<ResourcesAnalysisDto, "nodes">) {
+  return (
+    <div className={EVIDENCE_TABLE_WRAPPER}>
+      <table className={`${EVIDENCE_TABLE} min-w-[680px]`}>
+        <thead className={EVIDENCE_TABLE_HEAD}>
           <tr>
-            <th scope="col">Node</th>
-            <th scope="col">State</th>
-            <th scope="col">Result</th>
-            <th scope="col">Shortage</th>
+            <th scope="col" className="px-3 py-2.5">
+              Node
+            </th>
+            <th scope="col" className="px-3 py-2.5">
+              State
+            </th>
+            <th scope="col" className="px-3 py-2.5">
+              Result
+            </th>
+            <th scope="col" className="px-3 py-2.5">
+              Shortage
+            </th>
           </tr>
         </thead>
         <tbody>
-          {nodes.map((n) => (
-            <tr key={n.name} className="border-b border-gray-100">
-              <td className="break-all py-2 font-mono">{n.name}</td>
-              <td>{n.state ?? "Unknown"}</td>
-              <td>{statusText(n.status)}</td>
-              <td>{n.shortages.map(shortageText).join("; ") || "—"}</td>
-            </tr>
-          ))}
+          <NodeRows nodes={nodes} />
         </tbody>
       </table>
     </div>
   );
 }
+
 function ResourcesAnalysis({
   analysis,
   partition,
@@ -38,18 +95,18 @@ function ResourcesAnalysis({
   analysis: ResourcesAnalysisDto;
   partition?: string;
 }) {
-  const label =
+  const scope =
     analysis.scope === "partition" && partition
       ? `${formatInteger(analysis.analyzedNodes)} nodes analyzed in ${partition}`
       : `${formatInteger(analysis.analyzedNodes)} ${analysis.scope === "scheduledNodes" ? "scheduled" : "requested"} nodes analyzed`;
-  const first = analysis.nodes.slice(0, 8);
-  const remaining = analysis.nodes.length - first.length;
+  const visibleNodes = analysis.nodes.slice(0, 8);
+  const remainingNodes = analysis.nodes.length - visibleNodes.length;
   return (
     <div>
-      <h3 className="font-semibold text-gray-900">Resource evidence</h3>
-      <p className="mt-1 text-sm text-gray-600">{label}</p>
-      <div className="mt-3 border-y border-gray-200 py-3">
+      <p className="text-sm text-gray-600">{scope}</p>
+      <div className="mt-4 border-y border-gray-200 py-4">
         <AnalysisMetricList
+          prominent
           items={[
             ["Shortage found", formatInteger(analysis.insufficientNodes)],
             ["No analyzed shortage", formatInteger(analysis.sufficientNodes)],
@@ -58,61 +115,72 @@ function ResourcesAnalysis({
         />
       </div>
       {analysis.bottlenecks.length ? (
-        <div className="mt-4">
-          <h4 className="font-medium">Most common shortages</h4>
-          {analysis.bottlenecks.map((b) => (
-            <div
-              key={`${b.resource}-${b.gpuType}`}
-              className="mt-2 grid grid-cols-[1fr_auto] gap-2 text-sm"
-            >
-              <span>
-                {b.gpuType
-                  ? `${b.gpuType} GPU`
-                  : b.resource === "memoryMiB"
-                    ? "Memory"
-                    : b.resource === "cpus"
-                      ? "CPU"
-                      : "GPU"}
-                <span className="ml-2 text-gray-500">
-                  {b.nodes} of {analysis.analyzedNodes}
-                </span>
-              </span>
-              <span>{b.nodes}</span>
-              <div className="col-span-2 h-2 bg-gray-100">
-                <div
-                  className="h-2 bg-red-600"
-                  style={{
-                    width: `${analysis.analyzedNodes ? (b.nodes / analysis.analyzedNodes) * 100 : 0}%`,
-                  }}
-                />
+        <section className="mt-5" aria-labelledby="common-shortages">
+          <h3
+            id="common-shortages"
+            className="text-sm font-semibold text-gray-900"
+          >
+            Most common shortages
+          </h3>
+          <div className="mt-3 space-y-3">
+            {analysis.bottlenecks.map((bottleneck) => (
+              <div
+                key={`${bottleneck.resource}-${bottleneck.gpuType}`}
+                className="text-sm"
+              >
+                <div className="flex items-baseline justify-between gap-4">
+                  <span className="font-medium text-gray-800">
+                    {resourceLabel(bottleneck)}
+                  </span>
+                  <span className="shrink-0 tabular-nums text-gray-600">
+                    {bottleneck.nodes} of {analysis.analyzedNodes}
+                  </span>
+                </div>
+                <div className="mt-1.5 h-2 rounded-full bg-amber-100">
+                  <div
+                    className="h-2 rounded-full bg-amber-500"
+                    style={{
+                      width: `${analysis.analyzedNodes ? (bottleneck.nodes / analysis.analyzedNodes) * 100 : 0}%`,
+                    }}
+                  />
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
           <p className="mt-2 text-xs text-gray-500">
             A node may have more than one shortage; these counts can overlap.
           </p>
-        </div>
+        </section>
       ) : null}
-      <div className="mt-4">
-        <h4 className="font-medium">Node evidence</h4>
+      <section className="mt-6" aria-labelledby="node-evidence">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <h3
+            id="node-evidence"
+            className="text-sm font-semibold text-gray-900"
+          >
+            Node evidence
+          </h3>
+          {analysis.nodes.length ? (
+            <p className="text-xs text-gray-500">
+              Showing {visibleNodes.length} of {analysis.nodes.length} detailed
+              nodes
+              {analysis.analyzedNodes > analysis.nodes.length
+                ? ` · ${analysis.analyzedNodes} nodes were included in the summary`
+                : ""}
+            </p>
+          ) : null}
+        </div>
         {analysis.nodes.length ? (
           <>
-            <div className="mt-2">
-              <Rows nodes={first} />
+            <div className="mt-3">
+              <NodeTable nodes={visibleNodes} />
             </div>
-            {remaining > 0 ? (
+            {remainingNodes ? (
               <EvidenceDisclosure
-                label={`Show ${remaining} more detailed nodes`}
+                label={`Show ${remainingNodes} more detailed nodes`}
               >
-                <Rows nodes={analysis.nodes.slice(8)} />
+                <NodeTable nodes={analysis.nodes.slice(8)} />
               </EvidenceDisclosure>
-            ) : null}
-            {analysis.analyzedNodes > analysis.nodes.length ? (
-              <p className="mt-2 text-xs text-gray-500">
-                Showing {analysis.nodes.length} detailed nodes of{" "}
-                {analysis.analyzedNodes} analyzed; the summary covers all
-                analyzed nodes.
-              </p>
             ) : null}
           </>
         ) : (
@@ -120,11 +188,9 @@ function ResourcesAnalysis({
             No per-node evidence was returned for this snapshot.
           </p>
         )}
-      </div>
-      <p className="mt-4 text-xs text-gray-500">
-        Current resource fit is evidence, not a scheduler eligibility decision.
-      </p>
+      </section>
     </div>
   );
 }
+
 export { ResourcesAnalysis };

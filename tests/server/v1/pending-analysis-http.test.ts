@@ -17,7 +17,7 @@ function squeueJob(partial: Record<string, unknown>): Record<string, unknown> {
     partition: 'debug',
     name: 'job',
     user_name: 'alice',
-    account: 'research',
+    account: 'organization-a',
     qos: 'normal',
     job_state: ['PENDING'],
     state_reason: 'Resources',
@@ -57,7 +57,7 @@ function fakeRun(fake: FakeSlurm): SlurmRunFn {
       return { stdout: fake.squeue ?? jobsEnvelope([]), stderr: '' };
     }
     if (executable === 'scontrol' && argv.includes('show config')) {
-      return { stdout: 'ClusterName=nova\n', stderr: '' };
+      return { stdout: 'ClusterName=cluster-a\n', stderr: '' };
     }
     if (executable === 'scontrol' && argv.includes('show job')) {
       if (fake.targeted === undefined) {
@@ -270,13 +270,13 @@ describe('GET /api/v1/jobs/:id/pending-analysis contract', () => {
   test('association TRES limit is scaled by the job QOS LimitFactor', async () => {
     const app = buildApp({
       targeted: targetedEnvelope(
-        squeueJob({ job_id: 49, job_state: ['PENDING'], state_reason: 'AssocGrpCpuLimit', account: 'research', user_name: 'alice', qos: 'fast', tres_req_str: 'cpu=55,mem=100M,node=1' })
+        squeueJob({ job_id: 49, job_state: ['PENDING'], state_reason: 'AssocGrpCpuLimit', account: 'organization-a', user_name: 'alice', qos: 'fast', tres_req_str: 'cpu=55,mem=100M,node=1' })
       ),
       squeue: jobsEnvelope([
-        squeueJob({ job_id: 90, job_state: ['RUNNING'], account: 'research', user_name: 'alice', tres_req_str: 'cpu=1,mem=100M,node=1', tres_alloc_str: 'cpu=1,mem=100M,node=1' }),
+        squeueJob({ job_id: 90, job_state: ['RUNNING'], account: 'organization-a', user_name: 'alice', tres_req_str: 'cpu=1,mem=100M,node=1', tres_alloc_str: 'cpu=1,mem=100M,node=1' }),
       ]),
       assocTexts: [
-        'ID|ParentID|Cluster|Account|User|Partition|ParentName|GrpTRES|GrpTRESRunMins|GrpJobs|MaxJobs\n1||c|research|||root|cpu=30||||\n2|1|c|research|alice||research|||||',
+        'ID|ParentID|Cluster|Account|User|Partition|ParentName|GrpTRES|GrpTRESRunMins|GrpJobs|MaxJobs\n1||c|organization-a|||root|cpu=30||||\n2|1|c|organization-a|alice||organization-a|||||',
       ],
       qosText: 'Name|Priority|GrpCPUs|GrpMem|GrpNodes|GrpJobs|GrpTRES|GrpTRESRunMins|MaxTRESPU|MaxJobsPU|LimitFactor|UsageFactor|Flags\nfast|0|||||||||2|1|',
     });
@@ -290,10 +290,10 @@ describe('GET /api/v1/jobs/:id/pending-analysis contract', () => {
   test('QOS group usage spans accounts (never account-scoped)', async () => {
     const app = buildApp({
       targeted: targetedEnvelope(
-        squeueJob({ job_id: 51, job_state: ['PENDING'], state_reason: 'QOSGrpCpuLimit', account: 'research', qos: 'shared', tres_req_str: 'cpu=5,mem=100M,node=1' })
+        squeueJob({ job_id: 51, job_state: ['PENDING'], state_reason: 'QOSGrpCpuLimit', account: 'organization-a', qos: 'shared', tres_req_str: 'cpu=5,mem=100M,node=1' })
       ),
       squeue: jobsEnvelope([
-        squeueJob({ job_id: 91, job_state: ['RUNNING'], account: 'research', user_name: 'alice', qos: 'shared', tres_req_str: 'cpu=4,mem=100M,node=1', tres_alloc_str: 'cpu=4,mem=100M,node=1' }),
+        squeueJob({ job_id: 91, job_state: ['RUNNING'], account: 'organization-a', user_name: 'alice', qos: 'shared', tres_req_str: 'cpu=4,mem=100M,node=1', tres_alloc_str: 'cpu=4,mem=100M,node=1' }),
         squeueJob({ job_id: 92, job_state: ['RUNNING'], account: 'unrelated', user_name: 'bob', qos: 'shared', tres_req_str: 'cpu=4,mem=100M,node=1', tres_alloc_str: 'cpu=4,mem=100M,node=1' }),
       ]),
       qosText: 'Name|Priority|GrpCPUs|GrpMem|GrpNodes|GrpJobs|GrpTRES|GrpTRESRunMins|MaxTRESPU|MaxJobsPU|LimitFactor|UsageFactor|Flags\nshared|0|||||cpu=10|||||1|',
@@ -308,12 +308,12 @@ describe('GET /api/v1/jobs/:id/pending-analysis contract', () => {
     const calls = { sacctmgr: 0 };
     const app = buildApp({
       targeted: targetedEnvelope(
-        squeueJob({ job_id: 52, job_state: ['PENDING'], state_reason: 'AssocGrpCpuLimit', account: 'research', user_name: 'alice', qos: 'normal', tres_req_str: 'cpu=1,mem=100M,node=1' })
+        squeueJob({ job_id: 52, job_state: ['PENDING'], state_reason: 'AssocGrpCpuLimit', account: 'organization-a', user_name: 'alice', qos: 'normal', tres_req_str: 'cpu=1,mem=100M,node=1' })
       ),
       squeue: jobsEnvelope([]),
       assocTexts: [
-        'ID|ParentID|Cluster|Account|User|Partition|ParentName|GrpTRES|GrpTRESRunMins|GrpJobs|MaxJobs\n1||c|research|||root|cpu=100||||\n2|1|c|research|alice||research|||||',
-        'ID|ParentID|Cluster|Account|User|Partition|ParentName|GrpTRES|GrpTRESRunMins|GrpJobs|MaxJobs\n1||c|research|||root|cpu=1||||\n2|1|c|research|alice||research|||||',
+        'ID|ParentID|Cluster|Account|User|Partition|ParentName|GrpTRES|GrpTRESRunMins|GrpJobs|MaxJobs\n1||c|organization-a|||root|cpu=100||||\n2|1|c|organization-a|alice||organization-a|||||',
+        'ID|ParentID|Cluster|Account|User|Partition|ParentName|GrpTRES|GrpTRESRunMins|GrpJobs|MaxJobs\n1||c|organization-a|||root|cpu=1||||\n2|1|c|organization-a|alice||organization-a|||||',
       ],
       qosText: 'Name|Priority|GrpCPUs|GrpMem|GrpNodes|GrpJobs|GrpTRES|GrpTRESRunMins|MaxTRESPU|MaxJobsPU|LimitFactor|UsageFactor|Flags\nnormal|0||||||||||1|',
       calls,

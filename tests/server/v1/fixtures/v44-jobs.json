@@ -16,7 +16,7 @@
       "partition": "debug",
       "name": "train-model",
       "user_name": "alice",
-      "account": "research",
+      "account": "organization-a",
       "qos": "normal",
       "job_state": [
         "RUNNING"
@@ -54,8 +54,8 @@
         "gpu:a100:4(IDX:0-3)"
       ],
       "command": "/bin/sbatch",
-      "current_working_directory": "/home/alice",
-      "standard_output": "/home/alice/slurm-101.out",
+      "current_working_directory": "/work/project-a/user-a/workload",
+      "standard_output": "/work/project-a/user-a/workload/slurm-101.out",
       "dependency": null,
       "exit_code": {
         "return_code": {
@@ -114,8 +114,8 @@
       "tres_req_str": "cpu=2,mem=8G,node=1",
       "tres_alloc_str": "",
       "command": "/bin/sbatch",
-      "current_working_directory": "/home/bob",
-      "standard_output": "/home/bob/slurm-100_%a.out",
+      "current_working_directory": "/work/project-b/user-b/workload",
+      "standard_output": "/work/project-b/user-b/workload/slurm-100_%a.out",
       "dependency": "afterok:99",
       "flags": [
         "ARRAY_TASK"

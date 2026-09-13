@@ -34,7 +34,7 @@ function metricLabel(metric: LimitMetric, gpuType?: string): string {
   if (metric === "memoryMiB") return "memory";
   if (metric === "cpuMinutes") return "CPU-minutes";
   if (metric === "memoryMiBMinutes") return "memory MiB-minutes";
-  if (metric === "gpus") return gpuType ? `${gpuType} GPU(s)` : "GPU(s)";
+  if (metric === "gpus") return gpuType ? `${gpuType} GPU` : "GPU";
   return metric === "cpus" ? "CPU(s)" : `${metric.replace(/s$/, "")}(s)`;
 }
 function formatMetric(
@@ -47,7 +47,11 @@ function formatMetric(
   if (metric === "cpuMinutes") return `${formatInteger(value)} CPU-minutes`;
   if (metric === "memoryMiBMinutes")
     return `${formatInteger(value)} MiB-minutes`;
-  return `${formatInteger(value)}${metric === "gpus" && gpuType ? ` ${gpuType}` : ""}`;
+  if (metric === "gpus") {
+    const type = gpuType ? `${gpuType} ` : "";
+    return `${formatInteger(value)} ${type}GPU${value === 1 ? "" : "s"}`;
+  }
+  return formatInteger(value);
 }
 function shortageText(item: ResourceShortageDto): string {
   const name =
@@ -60,7 +64,7 @@ function shortageText(item: ResourceShortageDto): string {
           : "GPU";
   const value = (n: number) =>
     item.resource === "memoryMiB" ? formatMemoryMiB(n) : formatInteger(n);
-  return `${name}: need ${value(item.requested)}, unallocated ${value(item.currentlyUnallocated)}`;
+  return `${name} · requested ${value(item.requested)} · unallocated ${value(item.currentlyUnallocated)}`;
 }
 function statusText(
   status:

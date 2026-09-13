@@ -48,7 +48,7 @@ function makeJob(partial: Partial<Job> & { id: string }): Job {
     partition: 'debug',
     name: 'job',
     user: 'alice',
-    account: 'research',
+    account: 'organization-a',
     qos: 'normal',
     state: 'RUNNING',
     stateFlags: [],
@@ -452,26 +452,26 @@ describe('QOS per-user source resolution', () => {
 describe('association scoping by entry', () => {
   const baseEntries = [
     assocEntry({ id: '1', parentId: null, account: 'root' }),
-    assocEntry({ id: '2', parentId: '1', account: 'research', parentAccount: 'root', grpTres: { cpu: 100, memMiB: null, node: null, gres: {} } }),
-    assocEntry({ id: '4', parentId: '2', account: 'research', user: 'alice' }),
+    assocEntry({ id: '2', parentId: '1', account: 'organization-a', parentAccount: 'root', grpTres: { cpu: 100, memMiB: null, node: null, gres: {} } }),
+    assocEntry({ id: '4', parentId: '2', account: 'organization-a', user: 'alice' }),
     assocEntry({ id: '5', parentId: '3', account: 'child', user: 'alice' }),
-    assocEntry({ id: '3', parentId: '2', account: 'child', parentAccount: 'research' }),
+    assocEntry({ id: '3', parentId: '2', account: 'child', parentAccount: 'organization-a' }),
   ];
 
   test('partition-specific association ignores other partitions', async () => {
     const entries = [
       assocEntry({ id: '1', parentId: null, account: 'root' }),
-      assocEntry({ id: '2', parentId: '1', account: 'research', parentAccount: 'root', partition: 'debug', grpTres: { cpu: 10, memMiB: null, node: null, gres: {} } }),
-      assocEntry({ id: '9', parentId: '2', account: 'research', user: 'alice', partition: 'debug' }),
-      assocEntry({ id: '10', parentId: '1', account: 'research', user: 'alice', partition: 'other' }),
+      assocEntry({ id: '2', parentId: '1', account: 'organization-a', parentAccount: 'root', partition: 'debug', grpTres: { cpu: 10, memMiB: null, node: null, gres: {} } }),
+      assocEntry({ id: '9', parentId: '2', account: 'organization-a', user: 'alice', partition: 'debug' }),
+      assocEntry({ id: '10', parentId: '1', account: 'organization-a', user: 'alice', partition: 'other' }),
     ];
     const pending = makeJob({
-      id: '40', state: 'PENDING', stateReason: 'AssocGrpCpuLimit', account: 'research', partition: 'debug',
+      id: '40', state: 'PENDING', stateReason: 'AssocGrpCpuLimit', account: 'organization-a', partition: 'debug',
       requested: { cpus: 9, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } },
     });
     const jobs = [
-      makeJob({ id: '41', account: 'research', partition: 'other' }), // must not count
-      makeJob({ id: '42', account: 'research', partition: 'debug' }), // counts: 4
+      makeJob({ id: '41', account: 'organization-a', partition: 'other' }), // must not count
+      makeJob({ id: '42', account: 'organization-a', partition: 'debug' }), // counts: 4
     ];
     const result = await analyzeAssocLimits({ ...makeCtx(pending, { jobs }), assoc: { store: buildAssociationStore(entries), capturedAt: new Date() } });
     expect(result?.used).toBe(4);
@@ -480,31 +480,31 @@ describe('association scoping by entry', () => {
   test('user association never aggregates other users', async () => {
     const entries = [
       assocEntry({ id: '1', parentId: null, account: 'root' }),
-      assocEntry({ id: '2', parentId: '1', account: 'research', parentAccount: 'root' }),
-      assocEntry({ id: '3', parentId: '2', account: 'research', user: 'bob', maxJobs: 1 }),
+      assocEntry({ id: '2', parentId: '1', account: 'organization-a', parentAccount: 'root' }),
+      assocEntry({ id: '3', parentId: '2', account: 'organization-a', user: 'bob', maxJobs: 1 }),
     ];
     const pending = makeJob({
-      id: '43', state: 'PENDING', stateReason: 'AssocMaxJobsLimit', account: 'research', user: 'bob',
+      id: '43', state: 'PENDING', stateReason: 'AssocMaxJobsLimit', account: 'organization-a', user: 'bob',
     });
     const jobs = [
-      makeJob({ id: '44', account: 'research', user: 'alice' }),
-      makeJob({ id: '45', account: 'research', user: 'bob' }),
+      makeJob({ id: '44', account: 'organization-a', user: 'alice' }),
+      makeJob({ id: '45', account: 'organization-a', user: 'bob' }),
     ];
     const result = await analyzeAssocLimits({ ...makeCtx(pending, { jobs }), assoc: { store: buildAssociationStore(entries), capturedAt: new Date() } });
-    expect(result?.limitingAccount).toBe('research');
+    expect(result?.limitingAccount).toBe('organization-a');
     expect(result?.used).toBe(1);
   });
 
   test('inherited account MaxJobs counts only the pending user, never siblings', async () => {
     const entries = [
       assocEntry({ id: '1', parentId: null, account: 'root' }),
-      assocEntry({ id: '2', parentId: '1', account: 'research', parentAccount: 'root', maxJobs: 1 }),
-      assocEntry({ id: '9', parentId: '2', account: 'research', user: 'alice' }),
+      assocEntry({ id: '2', parentId: '1', account: 'organization-a', parentAccount: 'root', maxJobs: 1 }),
+      assocEntry({ id: '9', parentId: '2', account: 'organization-a', user: 'alice' }),
     ];
     const pending = makeJob({
-      id: '46', state: 'PENDING', stateReason: 'AssocMaxJobsLimit', account: 'research', user: 'alice',
+      id: '46', state: 'PENDING', stateReason: 'AssocMaxJobsLimit', account: 'organization-a', user: 'alice',
     });
-    const jobs = [makeJob({ id: '47', account: 'research', user: 'bob' })];
+    const jobs = [makeJob({ id: '47', account: 'organization-a', user: 'bob' })];
     const result = await analyzeAssocLimits({ ...makeCtx(pending, { jobs }), assoc: { store: buildAssociationStore(entries), capturedAt: new Date() } });
     expect(result?.used).toBe(0);
     expect(result?.limit).toBe(1);
@@ -513,14 +513,14 @@ describe('association scoping by entry', () => {
   test('first-defined MaxJobs wins up the chain', async () => {
     const entries = [
       assocEntry({ id: '1', parentId: null, account: 'root', maxJobs: 10 }),
-      assocEntry({ id: '2', parentId: '1', account: 'research', parentAccount: 'root', maxJobs: 3 }),
-      assocEntry({ id: '3', parentId: '2', account: 'research', user: 'alice' }),
+      assocEntry({ id: '2', parentId: '1', account: 'organization-a', parentAccount: 'root', maxJobs: 3 }),
+      assocEntry({ id: '3', parentId: '2', account: 'organization-a', user: 'alice' }),
     ];
     const pending = makeJob({
-      id: '46b', state: 'PENDING', stateReason: 'AssocMaxJobsLimit', account: 'research', user: 'alice',
+      id: '46b', state: 'PENDING', stateReason: 'AssocMaxJobsLimit', account: 'organization-a', user: 'alice',
     });
     const withUserLimit = await analyzeAssocLimits({
-      ...makeCtx(pending, { jobs: [makeJob({ id: '48', account: 'research', user: 'bob' })] }),
+      ...makeCtx(pending, { jobs: [makeJob({ id: '48', account: 'organization-a', user: 'bob' })] }),
       assoc: {
         store: buildAssociationStore(
           entries.map((entry) => (entry.id === '3' ? { ...entry, maxJobs: 2 } : entry))
@@ -534,14 +534,14 @@ describe('association scoping by entry', () => {
       ...makeCtx(pending, {}),
       assoc: { store: buildAssociationStore(entries), capturedAt: new Date() },
     });
-    expect(inherited?.limitingAccount).toBe('research');
+    expect(inherited?.limitingAccount).toBe('organization-a');
     expect(inherited?.limit).toBe(3);
   });
 
   test('descendant accounts roll up, unrelated accounts excluded', async () => {
     const entries = [...baseEntries];
     const pending = makeJob({
-      id: '48', state: 'PENDING', stateReason: 'AssocGrpCpuLimit', account: 'research',
+      id: '48', state: 'PENDING', stateReason: 'AssocGrpCpuLimit', account: 'organization-a',
       requested: { cpus: 1, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } },
     });
     const jobs = [
@@ -556,16 +556,16 @@ describe('association scoping by entry', () => {
 describe('run-minute conservatism', () => {
   function runMinutesCtx(qosFlags: string[] = [], jobs?: Job[]): AnalyzerContext {
     const pending = makeJob({
-      id: '60', state: 'PENDING', stateReason: 'AssocGrpCPURunMinutesLimit', account: 'research', qos: 'normal',
+      id: '60', state: 'PENDING', stateReason: 'AssocGrpCPURunMinutesLimit', account: 'organization-a', qos: 'normal',
       requested: { cpus: 4, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } },
       timeLimit: { kind: 'finite', seconds: 3600 },
     });
     const base = makeCtx(pending, {
-      jobs: jobs ?? [makeJob({ id: '61', account: 'research', qos: 'normal' })],
+      jobs: jobs ?? [makeJob({ id: '61', account: 'organization-a', qos: 'normal' })],
       assocEntries: [
         assocEntry({ id: '1', parentId: null, account: 'root' }),
-        assocEntry({ id: '2', parentId: '1', account: 'research', parentAccount: 'root', grpTresRunMins: { cpu: 100000, memMiB: null, node: null, gres: {} } }),
-        assocEntry({ id: '9', parentId: '2', account: 'research', user: 'alice' }),
+        assocEntry({ id: '2', parentId: '1', account: 'organization-a', parentAccount: 'root', grpTresRunMins: { cpu: 100000, memMiB: null, node: null, gres: {} } }),
+        assocEntry({ id: '9', parentId: '2', account: 'organization-a', user: 'alice' }),
       ],
     });
     return {
@@ -579,7 +579,7 @@ describe('run-minute conservatism', () => {
 
   function bigCpuJob(id: string): Job {
     return makeJob({
-      id, account: 'research', qos: 'normal',
+      id, account: 'organization-a', qos: 'normal',
       startTime: new Date(Date.now() - 60_000),
       allocated: { cpus: 2000, memoryMiB: null, nodes: null, gpus: { total: 0, byType: {} }, gpuPresent: true },
     });
@@ -591,12 +591,12 @@ describe('run-minute conservatism', () => {
     expect(result?.limit).toBe(100000);
     expect(result?.requested).toBeNull();
     expect(result?.used).not.toBeNull();
-    expect(result?.limitingAccount).toBe('research');
+    expect(result?.limitingAccount).toBe('organization-a');
   });
 
   test('run-minute levels below the limit establish no limiter', async () => {
     const result = await analyzeAssocLimits(runMinutesCtx([], [
-      makeJob({ id: '62', account: 'research', qos: 'normal', startTime: new Date(Date.now() - 60_000) }),
+      makeJob({ id: '62', account: 'organization-a', qos: 'normal', startTime: new Date(Date.now() - 60_000) }),
     ]));
     expect(result).toBeNull();
   });
@@ -824,7 +824,7 @@ describe('service refresh, cooldown, and missing-job mapping', () => {
 
   function squeueJob(partial: Record<string, unknown>): Record<string, unknown> {
     return {
-      job_id: 1, partition: 'debug', name: 'job', user_name: 'alice', account: 'research',
+      job_id: 1, partition: 'debug', name: 'job', user_name: 'alice', account: 'organization-a',
       qos: 'normal', job_state: ['RUNNING'], tres_req_str: 'cpu=4,mem=100M,node=1', tres_alloc_str: 'cpu=4,mem=100M,node=1',
       ...partial,
     };
@@ -845,10 +845,10 @@ describe('service refresh, cooldown, and missing-job mapping', () => {
         return { stdout: JSON.stringify({ errors: [], jobs: [fake.targeted] }), stderr: '' };
       }
       if (executable === 'scontrol' && argv.includes('show config')) {
-        return { stdout: 'ClusterName=nova\n', stderr: '' };
+        return { stdout: 'ClusterName=cluster-a\n', stderr: '' };
       }
       if (executable === 'scontrol' && argv.includes('show config')) {
-        return { stdout: 'ClusterName=nova\n', stderr: '' };
+        return { stdout: 'ClusterName=cluster-a\n', stderr: '' };
       }
       if (executable === 'scontrol' && argv.includes('show partition')) {
         fake.calls.partition += 1;
@@ -897,7 +897,7 @@ describe('service refresh, cooldown, and missing-job mapping', () => {
           jobs: [squeueJob({ job_id: 90, job_state: ['RUNNING'], tres_req_str: 'cpu=10,mem=100M,node=1', tres_alloc_str: 'cpu=10,mem=100M,node=1' })],
         }),
       ],
-      assocTexts: [`${assocHeader}\n1||c|research|||root|cpu=10||||\n2|1|c|research|alice||research|||||`],
+      assocTexts: [`${assocHeader}\n1||c|organization-a|||root|cpu=10||||\n2|1|c|organization-a|alice||organization-a|||||`],
       qosTexts: [qosRow],
       calls: { squeue: 0, assoc: 0, qos: 0, partition: 0 },
     };
@@ -915,8 +915,8 @@ describe('service refresh, cooldown, and missing-job mapping', () => {
       targeted: pendingCpuJob(53, 'AssocGrpCpuLimit'),
       squeueTexts: [JSON.stringify({ errors: [], jobs: [] })],
       assocTexts: [
-        `${assocHeader}\n1||c|research|||root|cpu=100||||\n2|1|c|research|alice||research|||||`,
-        `${assocHeader}\n1||c|research|||root|cpu=1||||\n2|1|c|research|alice||research|||||`,
+        `${assocHeader}\n1||c|organization-a|||root|cpu=100||||\n2|1|c|organization-a|alice||organization-a|||||`,
+        `${assocHeader}\n1||c|organization-a|||root|cpu=1||||\n2|1|c|organization-a|alice||organization-a|||||`,
       ],
       qosTexts: [qosRow],
       calls: { squeue: 0, assoc: 0, qos: 0, partition: 0 },
@@ -936,7 +936,7 @@ describe('service refresh, cooldown, and missing-job mapping', () => {
     const qosTight = 'Name|Priority|GrpCPUs|GrpMem|GrpNodes|GrpJobs|GrpTRES|GrpTRESRunMins|MaxTRESPU|MaxJobsPU|LimitFactor|UsageFactor|Flags\nshared|0|||||cpu=1|||||1|';
     let qosCalls = 0;
     const base: Fake = {
-      targeted: { ...pendingCpuJob(54, 'QOSGrpCpuLimit'), account: 'research', qos: 'shared' },
+      targeted: { ...pendingCpuJob(54, 'QOSGrpCpuLimit'), account: 'organization-a', qos: 'shared' },
       squeueTexts: [JSON.stringify({ errors: [], jobs: [] })],
       assocTexts: [],
       qosTexts: [qosLoose],
@@ -951,10 +951,10 @@ describe('service refresh, cooldown, and missing-job mapping', () => {
         return { stdout: JSON.stringify({ errors: [], jobs: [base.targeted] }), stderr: '' };
       }
       if (executable === 'scontrol' && argv.includes('show config')) {
-        return { stdout: 'ClusterName=nova\n', stderr: '' };
+        return { stdout: 'ClusterName=cluster-a\n', stderr: '' };
       }
       if (executable === 'scontrol' && argv.includes('show config')) {
-        return { stdout: 'ClusterName=nova\n', stderr: '' };
+        return { stdout: 'ClusterName=cluster-a\n', stderr: '' };
       }
       if (executable === 'scontrol' && argv.includes('show partition')) {
         return { stdout: JSON.stringify({ errors: [], partitions: [] }), stderr: '' };
@@ -984,7 +984,7 @@ describe('service refresh, cooldown, and missing-job mapping', () => {
     const fake: Fake = {
       targeted: pendingCpuJob(55, 'AssocGrpCpuLimit'),
       squeueTexts: [JSON.stringify({ errors: [], jobs: [] })],
-      assocTexts: [`${assocHeader}\n1||c|research|||root|cpu=100||||\n2|1|c|research|alice||research|||||`],
+      assocTexts: [`${assocHeader}\n1||c|organization-a|||root|cpu=100||||\n2|1|c|organization-a|alice||organization-a|||||`],
       qosTexts: [qosRow],
       calls: { squeue: 0, assoc: 0, qos: 0, partition: 0 },
     };
@@ -1041,7 +1041,7 @@ describe('aggregate memory requests for limits', () => {
     gpus?: number;
   }) {
     const pending = makeJob({
-      id: '110', state: 'PENDING', stateReason: 'AssocGrpMemLimit', account: 'research',
+      id: '110', state: 'PENDING', stateReason: 'AssocGrpMemLimit', account: 'organization-a',
       requested: {
         cpus: opts.cpus, memoryMiB: opts.tresMem === null ? null : 999999, nodes: opts.nodes,
         gpus: { total: opts.gpus ?? 0, byType: {} },
@@ -1059,8 +1059,8 @@ describe('aggregate memory requests for limits', () => {
       assoc: {
         store: buildAssociationStore([
           assocEntry({ id: '1', parentId: null, account: 'root' }),
-          assocEntry({ id: '2', parentId: '1', account: 'research', parentAccount: 'root', grpTres: { cpu: null, memMiB: 100000, node: null, gres: {} } }),
-          assocEntry({ id: '9', parentId: '2', account: 'research', user: 'alice' }),
+          assocEntry({ id: '2', parentId: '1', account: 'organization-a', parentAccount: 'root', grpTres: { cpu: null, memMiB: 100000, node: null, gres: {} } }),
+          assocEntry({ id: '9', parentId: '2', account: 'organization-a', user: 'alice' }),
         ]),
         capturedAt: new Date(),
       },
@@ -1223,7 +1223,7 @@ describe('priority unknown values and fractional factors', () => {
 describe('run-minute unknown contributors', () => {
   function cpuRunMinutesCtx(jobs: Job[]): AnalyzerContext {
     const pending = makeJob({
-      id: '140', state: 'PENDING', stateReason: 'AssocGrpCPURunMinutesLimit', account: 'research', qos: 'normal',
+      id: '140', state: 'PENDING', stateReason: 'AssocGrpCPURunMinutesLimit', account: 'organization-a', qos: 'normal',
       requested: { cpus: 4, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } },
       timeLimit: { kind: 'finite', seconds: 3600 },
     });
@@ -1231,8 +1231,8 @@ describe('run-minute unknown contributors', () => {
       jobs,
       assocEntries: [
         assocEntry({ id: '1', parentId: null, account: 'root' }),
-        assocEntry({ id: '2', parentId: '1', account: 'research', parentAccount: 'root', grpTresRunMins: { cpu: 100000, memMiB: null, node: null, gres: {} } }),
-        assocEntry({ id: '9', parentId: '2', account: 'research', user: 'alice' }),
+        assocEntry({ id: '2', parentId: '1', account: 'organization-a', parentAccount: 'root', grpTresRunMins: { cpu: 100000, memMiB: null, node: null, gres: {} } }),
+        assocEntry({ id: '9', parentId: '2', account: 'organization-a', user: 'alice' }),
       ],
     });
     return {
@@ -1243,7 +1243,7 @@ describe('run-minute unknown contributors', () => {
 
   function liveCpuJob(id: string, overrides: Partial<Job> = {}): Job {
     return makeJob({
-      id, account: 'research', qos: 'normal',
+      id, account: 'organization-a', qos: 'normal',
       startTime: new Date(Date.now() - 60_000),
       allocated: { cpus: 2000, memoryMiB: null, nodes: null, gpus: { total: 0, byType: {} }, gpuPresent: true },
       ...overrides,
@@ -1253,32 +1253,32 @@ describe('run-minute unknown contributors', () => {
   test('unquantifiable remainder keeps the proven violation, used stays null', async () => {
     const withoutStart = await analyzeAssocLimits(cpuRunMinutesCtx([
       liveCpuJob('141'),
-      makeJob({ id: '141b', account: 'research', qos: 'normal', startTime: null }),
+      makeJob({ id: '141b', account: 'organization-a', qos: 'normal', startTime: null }),
     ]));
-    expect(withoutStart?.limitingAccount).toBe('research');
+    expect(withoutStart?.limitingAccount).toBe('organization-a');
     expect(withoutStart?.used).toBeNull();
     const unlimited = await analyzeAssocLimits(cpuRunMinutesCtx([
       liveCpuJob('142a'),
-      makeJob({ id: '142', account: 'research', qos: 'normal', timeLimit: { kind: 'infinite' } }),
+      makeJob({ id: '142', account: 'organization-a', qos: 'normal', timeLimit: { kind: 'infinite' } }),
     ]));
-    expect(unlimited?.limitingAccount).toBe('research');
+    expect(unlimited?.limitingAccount).toBe('organization-a');
     expect(unlimited?.used).toBeNull();
   });
 
   test('all-quantifiable contributors stay exact', async () => {
     const result = await analyzeAssocLimits(cpuRunMinutesCtx([liveCpuJob('143')]));
     expect(result?.used).not.toBeNull();
-    expect(result?.limitingAccount).toBe('research');
+    expect(result?.limitingAccount).toBe('organization-a');
   });
 
   test('unknown remainder without a proven lower bound yields nothing', async () => {
     const result = await analyzeAssocLimits(cpuRunMinutesCtx([
       makeJob({
-        id: '144', account: 'research', qos: 'normal',
+        id: '144', account: 'organization-a', qos: 'normal',
         startTime: new Date(Date.now() - 60_000),
         allocated: { cpus: 1, memoryMiB: null, nodes: null, gpus: { total: 0, byType: {} }, gpuPresent: true },
       }),
-      makeJob({ id: '145', account: 'research', qos: 'normal', startTime: null }),
+      makeJob({ id: '145', account: 'organization-a', qos: 'normal', startTime: null }),
     ]));
     expect(result).toBeNull();
   });
@@ -1288,18 +1288,18 @@ describe('allocated-only usage accounting', () => {
   test('missing allocation is unknown; zero stays zero; allocated wins over requested', async () => {
     const entries = [
       assocEntry({ id: '1', parentId: null, account: 'root' }),
-      assocEntry({ id: '2', parentId: '1', account: 'research', parentAccount: 'root', grpTres: { cpu: 100, memMiB: null, node: null, gres: {} } }),
-      assocEntry({ id: '9', parentId: '2', account: 'research', user: 'alice' }),
+      assocEntry({ id: '2', parentId: '1', account: 'organization-a', parentAccount: 'root', grpTres: { cpu: 100, memMiB: null, node: null, gres: {} } }),
+      assocEntry({ id: '9', parentId: '2', account: 'organization-a', user: 'alice' }),
     ];
     const pending = makeJob({
-      id: '150', state: 'PENDING', stateReason: 'AssocGrpCpuLimit', account: 'research',
+      id: '150', state: 'PENDING', stateReason: 'AssocGrpCpuLimit', account: 'organization-a',
       requested: { cpus: 1, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } },
     });
     const base = { store: buildAssociationStore(entries), capturedAt: new Date() };
     const differs = await analyzeAssocLimits({
       ...makeCtx(pending, {
         jobs: [makeJob({
-          id: '151', account: 'research',
+          id: '151', account: 'organization-a',
           requested: { cpus: 32, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } },
           allocated: { cpus: 2, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } },
         })],
@@ -1310,7 +1310,7 @@ describe('allocated-only usage accounting', () => {
     const missing = await analyzeAssocLimits({
       ...makeCtx(pending, {
         jobs: [makeJob({
-          id: '152', account: 'research',
+          id: '152', account: 'organization-a',
           requested: { cpus: 32, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } },
           allocated: { cpus: null, memoryMiB: null, nodes: null, gpus: { total: 0, byType: {} } },
         })],
@@ -1321,7 +1321,7 @@ describe('allocated-only usage accounting', () => {
     const zeroed = await analyzeAssocLimits({
       ...makeCtx(pending, {
         jobs: [makeJob({
-          id: '153', account: 'research',
+          id: '153', account: 'organization-a',
           requested: { cpus: 32, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } },
           allocated: { cpus: 0, memoryMiB: null, nodes: null, gpus: { total: 0, byType: {} } },
         })],
@@ -1336,12 +1336,12 @@ describe('sacctmgr strict rows and QOS aliases', () => {
   const header = 'ID|ParentID|Cluster|Account|User|Partition|ParentName|GrpTRES|GrpTRESRunMins|GrpJobs|MaxJobs';
 
   test('blank and header rows skipped; one malformed row fails the snapshot', () => {
-    expect(() => parseAssocStdout(`${header}\n1||c|research|||root|cpu=10||||\nBADROW\n`)).toThrow();
-    expect(() => parseAssocStdout(`${header}\n1||c|research|||root|cpu=10||||\n1|xx|c|research|||root|cpu=10||||\n`)).toThrow();
-    expect(() => parseAssocStdout(`${header}\n1||c|research|||root|cpu=10||||\n1||c|research|||root|cpu=10|||||extra|cols|here|and|more|columns\n`)).not.toThrow();
-    expect(() => parseAssocStdout(`${header}\n1||c|research|||root|not-a-tres||||\n`)).toThrow();
-    expect(() => parseAssocStdout(`${header}\n1||c|research|||root|cpu=10||||\n1||c|||||cpu=10||||\n`)).toThrow();
-    expect(parseAssocStdout(`${header}\n\n1||c|research|||root|cpu=10||||\n\n`)).toHaveLength(1);
+    expect(() => parseAssocStdout(`${header}\n1||c|organization-a|||root|cpu=10||||\nBADROW\n`)).toThrow();
+    expect(() => parseAssocStdout(`${header}\n1||c|organization-a|||root|cpu=10||||\n1|xx|c|organization-a|||root|cpu=10||||\n`)).toThrow();
+    expect(() => parseAssocStdout(`${header}\n1||c|organization-a|||root|cpu=10||||\n1||c|organization-a|||root|cpu=10|||||extra|cols|here|and|more|columns\n`)).not.toThrow();
+    expect(() => parseAssocStdout(`${header}\n1||c|organization-a|||root|not-a-tres||||\n`)).toThrow();
+    expect(() => parseAssocStdout(`${header}\n1||c|organization-a|||root|cpu=10||||\n1||c|||||cpu=10||||\n`)).toThrow();
+    expect(parseAssocStdout(`${header}\n\n1||c|organization-a|||root|cpu=10||||\n\n`)).toHaveLength(1);
   });
 
   test('QOS malformed rows fail; canonical GrpTRES wins over contradictory alias', () => {
@@ -1477,7 +1477,7 @@ describe('canonical missing-job signal and refresh timestamps', () => {
 
   function squeueJob(partial: Record<string, unknown>): Record<string, unknown> {
     return {
-      job_id: 1, partition: 'debug', name: 'job', user_name: 'alice', account: 'research',
+      job_id: 1, partition: 'debug', name: 'job', user_name: 'alice', account: 'organization-a',
       qos: 'normal', job_state: ['RUNNING'], tres_req_str: 'cpu=4,mem=100M,node=1', tres_alloc_str: 'cpu=4,mem=100M,node=1',
       ...partial,
     };
@@ -1502,10 +1502,10 @@ describe('canonical missing-job signal and refresh timestamps', () => {
         return { stdout: JSON.stringify({ errors: [], jobs: [fake.targeted] }), stderr: '' };
       }
       if (executable === 'scontrol' && argv.includes('show config')) {
-        return { stdout: 'ClusterName=nova\n', stderr: '' };
+        return { stdout: 'ClusterName=cluster-a\n', stderr: '' };
       }
       if (executable === 'scontrol' && argv.includes('show config')) {
-        return { stdout: 'ClusterName=nova\n', stderr: '' };
+        return { stdout: 'ClusterName=cluster-a\n', stderr: '' };
       }
       if (executable === 'scontrol' && argv.includes('show partition')) {
         return { stdout: JSON.stringify({ errors: [], partitions: [] }), stderr: '' };
@@ -1579,7 +1579,7 @@ describe('canonical missing-job signal and refresh timestamps', () => {
     const fake: Fake = {
       targeted: squeueJob({ job_id: 172, job_state: ['PENDING'], state_reason: 'AssocGrpCpuLimit', tres_req_str: 'cpu=1,mem=100M,node=1' }),
       squeueTexts: [JSON.stringify({ errors: [], jobs: [] })],
-      assocTexts: [`${assocHeader}\n1||c|research|||root|cpu=100||||\n2|1|c|research|alice||research|||||`],
+      assocTexts: [`${assocHeader}\n1||c|organization-a|||root|cpu=100||||\n2|1|c|organization-a|alice||organization-a|||||`],
       qosTexts: [qosRow],
       calls: { squeue: 0, assoc: 0, qos: 0 },
       captureProbe: probe,
@@ -1596,7 +1596,7 @@ describe('canonical missing-job signal and refresh timestamps', () => {
     const fake: Fake = {
       targeted: squeueJob({ job_id: 173, job_state: ['PENDING'], state_reason: 'AssocGrpCpuLimit', tres_req_str: 'cpu=1,mem=100M,node=1' }),
       squeueTexts: [JSON.stringify({ errors: [], jobs: [] })],
-      assocTexts: [`${assocHeader}\n1||c|research|||root|cpu=100||||\n2|1|c|research|alice||research|||||`],
+      assocTexts: [`${assocHeader}\n1||c|organization-a|||root|cpu=100||||\n2|1|c|organization-a|alice||organization-a|||||`],
       qosTexts: [qosRow],
       calls: { squeue: 0, assoc: 0, qos: 0 },
       failAssocRefresh: true,
@@ -1615,7 +1615,7 @@ describe('canonical missing-job signal and refresh timestamps', () => {
     const run: SlurmRunFn = jest.fn(async (executable: string, args: readonly string[]) => {
       const argv = args.join(' ');
       if (executable === 'scontrol' && argv.includes('show config')) {
-        return { stdout: 'ClusterName=nova\n', stderr: '' };
+        return { stdout: 'ClusterName=cluster-a\n', stderr: '' };
       }
       if (executable === 'squeue') {
         return { stdout: JSON.stringify({ errors: [], jobs: [] }), stderr: '' };
@@ -1624,7 +1624,7 @@ describe('canonical missing-job signal and refresh timestamps', () => {
         return {
           stdout: JSON.stringify({
             errors: [],
-            jobs: [squeueJob({ job_id: 174, job_state: ['PENDING'], state_reason: 'AssocGrpCpuLimit', account: 'research', user_name: 'alice', tres_req_str: 'cpu=1,mem=100M,node=1' })],
+            jobs: [squeueJob({ job_id: 174, job_state: ['PENDING'], state_reason: 'AssocGrpCpuLimit', account: 'organization-a', user_name: 'alice', tres_req_str: 'cpu=1,mem=100M,node=1' })],
           }),
           stderr: '',
         };
@@ -1637,7 +1637,7 @@ describe('canonical missing-job signal and refresh timestamps', () => {
           throw aborted;
         }
         return {
-          stdout: `${assocHeader}\n1||c|research|||root|cpu=100||||\n2|1|c|research|alice||research|||||`,
+          stdout: `${assocHeader}\n1||c|organization-a|||root|cpu=100||||\n2|1|c|organization-a|alice||organization-a|||||`,
           stderr: '',
         };
       }
@@ -1660,8 +1660,8 @@ describe('canonical missing-job signal and refresh timestamps', () => {
 describe('association evidence-aware selection', () => {
   const entries = [
     assocEntry({ id: '1', parentId: null, account: 'root', grpTres: { cpu: 1000, memMiB: null, node: null, gres: {} } }),
-    assocEntry({ id: '2', parentId: '1', account: 'research', parentAccount: 'root', grpTres: { cpu: 100, memMiB: null, node: null, gres: {} } }),
-    assocEntry({ id: '3', parentId: '2', account: 'child', parentAccount: 'research', grpTres: { cpu: 10, memMiB: null, node: null, gres: {} } }),
+    assocEntry({ id: '2', parentId: '1', account: 'organization-a', parentAccount: 'root', grpTres: { cpu: 100, memMiB: null, node: null, gres: {} } }),
+    assocEntry({ id: '3', parentId: '2', account: 'child', parentAccount: 'organization-a', grpTres: { cpu: 10, memMiB: null, node: null, gres: {} } }),
     assocEntry({ id: '4', parentId: '3', account: 'child', user: 'alice' }),
   ];
 
@@ -1685,7 +1685,7 @@ describe('association evidence-aware selection', () => {
       ...makeCtx(cpuPending('200', 'child', 1), {
         jobs: [
           cpuJob('201', 'child', 2),
-          cpuJob('202', 'research', null),
+          cpuJob('202', 'organization-a', null),
         ],
       }),
       assoc: { store: buildAssociationStore(entries), capturedAt: new Date() },
@@ -1709,21 +1709,21 @@ describe('association evidence-aware selection', () => {
       ...makeCtx(cpuPending('211', 'child', 5), {
         jobs: [
           cpuJob('212', 'child', 8),
-          cpuJob('213', 'research', null),
+          cpuJob('213', 'organization-a', null),
         ],
       }),
       assoc: { store: buildAssociationStore(entries), capturedAt: new Date() },
     });
     expect(result?.limitingAccount).toBe('child');
     expect(result?.used).toBe(8);
-    expect(result?.hierarchy?.find((row) => row.account === 'research')?.used).toBeNull();
+    expect(result?.hierarchy?.find((row) => row.account === 'organization-a')?.used).toBeNull();
   });
 
   test('deepest-first among several proven violations', async () => {
     const tight = [
       assocEntry({ id: '1', parentId: null, account: 'root', grpTres: { cpu: 12, memMiB: null, node: null, gres: {} } }),
-      assocEntry({ id: '2', parentId: '1', account: 'research', parentAccount: 'root', grpTres: { cpu: 11, memMiB: null, node: null, gres: {} } }),
-      assocEntry({ id: '3', parentId: '2', account: 'child', parentAccount: 'research', grpTres: { cpu: 10, memMiB: null, node: null, gres: {} } }),
+      assocEntry({ id: '2', parentId: '1', account: 'organization-a', parentAccount: 'root', grpTres: { cpu: 11, memMiB: null, node: null, gres: {} } }),
+      assocEntry({ id: '3', parentId: '2', account: 'child', parentAccount: 'organization-a', grpTres: { cpu: 10, memMiB: null, node: null, gres: {} } }),
       assocEntry({ id: '4', parentId: '3', account: 'child', user: 'alice' }),
     ];
     const result = await analyzeAssocLimits({
@@ -1790,29 +1790,29 @@ describe('association hierarchy validation', () => {
 
   test('duplicate identity tuple with different IDs fails the store build', () => {
     expect(() => buildAssociationStore([
-      assocEntry({ id: '1', parentId: null, account: 'research', user: 'alice', partition: 'debug' }),
-      assocEntry({ id: '2', parentId: null, account: 'research', user: 'alice', partition: 'debug' }),
+      assocEntry({ id: '1', parentId: null, account: 'organization-a', user: 'alice', partition: 'debug' }),
+      assocEntry({ id: '2', parentId: null, account: 'organization-a', user: 'alice', partition: 'debug' }),
     ])).toThrow();
   });
 
   test('null partition stays distinct from a named partition', () => {
     const store = buildAssociationStore([
-      assocEntry({ id: '1', parentId: null, account: 'research', user: 'alice' }),
-      assocEntry({ id: '2', parentId: '1', account: 'research', user: 'alice', partition: 'debug' }),
+      assocEntry({ id: '1', parentId: null, account: 'organization-a', user: 'alice' }),
+      assocEntry({ id: '2', parentId: '1', account: 'organization-a', user: 'alice', partition: 'debug' }),
     ]);
-    expect(resolveAssociation(store, { account: 'research', user: 'alice', partition: 'debug' })?.id).toBe('2');
-    expect(resolveAssociation(store, { account: 'research', user: 'alice', partition: 'other' })?.id).toBe('1');
-    expect(resolveAssociation(store, { account: 'research', user: 'alice', partition: null })?.id).toBe('1');
+    expect(resolveAssociation(store, { account: 'organization-a', user: 'alice', partition: 'debug' })?.id).toBe('2');
+    expect(resolveAssociation(store, { account: 'organization-a', user: 'alice', partition: 'other' })?.id).toBe('1');
+    expect(resolveAssociation(store, { account: 'organization-a', user: 'alice', partition: null })?.id).toBe('1');
   });
 
   test('same account with different users stays distinct', () => {
     const store = buildAssociationStore([
-      assocEntry({ id: '1', parentId: null, account: 'research', user: 'alice' }),
-      assocEntry({ id: '2', parentId: null, account: 'research', user: 'bob' }),
+      assocEntry({ id: '1', parentId: null, account: 'organization-a', user: 'alice' }),
+      assocEntry({ id: '2', parentId: null, account: 'organization-a', user: 'bob' }),
     ]);
-    expect(resolveAssociation(store, { account: 'research', user: 'alice', partition: null })?.id).toBe('1');
-    expect(resolveAssociation(store, { account: 'research', user: 'bob', partition: null })?.id).toBe('2');
-    expect(resolveAssociation(store, { account: 'research', user: 'carol', partition: null })).toBeNull();
+    expect(resolveAssociation(store, { account: 'organization-a', user: 'alice', partition: null })?.id).toBe('1');
+    expect(resolveAssociation(store, { account: 'organization-a', user: 'bob', partition: null })?.id).toBe('2');
+    expect(resolveAssociation(store, { account: 'organization-a', user: 'carol', partition: null })).toBeNull();
   });
 
   test('depth overflow fails instead of truncating', () => {
@@ -1974,11 +1974,11 @@ describe('dependency lookup failure propagation', () => {
 
 describe('local cluster scoping', () => {
   test('ClusterName parses from scontrol show config', async () => {
-    expect(parseClusterName('ClusterName=nova\nSlurmctldHost=x\n')).toBe('nova');
+    expect(parseClusterName('ClusterName=cluster-a\nSlurmctldHost=x\n')).toBe('cluster-a');
     expect(parseClusterName('SlurmctldHost=x\n')).toBeNull();
     expect(parseClusterName('ClusterName=bad;name\n')).toBeNull();
-    const run: SlurmRunFn = jest.fn().mockResolvedValue({ stdout: 'ClusterName=nova\n', stderr: '' });
-    await expect(fetchLocalClusterName({ parser: PARSER, run })).resolves.toBe('nova');
+    const run: SlurmRunFn = jest.fn().mockResolvedValue({ stdout: 'ClusterName=cluster-a\n', stderr: '' });
+    await expect(fetchLocalClusterName({ parser: PARSER, run })).resolves.toBe('cluster-a');
   });
 
   test('association query constrains to the local cluster when known', async () => {
@@ -1986,13 +1986,13 @@ describe('local cluster scoping', () => {
     const run: SlurmRunFn = jest.fn(async (exe: string, args: readonly string[]) => {
       seen.push([exe, ...args]);
       if (exe === 'scontrol') {
-        return { stdout: 'ClusterName=nova\n', stderr: '' };
+        return { stdout: 'ClusterName=cluster-a\n', stderr: '' };
       }
       return { stdout: 'ID|ParentID|Cluster|Account|User|Partition|ParentName|GrpTRES|GrpTRESRunMins|GrpJobs|MaxJobs\n', stderr: '' };
     });
     await fetchAssocSnapshot({ parser: PARSER, run });
     const assocCall = seen.find((call) => call[0] === 'sacctmgr');
-    expect(assocCall).toContain('Cluster=nova');
+    expect(assocCall).toContain('Cluster=cluster-a');
   });
 
   test('unresolvable cluster lookup fails instead of querying all clusters', async () => {
@@ -2029,7 +2029,7 @@ describe('local cluster scoping', () => {
 describe('multiple typed-GPU requests', () => {
   function gresCtx(gpus: Job['requested']['gpus']): AnalyzerContext {
     const pending = makeJob({
-      id: '330', state: 'PENDING', stateReason: 'AssocGrpGRES', account: 'research',
+      id: '330', state: 'PENDING', stateReason: 'AssocGrpGRES', account: 'organization-a',
       requested: { cpus: null, memoryMiB: null, nodes: 1, gpus },
     });
     return {
@@ -2037,8 +2037,8 @@ describe('multiple typed-GPU requests', () => {
       assoc: {
         store: buildAssociationStore([
           assocEntry({ id: '1', parentId: null, account: 'root' }),
-          assocEntry({ id: '2', parentId: '1', account: 'research', parentAccount: 'root', grpTres: { cpu: null, memMiB: null, node: null, gres: { 'gpu:a100': 4, 'gpu:v100': 4 } } }),
-          assocEntry({ id: '9', parentId: '2', account: 'research', user: 'alice' }),
+          assocEntry({ id: '2', parentId: '1', account: 'organization-a', parentAccount: 'root', grpTres: { cpu: null, memMiB: null, node: null, gres: { 'gpu:a100': 4, 'gpu:v100': 4 } } }),
+          assocEntry({ id: '9', parentId: '2', account: 'organization-a', user: 'alice' }),
         ]),
         capturedAt: new Date(),
       },
@@ -2060,7 +2060,7 @@ describe('multiple typed-GPU requests', () => {
 
   test('untyped aggregate analyzes the generic type', async () => {
     const pending = makeJob({
-      id: '331', state: 'PENDING', stateReason: 'AssocGrpGRES', account: 'research',
+      id: '331', state: 'PENDING', stateReason: 'AssocGrpGRES', account: 'organization-a',
       requested: { cpus: null, memoryMiB: null, nodes: 1, gpus: { total: 2, byType: { unknown: 2 } } },
     });
     const ctx: AnalyzerContext = {
@@ -2068,8 +2068,8 @@ describe('multiple typed-GPU requests', () => {
       assoc: {
         store: buildAssociationStore([
           assocEntry({ id: '1', parentId: null, account: 'root' }),
-          assocEntry({ id: '2', parentId: '1', account: 'research', parentAccount: 'root', grpTres: { cpu: null, memMiB: null, node: null, gres: { gpu: 4 } } }),
-          assocEntry({ id: '9', parentId: '2', account: 'research', user: 'alice' }),
+          assocEntry({ id: '2', parentId: '1', account: 'organization-a', parentAccount: 'root', grpTres: { cpu: null, memMiB: null, node: null, gres: { gpu: 4 } } }),
+          assocEntry({ id: '9', parentId: '2', account: 'organization-a', user: 'alice' }),
         ]),
         capturedAt: new Date(),
       },
@@ -2128,14 +2128,14 @@ describe('GPU allocation presence', () => {
 
   test('GRES usage counts known GPU zeros without unknown', async () => {
     const pending = makeJob({
-      id: '340', state: 'PENDING', stateReason: 'AssocGrpGRES', account: 'research',
+      id: '340', state: 'PENDING', stateReason: 'AssocGrpGRES', account: 'organization-a',
       requested: { cpus: null, memoryMiB: null, nodes: 1, gpus: { total: 1, byType: { a100: 1 } } },
     });
     const result = await analyzeAssocLimits({
       ...makeCtx(pending, {
         jobs: [
           makeJob({
-            id: '341', account: 'research',
+            id: '341', account: 'organization-a',
             allocated: { cpus: 1, memoryMiB: 100, nodes: 1, gpus: { total: 0, byType: {} }, gpuPresent: true },
           }),
         ],
@@ -2143,8 +2143,8 @@ describe('GPU allocation presence', () => {
       assoc: {
         store: buildAssociationStore([
           assocEntry({ id: '1', parentId: null, account: 'root' }),
-          assocEntry({ id: '2', parentId: '1', account: 'research', parentAccount: 'root', grpTres: { cpu: null, memMiB: null, node: null, gres: { 'gpu:a100': 4 } } }),
-          assocEntry({ id: '9', parentId: '2', account: 'research', user: 'alice' }),
+          assocEntry({ id: '2', parentId: '1', account: 'organization-a', parentAccount: 'root', grpTres: { cpu: null, memMiB: null, node: null, gres: { 'gpu:a100': 4 } } }),
+          assocEntry({ id: '9', parentId: '2', account: 'organization-a', user: 'alice' }),
         ]),
         capturedAt: new Date(),
       },
@@ -2552,10 +2552,10 @@ describe('configured GPU GRES vs unknown inventory', () => {
     ]);
   });
 
-  test('Nova scavenger partition fixture: gres="" with A100 request yields shortage of 0', async () => {
-    const novaNode = normalizeNode({
-      name: 'nova-scavenger-01',
-      partitions: ['scavenger'],
+  test('synthetic partition-a partition fixture: gres="" with A100 request yields shortage of 0', async () => {
+    const computeNode = normalizeNode({
+      name: 'compute-a-01',
+      partitions: ['partition-a'],
       state: 'IDLE',
       cpus: 72,
       effective_cpus: 72,
@@ -2566,17 +2566,17 @@ describe('configured GPU GRES vs unknown inventory', () => {
       gres_used: '',
       tres: 'cpu=72,mem=189000M,billing=1',
     } as any);
-    expect(novaNode.gpuInventoryKnown).toBe(true);
-    expect(novaNode.gpu.total).toBe(0);
+    expect(computeNode.gpuInventoryKnown).toBe(true);
+    expect(computeNode.gpu.total).toBe(0);
 
-    const novaJob = makeJob({
-      id: '12261244',
-      partition: 'scavenger',
+    const computeJob = makeJob({
+      id: '4001',
+      partition: 'partition-a',
       state: 'PENDING',
       stateReason: 'Resources',
       requested: { cpus: 8, memoryMiB: 32768, nodes: 1, gpus: { total: 1, byType: { a100: 1 } } },
     });
-    const result = await analyzeResources(makeCtx(novaJob, { nodes: [novaNode] }));
+    const result = await analyzeResources(makeCtx(computeJob, { nodes: [computeNode] }));
     expect(result?.nodes[0]?.status).toBe('insufficient');
     expect(result?.nodes[0]?.shortages).toEqual([
       { resource: 'gpus', gpuType: 'a100', requested: 1, currentlyUnallocated: 0 },
@@ -2585,15 +2585,15 @@ describe('configured GPU GRES vs unknown inventory', () => {
 });
 
 describe('full association ancestry in hierarchy', () => {
-  // root -> research -> las -> chem -> venditti-lab -> saydas @ venditti-lab
+  // root -> organization-a -> division-a -> department-a -> project-a -> user-a @ project-a
   const fullChainEntries = [
     assocEntry({ id: '1', parentId: null, account: 'root', parentAccount: null }),
-    assocEntry({ id: '2', parentId: '1', account: 'research', parentAccount: 'root' }),
-    assocEntry({ id: '3', parentId: '2', account: 'las', parentAccount: 'research', grpTres: { cpu: 84, memMiB: null, node: null, gres: { gpu: 84 } }, maxJobs: 10, grpTresRunMins: { cpu: 100000, memMiB: null, node: null, gres: {} } }),
-    assocEntry({ id: '6', parentId: '3', account: 'las', user: 'bob' }),
-    assocEntry({ id: '4', parentId: '3', account: 'chem', parentAccount: 'las' }),
-    assocEntry({ id: '2283', parentId: '4', account: 'venditti-lab', parentAccount: 'chem', grpTres: { cpu: 5, memMiB: null, node: null, gres: { gpu: 5 } }, maxJobs: 2, grpTresRunMins: { cpu: 10000, memMiB: null, node: null, gres: {} } }),
-    assocEntry({ id: '2981', parentId: '2283', account: 'venditti-lab', user: 'saydas' }),
+    assocEntry({ id: '2', parentId: '1', account: 'organization-a', parentAccount: 'root' }),
+    assocEntry({ id: '3', parentId: '2', account: 'division-a', parentAccount: 'organization-a', grpTres: { cpu: 84, memMiB: null, node: null, gres: { gpu: 84 } }, maxJobs: 10, grpTresRunMins: { cpu: 100000, memMiB: null, node: null, gres: {} } }),
+    assocEntry({ id: '6', parentId: '3', account: 'division-a', user: 'user-b' }),
+    assocEntry({ id: '4', parentId: '3', account: 'department-a', parentAccount: 'division-a' }),
+    assocEntry({ id: '5', parentId: '4', account: 'project-a', parentAccount: 'department-a', grpTres: { cpu: 5, memMiB: null, node: null, gres: { gpu: 5 } }, maxJobs: 2, grpTresRunMins: { cpu: 10000, memMiB: null, node: null, gres: {} } }),
+    assocEntry({ id: '7', parentId: '5', account: 'project-a', user: 'user-a' }),
   ];
 
   test('TRES CPU limit includes full ancestry leaf to root with user and account distinct', async () => {
@@ -2601,55 +2601,55 @@ describe('full association ancestry in hierarchy', () => {
       id: '1001',
       state: 'PENDING',
       stateReason: 'AssocGrpCpuLimit',
-      account: 'venditti-lab',
-      user: 'saydas',
+      account: 'project-a',
+      user: 'user-a',
       requested: { cpus: 1, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } },
     });
     const jobs = [
-      makeJob({ id: '1002', account: 'venditti-lab', user: 'saydas', allocated: { cpus: 5, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } } }),
-      makeJob({ id: '1003', account: 'las', user: 'bob', allocated: { cpus: 72, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } } }),
+      makeJob({ id: '1002', account: 'project-a', user: 'user-a', allocated: { cpus: 5, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } } }),
+      makeJob({ id: '1003', account: 'division-a', user: 'user-b', allocated: { cpus: 72, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } } }),
     ];
     const ctx = {
       ...makeCtx(pending, { jobs }),
       assoc: { store: buildAssociationStore(fullChainEntries), capturedAt: new Date() },
     };
     const result = await analyzeAssocLimits(ctx);
-    expect(result?.limitingAccount).toBe('venditti-lab');
+    expect(result?.limitingAccount).toBe('project-a');
     expect(result?.hierarchy).toEqual([
-      { account: 'venditti-lab', user: 'saydas', parent: 'venditti-lab', limit: null, used: null, limiting: false },
-      { account: 'venditti-lab', parent: 'chem', limit: 5, used: 5, limiting: true },
-      { account: 'chem', parent: 'las', limit: null, used: null, limiting: false },
-      { account: 'las', parent: 'research', limit: 84, used: 77, limiting: false },
-      { account: 'research', parent: 'root', limit: null, used: null, limiting: false },
+      { account: 'project-a', user: 'user-a', parent: 'project-a', limit: null, used: null, limiting: false },
+      { account: 'project-a', parent: 'department-a', limit: 5, used: 5, limiting: true },
+      { account: 'department-a', parent: 'division-a', limit: null, used: null, limiting: false },
+      { account: 'division-a', parent: 'organization-a', limit: 84, used: 77, limiting: false },
+      { account: 'organization-a', parent: 'root', limit: null, used: null, limiting: false },
       { account: 'root', parent: null, limit: null, used: null, limiting: false },
     ]);
   });
 
-  test('GPU/GRES limit includes full ancestry leaf to root (Nova 12246026 pattern)', async () => {
+  test('GPU/GRES limit includes full ancestry leaf to root', async () => {
     const pending = makeJob({
       id: '1004',
       state: 'PENDING',
       stateReason: 'AssocGrpGRES',
-      account: 'venditti-lab',
-      user: 'saydas',
+      account: 'project-a',
+      user: 'user-a',
       requested: { cpus: 1, memoryMiB: null, nodes: 1, gpus: { total: 1, byType: {} } },
     });
     const jobs = [
-      makeJob({ id: '1005', account: 'venditti-lab', user: 'saydas', allocated: { cpus: 1, memoryMiB: null, nodes: 1, gpus: { total: 5, byType: {} }, gpuPresent: true } }),
-      makeJob({ id: '1006', account: 'las', user: 'bob', allocated: { cpus: 1, memoryMiB: null, nodes: 1, gpus: { total: 72, byType: {} }, gpuPresent: true } }),
+      makeJob({ id: '1005', account: 'project-a', user: 'user-a', allocated: { cpus: 1, memoryMiB: null, nodes: 1, gpus: { total: 5, byType: {} }, gpuPresent: true } }),
+      makeJob({ id: '1006', account: 'division-a', user: 'user-b', allocated: { cpus: 1, memoryMiB: null, nodes: 1, gpus: { total: 72, byType: {} }, gpuPresent: true } }),
     ];
     const ctx = {
       ...makeCtx(pending, { jobs }),
       assoc: { store: buildAssociationStore(fullChainEntries), capturedAt: new Date() },
     };
     const result = await analyzeAssocLimits(ctx);
-    expect(result?.limitingAccount).toBe('venditti-lab');
+    expect(result?.limitingAccount).toBe('project-a');
     expect(result?.hierarchy).toEqual([
-      { account: 'venditti-lab', user: 'saydas', parent: 'venditti-lab', limit: null, used: null, limiting: false },
-      { account: 'venditti-lab', parent: 'chem', limit: 5, used: 5, limiting: true },
-      { account: 'chem', parent: 'las', limit: null, used: null, limiting: false },
-      { account: 'las', parent: 'research', limit: 84, used: 77, limiting: false },
-      { account: 'research', parent: 'root', limit: null, used: null, limiting: false },
+      { account: 'project-a', user: 'user-a', parent: 'project-a', limit: null, used: null, limiting: false },
+      { account: 'project-a', parent: 'department-a', limit: 5, used: 5, limiting: true },
+      { account: 'department-a', parent: 'division-a', limit: null, used: null, limiting: false },
+      { account: 'division-a', parent: 'organization-a', limit: 84, used: 77, limiting: false },
+      { account: 'organization-a', parent: 'root', limit: null, used: null, limiting: false },
       { account: 'root', parent: null, limit: null, used: null, limiting: false },
     ]);
   });
@@ -2659,25 +2659,25 @@ describe('full association ancestry in hierarchy', () => {
       id: '1007',
       state: 'PENDING',
       stateReason: 'AssocMaxJobsLimit',
-      account: 'venditti-lab',
-      user: 'saydas',
+      account: 'project-a',
+      user: 'user-a',
     });
     const jobs = [
-      makeJob({ id: '1008', account: 'venditti-lab', user: 'saydas' }),
-      makeJob({ id: '1009', account: 'venditti-lab', user: 'saydas' }),
+      makeJob({ id: '1008', account: 'project-a', user: 'user-a' }),
+      makeJob({ id: '1009', account: 'project-a', user: 'user-a' }),
     ];
     const ctx = {
       ...makeCtx(pending, { jobs }),
       assoc: { store: buildAssociationStore(fullChainEntries), capturedAt: new Date() },
     };
     const result = await analyzeAssocLimits(ctx);
-    expect(result?.limitingAccount).toBe('venditti-lab');
+    expect(result?.limitingAccount).toBe('project-a');
     expect(result?.hierarchy).toEqual([
-      { account: 'venditti-lab', user: 'saydas', parent: 'venditti-lab', limit: null, used: null, limiting: false },
-      { account: 'venditti-lab', parent: 'chem', limit: 2, used: 2, limiting: true },
-      { account: 'chem', parent: 'las', limit: null, used: null, limiting: false },
-      { account: 'las', parent: 'research', limit: 10, used: 2, limiting: false },
-      { account: 'research', parent: 'root', limit: null, used: null, limiting: false },
+      { account: 'project-a', user: 'user-a', parent: 'project-a', limit: null, used: null, limiting: false },
+      { account: 'project-a', parent: 'department-a', limit: 2, used: 2, limiting: true },
+      { account: 'department-a', parent: 'division-a', limit: null, used: null, limiting: false },
+      { account: 'division-a', parent: 'organization-a', limit: 10, used: 2, limiting: false },
+      { account: 'organization-a', parent: 'root', limit: null, used: null, limiting: false },
       { account: 'root', parent: null, limit: null, used: null, limiting: false },
     ]);
   });
@@ -2687,16 +2687,16 @@ describe('full association ancestry in hierarchy', () => {
       id: '1010',
       state: 'PENDING',
       stateReason: 'AssocGrpCPURunMinutesLimit',
-      account: 'venditti-lab',
-      user: 'saydas',
+      account: 'project-a',
+      user: 'user-a',
       timeLimit: { kind: 'finite', seconds: 3600 },
       requested: { cpus: 1, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } },
     });
     const jobs = [
       makeJob({
         id: '1011',
-        account: 'venditti-lab',
-        user: 'saydas',
+        account: 'project-a',
+        user: 'user-a',
         qos: 'normal',
         startTime: new Date(Date.now() - 60_000),
         timeLimit: { kind: 'finite', seconds: 3600 },
@@ -2709,50 +2709,50 @@ describe('full association ancestry in hierarchy', () => {
       qos: { store: buildQosStore([emptyQosEntry('normal')]), capturedAt: new Date() },
     };
     const result = await analyzeAssocLimits(ctx);
-    expect(result?.limitingAccount).toBe('venditti-lab');
+    expect(result?.limitingAccount).toBe('project-a');
     expect(result?.hierarchy).toHaveLength(6);
-    expect(result?.hierarchy?.[0]).toEqual({ account: 'venditti-lab', user: 'saydas', parent: 'venditti-lab', limit: null, used: null, limiting: false });
-    expect(result?.hierarchy?.[1]).toMatchObject({ account: 'venditti-lab', parent: 'chem', limit: 10000, limiting: true });
-    expect(result?.hierarchy?.[2]).toEqual({ account: 'chem', parent: 'las', limit: null, used: null, limiting: false });
-    expect(result?.hierarchy?.[3]).toMatchObject({ account: 'las', parent: 'research', limit: 100000, limiting: false });
-    expect(result?.hierarchy?.[4]).toEqual({ account: 'research', parent: 'root', limit: null, used: null, limiting: false });
+    expect(result?.hierarchy?.[0]).toEqual({ account: 'project-a', user: 'user-a', parent: 'project-a', limit: null, used: null, limiting: false });
+    expect(result?.hierarchy?.[1]).toMatchObject({ account: 'project-a', parent: 'department-a', limit: 10000, limiting: true });
+    expect(result?.hierarchy?.[2]).toEqual({ account: 'department-a', parent: 'division-a', limit: null, used: null, limiting: false });
+    expect(result?.hierarchy?.[3]).toMatchObject({ account: 'division-a', parent: 'organization-a', limit: 100000, limiting: false });
+    expect(result?.hierarchy?.[4]).toEqual({ account: 'organization-a', parent: 'root', limit: null, used: null, limiting: false });
     expect(result?.hierarchy?.[5]).toEqual({ account: 'root', parent: null, limit: null, used: null, limiting: false });
   });
 
   test('partition-specific association includes partition on that entry only', async () => {
     const partitionChain = [
       assocEntry({ id: '1', parentId: null, account: 'root' }),
-      assocEntry({ id: '2', parentId: '1', account: 'research' }),
-      assocEntry({ id: '2283', parentId: '2', account: 'venditti-lab', grpTres: { cpu: 10, memMiB: null, node: null, gres: {} } }),
-      assocEntry({ id: '2982', parentId: '2283', account: 'venditti-lab', user: 'saydas', partition: 'scavenger' }),
+      assocEntry({ id: '2', parentId: '1', account: 'organization-a' }),
+      assocEntry({ id: '3', parentId: '2', account: 'project-a', grpTres: { cpu: 10, memMiB: null, node: null, gres: {} } }),
+      assocEntry({ id: '4', parentId: '3', account: 'project-a', user: 'user-a', partition: 'partition-a' }),
     ];
     const pending = makeJob({
       id: '1012',
       state: 'PENDING',
       stateReason: 'AssocGrpCpuLimit',
-      account: 'venditti-lab',
-      user: 'saydas',
-      partition: 'scavenger',
+      account: 'project-a',
+      user: 'user-a',
+      partition: 'partition-a',
       requested: { cpus: 1, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } },
     });
     const ctx = {
-      ...makeCtx(pending, { jobs: [makeJob({ id: '1013', account: 'venditti-lab', user: 'saydas', partition: 'scavenger', allocated: { cpus: 10, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } } })] }),
+      ...makeCtx(pending, { jobs: [makeJob({ id: '1013', account: 'project-a', user: 'user-a', partition: 'partition-a', allocated: { cpus: 10, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } } })] }),
       assoc: { store: buildAssociationStore(partitionChain), capturedAt: new Date() },
     };
     const result = await analyzeAssocLimits(ctx);
     expect(result?.hierarchy).toHaveLength(4);
     expect(result?.hierarchy?.[0]).toEqual({
-      account: 'venditti-lab',
-      user: 'saydas',
-      partition: 'scavenger',
-      parent: 'venditti-lab',
+      account: 'project-a',
+      user: 'user-a',
+      partition: 'partition-a',
+      parent: 'project-a',
       limit: null,
       used: null,
       limiting: false,
     });
     expect(result?.hierarchy?.[1]).toEqual({
-      account: 'venditti-lab',
-      parent: 'research',
+      account: 'project-a',
+      parent: 'organization-a',
       limit: 10,
       used: 10,
       limiting: true,
@@ -2764,18 +2764,18 @@ describe('full association ancestry in hierarchy', () => {
   test('user-level limiter appears with user populated and limiting=true', async () => {
     const userLimitChain = [
       assocEntry({ id: '1', parentId: null, account: 'root' }),
-      assocEntry({ id: '2', parentId: '1', account: 'venditti-lab', maxJobs: 10 }),
-      assocEntry({ id: '3', parentId: '2', account: 'venditti-lab', user: 'saydas', maxJobs: 1 }),
+      assocEntry({ id: '2', parentId: '1', account: 'project-a', maxJobs: 10 }),
+      assocEntry({ id: '3', parentId: '2', account: 'project-a', user: 'user-a', maxJobs: 1 }),
     ];
     const pending = makeJob({
       id: '1014',
       state: 'PENDING',
       stateReason: 'AssocMaxJobsLimit',
-      account: 'venditti-lab',
-      user: 'saydas',
+      account: 'project-a',
+      user: 'user-a',
     });
     const jobs = [
-      makeJob({ id: '1015', account: 'venditti-lab', user: 'saydas' }),
+      makeJob({ id: '1015', account: 'project-a', user: 'user-a' }),
     ];
     const ctx = {
       ...makeCtx(pending, { jobs }),
@@ -2783,8 +2783,8 @@ describe('full association ancestry in hierarchy', () => {
     };
     const result = await analyzeAssocLimits(ctx);
     expect(result?.hierarchy).toEqual([
-      { account: 'venditti-lab', user: 'saydas', parent: 'venditti-lab', limit: 1, used: 1, limiting: true },
-      { account: 'venditti-lab', parent: 'root', limit: 10, used: 1, limiting: false },
+      { account: 'project-a', user: 'user-a', parent: 'project-a', limit: 1, used: 1, limiting: true },
+      { account: 'project-a', parent: 'root', limit: 10, used: 1, limiting: false },
       { account: 'root', parent: null, limit: null, used: null, limiting: false },
     ]);
   });

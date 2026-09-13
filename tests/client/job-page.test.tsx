@@ -24,7 +24,7 @@ function makeJob(overrides: Partial<JobDto> = {}): JobDto {
     partition: 'debug',
     name: 'train-model',
     user: 'alice',
-    account: 'research',
+    account: 'organization-a',
     qos: 'normal',
     state: 'RUNNING',
     stateFlags: [],
@@ -43,10 +43,10 @@ function makeJob(overrides: Partial<JobDto> = {}): JobDto {
     nodeExpression: 'gpu[01-02]',
     requested: { cpus: 8, memoryMiB: 32768, nodes: 2, gpus: { total: 4, byType: { a100: 4 } } },
     allocated: { cpus: 8, memoryMiB: 32768, nodes: 2, gpus: { total: 4, byType: { a100: 4 } } },
-    workdir: '/home/alice',
+    workdir: '/work/project-a/user-a/workload',
     command: 'sbatch run.sh',
-    stdoutPath: '/home/alice/slurm-101.out',
-    stderrPath: '/home/alice/slurm-101.err',
+    stdoutPath: '/work/project-a/user-a/workload/slurm-101.out',
+    stderrPath: '/work/project-a/user-a/workload/slurm-101.err',
     dependency: null,
     exitCode: null,
     derivedExitCode: null,
@@ -216,7 +216,7 @@ describe('JobPage states', () => {
     await waitFor(() => expect(screen.getByText('Waiting for resources')).toBeTruthy());
     expect(screen.getByText('Slurm: Resources')).toBeTruthy();
     expect(screen.getByText('WHY THIS JOB IS WAITING')).toBeTruthy();
-    expect(screen.getByText(/only the reason encountered by the scheduling attempt/)).toBeTruthy();
+    expect(screen.getByLabelText(/only the reason encountered by the scheduling attempt/)).toBeTruthy();
     expect(screen.getByText(/Snapshot taken/)).toBeTruthy();
     expect(screen.queryByText('Resource usage')).toBeNull();
     expect(screen.queryByText('Exit code')).toBeNull();
@@ -420,7 +420,7 @@ describe('JobPage states', () => {
         stateReason: 'Dependency',
         dependency: 'afterok:99',
         startTime: null,
-        stdoutPath: '/home/bob/slurm-100_%a.out',
+        stdoutPath: '/work/project-b/user-b/workload/slurm-100_%a.out',
       }),
     });
 
@@ -433,20 +433,20 @@ describe('JobPage states', () => {
     // Configured Slurm values keep plain labels even with substitution
     // syntax: the UI never claims to know resolved paths.
     expect(screen.getByText('Stdout')).toBeTruthy();
-    expect(screen.getByText('/home/bob/slurm-100_%a.out')).toBeTruthy();
+    expect(screen.getByText('/work/project-b/user-b/workload/slurm-100_%a.out')).toBeTruthy();
     expect(screen.queryByText(/pattern/i)).toBeNull();
   });
 
   test('literal percent characters never read as substitution syntax', async () => {
     renderJobPage('101', {
-      job: makeJob({ stdoutPath: '/home/alice/100%.out', stderrPath: '/home/alice/%%j.out' }),
+      job: makeJob({ stdoutPath: '/work/project-a/user-a/workload/100%.out', stderrPath: '/work/project-a/user-a/workload/%%j.out' }),
     });
 
     await waitFor(() => expect(screen.getByText('Execution')).toBeTruthy());
     expect(screen.getByText('Stdout')).toBeTruthy();
     expect(screen.getByText('Stderr')).toBeTruthy();
-    expect(screen.getByText('/home/alice/100%.out')).toBeTruthy();
-    expect(screen.getByText('/home/alice/%%j.out')).toBeTruthy();
+    expect(screen.getByText('/work/project-a/user-a/workload/100%.out')).toBeTruthy();
+    expect(screen.getByText('/work/project-a/user-a/workload/%%j.out')).toBeTruthy();
     expect(screen.queryByText(/pattern/i)).toBeNull();
   });
 

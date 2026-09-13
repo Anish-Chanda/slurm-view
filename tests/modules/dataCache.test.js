@@ -88,8 +88,8 @@ describe('DataCache', () => {
             const testLimits = {
                 timestamp: Date.now(),
                 accounts: {
-                    'niemi-lab': {
-                        parent: 'stat',
+                    'project-a': {
+                        parent: 'department-a',
                         grpMem: 38000000,
                         grpCPUs: 7200,
                         grpTRES: { mem: 38000000, cpu: 7200 }
@@ -101,7 +101,7 @@ describe('DataCache', () => {
             const retrieved = dataCache.getAccountLimits();
 
             expect(retrieved).toEqual(testLimits);
-            expect(retrieved.accounts['niemi-lab'].grpMem).toBe(38000000);
+            expect(retrieved.accounts['project-a'].grpMem).toBe(38000000);
         });
 
         test('should identify stale account limits data', () => {

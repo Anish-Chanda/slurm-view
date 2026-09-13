@@ -39,7 +39,7 @@ function makeJob(partial: Partial<Job> & { id: string }): Job {
     partition: 'debug',
     name: 'job',
     user: 'alice',
-    account: 'research',
+    account: 'organization-a',
     qos: 'normal',
     state: 'RUNNING',
     stateFlags: [],
@@ -183,9 +183,9 @@ describe('run-minute UsageFactor', () => {
 
 describe('usage scopes stay explicit', () => {
   const jobs = [
-    makeJob({ id: '1', account: 'research', user: 'alice', qos: 'normal', state: 'RUNNING' }),
+    makeJob({ id: '1', account: 'organization-a', user: 'alice', qos: 'normal', state: 'RUNNING' }),
     makeJob({ id: '2', account: 'other', user: 'bob', qos: 'normal', state: 'RUNNING' }),
-    makeJob({ id: '3', account: 'research', user: 'alice', qos: 'normal', state: 'PENDING' }),
+    makeJob({ id: '3', account: 'organization-a', user: 'alice', qos: 'normal', state: 'PENDING' }),
   ];
 
   test('QOS group is QOS-global, never account-scoped', () => {
@@ -195,7 +195,7 @@ describe('usage scopes stay explicit', () => {
   });
 
   test('association group respects descendants and RUNNING only', () => {
-    const grouped = calculateAssociationGroupUsage('research', new Set(['research']), { jobs }, () => 1);
+    const grouped = calculateAssociationGroupUsage('organization-a', new Set(['organization-a']), { jobs }, () => 1);
     expect(grouped.total).toBe(1);
     const userScoped = calculateQosUserUsage('normal', 'bob', { jobs }, () => 1);
     expect(userScoped.total).toBe(1);
@@ -434,7 +434,7 @@ describe('registry and problem code', () => {
       job_id: 1,
       partition: 'debug',
       user_name: 'alice',
-      account: 'research',
+      account: 'organization-a',
       job_state: ['PENDING'],
     } as never);
     expect(job).not.toHaveProperty('cluster');
@@ -476,7 +476,7 @@ describe('UsageFactor for jobs without a Job QOS', () => {
     const jobs = [
       makeJob({ id: '1', qos: null, allocated: { cpus: 4, memoryMiB: 1024, nodes: 1, gpus: { total: 0, byType: {} } }, ...base }),
     ];
-    const sum = calculateAssociationGroupRunMinutes('research', null, 'cpu', { jobs, now, qosStore: store });
+    const sum = calculateAssociationGroupRunMinutes('organization-a', null, 'cpu', { jobs, now, qosStore: store });
     expect(sum.total).toBeCloseTo(120, 0);
     expect(sum.unknown).toBe(0);
     expect(sum.runningJobs).toBe(1);

@@ -1,6 +1,185 @@
 import type { LimitAnalysisDto } from "../../../../shared/api/v1/pending-analysis.ts";
-import { AnalysisMetricList, JobLink } from "./AnalysisShell.tsx";
-import { formatMetric, metricLabel } from "./analysis-formatting.ts";
+import {
+  EVIDENCE_TABLE,
+  EVIDENCE_TABLE_HEAD,
+  EVIDENCE_TABLE_ROW,
+  EVIDENCE_TABLE_WRAPPER,
+  JobLink,
+} from "./AnalysisShell.tsx";
+import { formatInteger, formatMetric } from "./analysis-formatting.ts";
+
+function metricName(
+  metric: LimitAnalysisDto["metric"],
+  gpuType?: string,
+): string {
+  if (metric === "gpus")
+    return gpuType ? `${gpuType} GPU` : "GPU";
+  if (metric === "cpus") return "CPU";
+  if (metric === "memoryMiB") return "Memory";
+  if (metric === "nodes") return "Node";
+  if (metric === "jobs") return "Job";
+  return metric === "cpuMinutes" ? "CPU-minutes" : "Memory MiB-minutes";
+}
+
+function metricQuantity(
+  metric: LimitAnalysisDto["metric"],
+  value: number,
+  gpuType?: string,
+): string {
+  if (metric === "gpus")
+    return `${formatInteger(value)} ${gpuType ? `${gpuType} GPU${value === 1 ? "" : "s"}` : `GPU${value === 1 ? "" : "s"}`}`;
+  if (metric === "cpus")
+    return `${formatInteger(value)} CPU${value === 1 ? "" : "s"}`;
+  if (metric === "nodes")
+    return `${formatInteger(value)} node${value === 1 ? "" : "s"}`;
+  if (metric === "jobs")
+    return `${formatInteger(value)} job${value === 1 ? "" : "s"}`;
+  return formatMetric(metric, value, gpuType);
+}
+
+function LimitUsage({ analysis }: { analysis: LimitAnalysisDto }) {
+  const title = `${metricName(analysis.metric, analysis.gpuType)} limit`;
+  const usagePercent =
+    analysis.used === null || analysis.limit <= 0
+      ? null
+      : (analysis.used / analysis.limit) * 100;
+  const barPercent =
+    usagePercent === null ? null : Math.min(100, usagePercent);
+  const reached = analysis.used !== null && analysis.used >= analysis.limit;
+  return (
+    <section aria-labelledby="limit-usage">
+      <h3 id="limit-usage" className="text-sm font-semibold text-gray-900">
+        {title}
+      </h3>
+      {analysis.used === null ? (
+        <p className="mt-3 text-sm text-gray-600">
+          Current usage: Unknown · Limit:{" "}
+          {metricQuantity(analysis.metric, analysis.limit, analysis.gpuType)}
+        </p>
+      ) : (
+        <>
+          <div className="mt-3 flex items-baseline justify-between gap-4">
+            <p className="text-lg font-semibold tabular-nums text-gray-900">
+              {metricQuantity(analysis.metric, analysis.used, analysis.gpuType)}{" "}
+              currently in use
+            </p>
+            {usagePercent !== null ? (
+              <span className="text-sm font-medium tabular-nums text-gray-600">
+                {Math.round(usagePercent)}%
+              </span>
+            ) : null}
+          </div>
+          <div aria-hidden="true" className="mt-2 h-2 rounded-full bg-gray-200">
+            <div
+              className={
+                reached
+                  ? "h-2 rounded-full bg-red-600"
+                  : "h-2 rounded-full bg-amber-500"
+              }
+              style={{ width: `${barPercent ?? 0}%` }}
+            />
+          </div>
+          <p className="mt-1 text-sm text-gray-500">
+            of{" "}
+            {metricQuantity(analysis.metric, analysis.limit, analysis.gpuType)}
+          </p>
+        </>
+      )}
+      {analysis.requested !== null ? (
+        <p className="mt-5 text-sm text-gray-700">
+          This job {analysis.metric === "jobs" ? "would add" : "requests"}{" "}
+          <span className="font-semibold tabular-nums">
+            {metricQuantity(
+              analysis.metric,
+              analysis.requested,
+              analysis.gpuType,
+            )}
+          </span>
+          .
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function AssociationTree({ analysis }: { analysis: LimitAnalysisDto }) {
+  const levels = [...(analysis.hierarchy ?? [])].reverse();
+  if (!levels.length) return null;
+  return (
+    <section aria-labelledby="association-hierarchy">
+      <h3
+        id="association-hierarchy"
+        className="text-sm font-semibold text-gray-900"
+      >
+        Account hierarchy
+      </h3>
+      <ol
+        className="mt-3 space-y-1"
+        aria-label="Account hierarchy from root to user association"
+      >
+        {levels.map((level, index) => {
+          const limiting = level.limiting;
+          const label = level.user
+            ? `${level.user} @ ${level.account}`
+            : level.account;
+          const usage =
+            level.limit === null
+              ? "No limit"
+              : `${level.used === null ? "Unknown" : metricQuantity(analysis.metric, level.used, analysis.gpuType)} / ${metricQuantity(analysis.metric, level.limit, analysis.gpuType)}`;
+          const depth = Math.min(index, 5);
+          const connector =
+            depth === 0 ? "" : `${"│   ".repeat(depth - 1)}└── `;
+          return (
+            <li
+              key={`${level.account}-${level.user ?? "account"}-${index}`}
+              className="flex min-w-0 items-start"
+            >
+              <span
+                aria-hidden="true"
+                className="shrink-0 whitespace-pre font-mono text-sm leading-6 text-gray-300"
+              >
+                {connector}
+              </span>
+              <div
+                className={`min-w-0 flex-1 ${limiting ? "rounded-sm bg-red-50 px-2 py-1" : "py-1"}`}
+              >
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+                  <span
+                    className={
+                      limiting
+                        ? "font-semibold text-gray-900"
+                        : "font-medium text-gray-800"
+                    }
+                  >
+                    {label}
+                    {level.user ? (
+                      <span className="ml-2 text-xs font-normal text-gray-500">
+                        User association
+                      </span>
+                    ) : null}
+                    {level.partition ? (
+                      <span className="ml-2 text-xs font-normal text-gray-500">
+                        {level.partition}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="shrink-0 text-xs tabular-nums text-gray-500">
+                    {usage}
+                  </span>
+                </div>
+                {limiting ? (
+                  <p className="mt-0.5 text-xs font-medium text-red-700">
+                    Limiting level
+                  </p>
+                ) : null}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+}
 
 function Consumers({ analysis }: { analysis: LimitAnalysisDto }) {
   if (!analysis.topConsumers?.length) return null;
@@ -9,118 +188,80 @@ function Consumers({ analysis }: { analysis: LimitAnalysisDto }) {
       ? "Current jobs in this limit scope"
       : "Largest current consumers in this limit scope";
   return (
-    <div className="mt-4 overflow-x-auto">
-      <h4 className="font-medium">{title}</h4>
-      <table className="mt-2 w-full text-left text-sm">
-        <thead>
-          <tr>
-            <th scope="col">Job</th>
-            <th scope="col">User</th>
-            <th scope="col">Account</th>
-            <th scope="col">Value</th>
-          </tr>
-        </thead>
-        <tbody>
-          {analysis.topConsumers.map((consumer) => (
-            <tr key={consumer.jobId}>
-              <td>
-                <JobLink id={consumer.jobId} />
-              </td>
-              <td>{consumer.user ?? "—"}</td>
-              <td>{consumer.account ?? "—"}</td>
-              <td>
-                {formatMetric(
-                  analysis.metric,
-                  consumer.value,
-                  analysis.gpuType,
-                )}
-              </td>
+    <section className="mt-6" aria-labelledby="limit-consumers">
+      <h3 id="limit-consumers" className="text-sm font-semibold text-gray-900">
+        {title}
+      </h3>
+      <div className={`mt-3 ${EVIDENCE_TABLE_WRAPPER}`}>
+        <table className={`${EVIDENCE_TABLE} min-w-[500px]`}>
+          <thead className={EVIDENCE_TABLE_HEAD}>
+            <tr>
+              <th scope="col" className="px-3 py-2.5">
+                Job
+              </th>
+              <th scope="col" className="px-3 py-2.5">
+                User
+              </th>
+              <th scope="col" className="px-3 py-2.5">
+                Account
+              </th>
+              <th scope="col" className="px-3 py-2.5 text-right">
+                Value
+              </th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {analysis.topConsumers.map((consumer) => (
+              <tr key={consumer.jobId} className={EVIDENCE_TABLE_ROW}>
+                <td className="px-3 py-2.5">
+                  <JobLink id={consumer.jobId} />
+                </td>
+                <td className="px-3 py-2.5">{consumer.user ?? "—"}</td>
+                <td className="px-3 py-2.5">{consumer.account ?? "—"}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums">
+                  {formatMetric(
+                    analysis.metric,
+                    consumer.value,
+                    analysis.gpuType,
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
 function LimitAnalysis({ analysis }: { analysis: LimitAnalysisDto }) {
-  const requestedLabel =
-    analysis.metric === "jobs" ? "This job would add" : "This job requests";
-  const summary = [
-    [
-      analysis.metric === "jobs" ? "Running jobs" : "Current usage",
-      formatMetric(analysis.metric, analysis.used, analysis.gpuType),
-    ],
-    ["Limit", formatMetric(analysis.metric, analysis.limit, analysis.gpuType)],
-  ] as Array<[string, string]>;
-  if (analysis.requested !== null)
-    summary.push([
-      requestedLabel,
-      formatMetric(analysis.metric, analysis.requested, analysis.gpuType),
-    ]);
+  const context =
+    analysis.domain === "qos"
+      ? [
+          analysis.qos && `QOS ${analysis.qos}`,
+          analysis.user && `User ${analysis.user}`,
+          analysis.account && `Account ${analysis.account}`,
+          analysis.runningJobs !== undefined &&
+            `Running jobs ${analysis.runningJobs}`,
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : null;
   return (
     <div>
-      <h3 className="font-semibold">
-        {analysis.domain === "qos"
-          ? `QOS limit: ${analysis.qos ?? "Unknown"} · ${metricLabel(analysis.metric, analysis.gpuType)}`
-          : `Association limit: ${metricLabel(analysis.metric, analysis.gpuType)}`}
-      </h3>
-      <div className="mt-3">
-        <AnalysisMetricList items={summary} />
+      {context ? <p className="mb-4 text-sm text-gray-600">{context}</p> : null}
+      <div
+        className={
+          analysis.domain === "association" && analysis.hierarchy?.length
+            ? "grid gap-8 xl:grid-cols-[minmax(15rem,2fr)_minmax(0,3fr)]"
+            : undefined
+        }
+      >
+        <LimitUsage analysis={analysis} />
+        {analysis.domain === "association" ? (
+          <AssociationTree analysis={analysis} />
+        ) : null}
       </div>
-      {analysis.domain === "qos" ? (
-        <p className="mt-3 text-sm text-gray-600">
-          {[
-            analysis.user && `User: ${analysis.user}`,
-            analysis.account && `Account: ${analysis.account}`,
-            analysis.gpuType && `GPU type: ${analysis.gpuType}`,
-            analysis.runningJobs !== undefined &&
-              `Running jobs: ${analysis.runningJobs}`,
-          ]
-            .filter(Boolean)
-            .join(" · ")}
-        </p>
-      ) : analysis.hierarchy?.length ? (
-        <div className="mt-4">
-          <h4 className="font-medium">Association hierarchy</h4>
-          <ul className="mt-2 border-l border-gray-200 pl-4 text-sm">
-            {[...analysis.hierarchy].reverse().map((level, index) => (
-              <li key={`${level.account}-${index}`} className="py-1">
-                <span className="font-medium">
-                  {level.user
-                    ? `${level.user} @ ${level.account}`
-                    : level.account}
-                </span>
-                {level.partition ? ` · ${level.partition}` : ""}
-                {level.limit === null ? (
-                  " · No limit at this level"
-                ) : (
-                  <>
-                    {" "}
-                    ·{" "}
-                    {level.used === null
-                      ? "Unknown"
-                      : formatMetric(
-                          analysis.metric,
-                          level.used,
-                          analysis.gpuType,
-                        )}{" "}
-                    /{" "}
-                    {formatMetric(
-                      analysis.metric,
-                      level.limit,
-                      analysis.gpuType,
-                    )}
-                    {level.limiting ? (
-                      <span className="ml-2 text-red-700">Limiting level</span>
-                    ) : null}
-                  </>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
       <Consumers analysis={analysis} />
     </div>
   );

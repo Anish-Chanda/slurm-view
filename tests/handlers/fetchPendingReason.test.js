@@ -103,13 +103,13 @@ describe("getPendingReason", () => {
     it("should analyze priority pending reason", async () => {
         // Mock Job Info
         executeCommand.mockReturnValue(
-            "JobId=9156162 JobState=PENDING Reason=Priority Partition=nova"
+            "JobId=1001 JobState=PENDING Reason=Priority Partition=cluster-a"
         );
 
         // Mock priority utils
         priorityUtils.getJobPriority.mockReturnValue({
-            jobId: '9156162',
-            partition: 'nova',
+            jobId: '1001',
+            partition: 'cluster-a',
             priority: 35940,
             components: {
                 site: 0,
@@ -132,8 +132,8 @@ describe("getPendingReason", () => {
         priorityUtils.getCompetingJobs.mockReturnValue({
             higherPriorityCount: 5,
             competitors: [
-                { jobId: '9244468', priority: 60954, user: 'ecoppen', state: 'PENDING' },
-                { jobId: '9234494', priority: 61682, user: 'isaakd', state: 'PENDING' }
+                { jobId: '2002', priority: 60954, user: 'user-b', state: 'PENDING' },
+                { jobId: '2001', priority: 61682, user: 'user-a', state: 'PENDING' }
             ],
             totalPending: 20
         });
@@ -149,11 +149,11 @@ describe("getPendingReason", () => {
             qos: '0.0'
         });
 
-        const result = await getPendingReason('9156162');
+        const result = await getPendingReason('1001');
 
         expect(result.type).toBe('Priority');
-        expect(result.jobId).toBe('9156162');
-        expect(result.partition).toBe('nova');
+        expect(result.jobId).toBe('1001');
+        expect(result.partition).toBe('cluster-a');
         expect(result.priority.total).toBe(35940);
         expect(result.competition.higherPriorityCount).toBe(5);
         expect(result.competition.runningJobs).toBe(15);
@@ -162,7 +162,7 @@ describe("getPendingReason", () => {
     });
 
     it("should fallback to Other type if priority analysis fails", async () => {
-        executeCommand.mockReturnValue("JobId=123 JobState=PENDING Reason=Priority Partition=nova");
+        executeCommand.mockReturnValue("JobId=123 JobState=PENDING Reason=Priority Partition=cluster-a");
         
         priorityUtils.getJobPriority.mockImplementation(() => {
             throw new Error("sprio command failed");
@@ -349,28 +349,28 @@ describe("getPendingReason", () => {
             const mockAccountLimits = {
                 timestamp: Date.now(),
                 accounts: {
-                    'niemi-lab': {
-                        parent: 'stat',
+                    'project-a': {
+                        parent: 'department-a',
                         grpMem: 38000000,
                         grpCPUs: 7200,
                         grpTRES: { mem: 38000000, cpu: 7200 },
                         users: ['user1']
                     },
-                    'stat': {
-                        parent: 'las',
+                    'department-a': {
+                        parent: 'division-a',
                         grpMem: null,
                         grpCPUs: null,
                         grpTRES: { mem: null, cpu: null },
                         users: []
                     },
-                    'las': {
-                        parent: 'research',
+                    'division-a': {
+                        parent: 'organization-a',
                         grpMem: 93959424,
                         grpCPUs: 17000,
                         grpTRES: { mem: 93959424, cpu: 17000 },
                         users: []
                     },
-                    'research': {
+                    'organization-a': {
                         parent: 'root',
                         grpMem: null,
                         grpCPUs: null,
@@ -391,14 +391,14 @@ describe("getPendingReason", () => {
                 jobs: [
                     {
                         job_id: 100,
-                        account: 'niemi-lab',
+                        account: 'project-a',
                         job_state: 'RUNNING',
                         alloc_memory: 1000000,
                         alloc_cpus: 10
                     },
                     {
                         job_id: 101,
-                        account: 'niemi-lab',
+                        account: 'project-a',
                         job_state: 'RUNNING',
                         alloc_memory: 37500000,
                         alloc_cpus: 100
@@ -410,34 +410,34 @@ describe("getPendingReason", () => {
             dataCache.getData = jest.fn().mockReturnValue(mockJobs);
             dataCache.getJobById.mockReturnValue({
                 job_id: 200,
-                account: 'niemi-lab',
+                account: 'project-a',
                 job_state: ['PENDING'],
                 total_memory: 378000,
                 total_cpus: 10
             });
 
             executeCommand.mockReturnValue(
-                "JobId=200 JobState=PENDING Reason=AssocGrpMemLimit Account=niemi-lab ReqTRES=cpu=10,mem=378000M Partition=debug"
+                "JobId=200 JobState=PENDING Reason=AssocGrpMemLimit Account=project-a ReqTRES=cpu=10,mem=378000M Partition=debug"
             );
 
             const result = await getPendingReason('200');
 
             expect(result.type).toBe('AssocGrpMemLimit');
             expect(result.hierarchy).toBeDefined();
-            expect(result.hierarchy.find(acc => acc.account === 'niemi-lab')).toBeDefined();
-            expect(result.limitingAccount).toBe('niemi-lab');
+            expect(result.hierarchy.find(acc => acc.account === 'project-a')).toBeDefined();
+            expect(result.limitingAccount).toBe('project-a');
         });
 
         it('should handle missing account limits data', async () => {
             dataCache.getAccountLimits = jest.fn().mockReturnValue(null);
             dataCache.getJobById.mockReturnValue({
                 job_id: 200,
-                account: 'niemi-lab',
+                account: 'project-a',
                 job_state: ['PENDING']
             });
 
             executeCommand.mockReturnValue(
-                "JobId=200 JobState=PENDING Reason=AssocGrpMemLimit Account=niemi-lab"
+                "JobId=200 JobState=PENDING Reason=AssocGrpMemLimit Account=project-a"
             );
 
             const result = await getPendingReason('200');
@@ -1991,13 +1991,13 @@ else expect(result.missingLimitWarning).toBe(true);
     describe('JobArrayTaskLimit', () => {
         it('should analyze job array task limit', async () => {
             executeCommand.mockReturnValue(
-                "JobId=9785691 JobState=PENDING Reason=JobArrayTaskLimit ArrayJobId=9785691 ArrayTaskId=15-22%4 ArrayTaskThrottle=4 Partition=nova"
+                "JobId=3001 JobState=PENDING Reason=JobArrayTaskLimit ArrayJobId=3001 ArrayTaskId=15-22%4 ArrayTaskThrottle=4 Partition=cluster-a"
             );
 
-            const result = await getPendingReason('9785691');
+            const result = await getPendingReason('3001');
 
             expect(result.type).toBe('JobArrayTaskLimit');
-            expect(result.jobId).toBe('9785691');
+            expect(result.jobId).toBe('3001');
             expect(result.pendingTasks).toBe('15-22%4');
             expect(result.maxSimultaneous).toBe('4');
             expect(result.message).toContain('max 4 tasks running simultaneously');
@@ -2510,8 +2510,8 @@ else expect(result.missingLimitWarning).toBe(true);
             dataCache.getQOSLimits = jest.fn().mockReturnValue({
                 timestamp: Date.now(),
                 qos: {
-                    '400thread': {
-                        name: '400thread',
+                    'qos-a': {
+                        name: 'qos-a',
                         grpTRES: { cpu: 20000, mem: 157286400, node: 150, gres: {} },
                         maxTRESPerUser: { cpu: 2000, mem: 18874368, node: 16, gres: {} }
                     }
@@ -2519,18 +2519,18 @@ else expect(result.missingLimitWarning).toBe(true);
             });
             dataCache.getData = jest.fn().mockReturnValue({
                 jobs: [
-                    { job_id: 100, job_state: 'RUNNING', user_name: 'pat.reeves', qos: '400thread', num_nodes: 10 },
-                    { job_id: 101, job_state: 'RUNNING', user_name: 'pat.reeves', qos: '400thread', nodes: 6 },
-                    { job_id: 102, job_state: 'RUNNING', user_name: 'pat.reeves', qos: 'normal', nodes: 150 }
+                    { job_id: 100, job_state: 'RUNNING', user_name: 'user-a', qos: 'qos-a', num_nodes: 10 },
+                    { job_id: 101, job_state: 'RUNNING', user_name: 'user-a', qos: 'qos-a', nodes: 6 },
+                    { job_id: 102, job_state: 'RUNNING', user_name: 'user-a', qos: 'normal', nodes: 150 }
                 ]
             });
 
-            executeCommand.mockReturnValue("JobId=200 JobState=PENDING Reason=QOSMaxNodePerUserLimit UserId=pat.reeves(1001) QOS=400thread ReqTRES=cpu=72,mem=368G,node=1 NumNodes=1");
+            executeCommand.mockReturnValue("JobId=200 JobState=PENDING Reason=QOSMaxNodePerUserLimit UserId=user-a(1001) QOS=qos-a ReqTRES=cpu=72,mem=368G,node=1 NumNodes=1");
 
             const result = await getPendingReason('200');
 
             expect(result.type).toBe('QOSMaxNodePerUserLimit');
-            expect(result.qosName).toBe('400thread');
+            expect(result.qosName).toBe('qos-a');
             expect(result.analysis.limit).toBe(16);
             expect(result.analysis.currentUsage).toBe(16);
             expect(result.analysis.runningJobs).toBe(2);
@@ -2571,15 +2571,15 @@ else expect(result.missingLimitWarning).toBe(true);
             dataCache.getQOSLimits = jest.fn().mockReturnValue({
                 timestamp: Date.now(),
                 qos: {
-                    '400thread': {
-                        name: '400thread',
+                    'qos-a': {
+                        name: 'qos-a',
                         grpTRES: { cpu: 20000, mem: 157286400, node: 150, gres: {} },
                         maxTRESPerUser: { cpu: null, mem: null, node: null, gres: {} }
                     }
                 }
             });
 
-            executeCommand.mockReturnValue("JobId=200 JobState=PENDING Reason=QOSMaxNodePerUserLimit UserId=pat.reeves(1001) QOS=400thread ReqTRES=cpu=72,mem=368G,node=1 NumNodes=1");
+            executeCommand.mockReturnValue("JobId=200 JobState=PENDING Reason=QOSMaxNodePerUserLimit UserId=user-a(1001) QOS=qos-a ReqTRES=cpu=72,mem=368G,node=1 NumNodes=1");
 
             const result = await getPendingReason('200');
 

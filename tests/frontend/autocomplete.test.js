@@ -230,7 +230,7 @@ describe('Frontend Autocomplete Logic', () => {
                 { input: 'state:running', expected: true, description: 'State filter' },
                 { input: 'statereason:Resources', expected: true, description: 'State Reason filter' },
                 { input: 'user:john', expected: true, description: 'User filter' },
-                { input: 'account:research', expected: true, description: 'Account filter' },
+                { input: 'account:organization-a', expected: true, description: 'Account filter' },
                 { input: 'name:job1', expected: true, description: 'Name filter' },
                 { input: 'invalid:value', expected: false, description: 'Invalid key' },
                 { input: 'statereason:', expected: false, description: 'Missing value' }, // Regex expects \S+

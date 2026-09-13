@@ -28,7 +28,7 @@ function renderSunburst(model: ChartModel) {
     <QueryClientProvider client={client}>
       <Sunburst
         model={model}
-        center={{ title: 'GPU', total: '239 TiB' }}
+        center={{ title: 'GPU', total: '256 TiB' }}
         ariaLabel="test chart"
         colorFor={() => '#e63946'}
       />
@@ -190,9 +190,9 @@ describe('centerTotalFontSize', () => {
     expect(centerTotalFontSize('108', 0)).toBe(CENTER_TOTAL_BASE_FONT_SIZE);
   });
 
-  test('common Nova totals render at full size without shrinking', () => {
+  test('common cluster totals render at full size without shrinking', () => {
     const twoRingHole = (2 * 200) / 3;
-    for (const total of ['47128', '239 TiB', '239']) {
+    for (const total of ['54321', '256 TiB', '256']) {
       expect(centerTotalFontSize(total, twoRingHole)).toBe(CENTER_TOTAL_BASE_FONT_SIZE);
     }
   });
@@ -205,9 +205,9 @@ describe('Sunburst center', () => {
       children: [{ name: 'Allocated', value: 8 }],
     });
     expect(screen.getByText('GPU')).toBeTruthy();
-    expect(screen.getByText('239 TiB')).toBeTruthy();
+    expect(screen.getByText('256 TiB')).toBeTruthy();
     // The old single-string format must be gone.
-    expect(screen.queryByText('GPU Total: 239 TiB')).toBeNull();
+    expect(screen.queryByText('GPU Total: 256 TiB')).toBeNull();
   });
 });
 

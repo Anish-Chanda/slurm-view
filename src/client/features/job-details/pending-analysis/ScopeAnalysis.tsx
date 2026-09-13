@@ -6,6 +6,12 @@ import type {
 import type { JobDto } from "../../../../shared/api/v1/jobs.ts";
 import { CopyButton } from "../CopyButton.tsx";
 import {
+  EVIDENCE_TABLE,
+  EVIDENCE_TABLE_HEAD,
+  EVIDENCE_TABLE_ROW,
+  EVIDENCE_TABLE_WRAPPER,
+} from "./AnalysisShell.tsx";
+import {
   formatDateTime,
   formatDuration,
   formatInteger,
@@ -29,21 +35,29 @@ function RequiredNodesAnalysis({
         <CopyButton value={analysis.expression} label="Copy requested nodes" />
       </p>
       {analysis.nodes.length ? (
-        <div className="mt-3 overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead>
+        <div className={`mt-3 ${EVIDENCE_TABLE_WRAPPER}`}>
+          <table className={`${EVIDENCE_TABLE} min-w-[540px]`}>
+            <thead className={EVIDENCE_TABLE_HEAD}>
               <tr>
-                <th>Node</th>
-                <th>State</th>
-                <th>Slurm node reason</th>
+                <th scope="col" className="px-3 py-2.5">
+                  Node
+                </th>
+                <th scope="col" className="px-3 py-2.5">
+                  State
+                </th>
+                <th scope="col" className="px-3 py-2.5">
+                  Slurm node reason
+                </th>
               </tr>
             </thead>
             <tbody>
               {analysis.nodes.map((n) => (
-                <tr key={n.name}>
-                  <td className="break-all font-mono">{n.name}</td>
-                  <td>{n.state ?? "Unknown"}</td>
-                  <td>{n.reason ?? "—"}</td>
+                <tr key={n.name} className={EVIDENCE_TABLE_ROW}>
+                  <td className="break-all px-3 py-2.5 font-mono">{n.name}</td>
+                  <td className="px-3 py-2.5 text-gray-600">
+                    {n.state ?? "Unknown"}
+                  </td>
+                  <td className="px-3 py-2.5">{n.reason ?? "—"}</td>
                 </tr>
               ))}
             </tbody>

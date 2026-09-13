@@ -9,7 +9,7 @@ function renderFilters(onFiltersChange: jest.Mock = jest.fn()) {
     ...render(
       <JobsFilters
         filters={EMPTY_FILTERS}
-        partitions={['nova', 'gpu']}
+        partitions={['cluster-a', 'gpu']}
         partitionsUnavailable={false}
         partitionsStale={false}
         onPartitionsRetry={() => {}}
@@ -32,7 +32,7 @@ describe('JobsFilters', () => {
     const input = screen.getByLabelText('Filter value') as HTMLInputElement;
 
     expect(select.disabled).toBe(false);
-    await user.type(input, 'user:alice partition:nova');
+    await user.type(input, 'user:alice partition:cluster-a');
     await waitFor(() => expect(select.disabled).toBe(true));
 
     await user.clear(input);

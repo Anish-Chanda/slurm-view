@@ -11,7 +11,7 @@ const FIXTURES = path.join(__dirname, 'fixtures');
 
 const COMPLETED_SEFF = `Job ID: 103
 Cluster: mycluster
-User/Group: carol/research
+User/Group: carol/organization-a
 State: COMPLETED (exit code 0)
 Cores: 1
 CPU Utilized: 00:59:10

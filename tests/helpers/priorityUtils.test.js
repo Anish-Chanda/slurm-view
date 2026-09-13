@@ -20,13 +20,13 @@ describe("priorityUtils", () => {
     describe("parseSprioOutput", () => {
         it("should parse sprio output correctly", () => {
             const output = `          JOBID PARTITION   PRIORITY       SITE        AGE  FAIRSHARE    JOBSIZE  PARTITION        QOS
-        9156162 nova           35940          0       1000      24923         17      10000          0`;
+        1001 cluster-a         35940          0       1000      24923         17      10000          0`;
 
             const result = parseSprioOutput(output);
 
             expect(result).toEqual({
-                jobId: '9156162',
-                partition: 'nova',
+                jobId: '1001',
+                partition: 'cluster-a',
                 priority: 35940,
                 components: {
                     site: 0,
@@ -73,13 +73,13 @@ describe("priorityUtils", () => {
     describe("parseSprioNormalizedOutput", () => {
         it("should parse normalized sprio output correctly", () => {
             const output = `          JOBID PARTITION PRIORITY   AGE        FAIRSHARE  JOBSIZE    PARTITION  QOS
-        10230912 nova      0.00000567 0.5331366  0.1383310  0.0022389  0.1000000  0.0000000`;
+        1002 cluster-a    0.00000567 0.5331366  0.1383310  0.0022389  0.1000000  0.0000000`;
 
             const result = parseSprioNormalizedOutput(output);
 
             expect(result).toEqual({
-                jobId: '10230912',
-                partition: 'nova',
+                jobId: '1002',
+                partition: 'cluster-a',
                 priority: 0.00000567,
                 components: {
                     site: 0,
@@ -97,15 +97,15 @@ describe("priorityUtils", () => {
         it("should fetch and combine priority data and weights", () => {
             executeCommand
                 .mockReturnValueOnce(`          JOBID PARTITION   PRIORITY       SITE        AGE  FAIRSHARE    JOBSIZE  PARTITION        QOS
-        9156162 nova           35940          0       1000      24923         17      10000          0`)
+        1001 cluster-a         35940          0       1000      24923         17      10000          0`)
                 .mockReturnValueOnce(`          JOBID PARTITION   PRIORITY       SITE        AGE  FAIRSHARE    JOBSIZE  PARTITION        QOS
         Weights                               1       1000     100000      10000     100000          1`)
                 .mockReturnValueOnce(`          JOBID PARTITION PRIORITY   AGE        FAIRSHARE  JOBSIZE    PARTITION  QOS
-            9156162 nova      0.00000567 0.5331366  0.1383310  0.0022389  0.1000000  0.0000000`);
+            1001 cluster-a    0.00000567 0.5331366  0.1383310  0.0022389  0.1000000  0.0000000`);
 
-            const result = getJobPriority('9156162');
+            const result = getJobPriority('1001');
 
-            expect(result.jobId).toBe('9156162');
+            expect(result.jobId).toBe('1001');
             expect(result.priority).toBe(35940);
             expect(result.weights).toBeDefined();
             expect(result.weights.fairshare).toBe(100000);
@@ -131,16 +131,16 @@ describe("priorityUtils", () => {
 
     describe("parseCompetingJobs", () => {
         it("should parse competing jobs output", () => {
-            const output = `9234494|61682|isaakd|PENDING
-9244468|60954|ecoppen|PENDING
-9232085|59293|congye|PENDING`;
+            const output = `2001|61682|user-a|PENDING
+2002|60954|user-b|PENDING
+2003|59293|user-c|PENDING`;
 
             const result = parseCompetingJobs(output);
 
             expect(result).toEqual([
-                { jobId: '9234494', priority: 61682, user: 'isaakd', state: 'PENDING' },
-                { jobId: '9244468', priority: 60954, user: 'ecoppen', state: 'PENDING' },
-                { jobId: '9232085', priority: 59293, user: 'congye', state: 'PENDING' }
+                { jobId: '2001', priority: 61682, user: 'user-a', state: 'PENDING' },
+                { jobId: '2002', priority: 60954, user: 'user-b', state: 'PENDING' },
+                { jobId: '2003', priority: 59293, user: 'user-c', state: 'PENDING' }
             ]);
         });
 
@@ -152,18 +152,18 @@ describe("priorityUtils", () => {
 
     describe("getCompetingJobs", () => {
         it("should return jobs with higher priority", () => {
-            executeCommand.mockReturnValue(`9244468|60954|ecoppen|PENDING
-9232085|59293|congye|PENDING
-9156162|35940|saydas|PENDING
-9198593|35308|fmp97|PENDING`);
+            executeCommand.mockReturnValue(`2002|60954|user-b|PENDING
+2003|59293|user-c|PENDING
+1001|35940|user-a|PENDING
+2004|35308|user-d|PENDING`);
 
-            const result = getCompetingJobs('nova', 35940, 5);
+            const result = getCompetingJobs('cluster-a', 35940, 5);
 
             expect(result.higherPriorityCount).toBe(2);
             expect(result.totalPending).toBe(4);
             expect(result.competitors).toHaveLength(2);
-            expect(result.competitors[0].jobId).toBe('9244468');
-            expect(result.competitors[1].jobId).toBe('9232085');
+            expect(result.competitors[0].jobId).toBe('2002');
+            expect(result.competitors[1].jobId).toBe('2003');
         });
 
         it("should limit to specified number of competitors", () => {
@@ -174,7 +174,7 @@ describe("priorityUtils", () => {
 9005|66000|user5|PENDING
 9006|65000|user6|PENDING`);
 
-            const result = getCompetingJobs('nova', 60000, 3);
+            const result = getCompetingJobs('cluster-a', 60000, 3);
 
             expect(result.higherPriorityCount).toBe(6);
             expect(result.competitors).toHaveLength(3);
@@ -185,7 +185,7 @@ describe("priorityUtils", () => {
         it("should handle no pending jobs", () => {
             executeCommand.mockReturnValue('');
 
-            const result = getCompetingJobs('nova', 50000);
+            const result = getCompetingJobs('cluster-a', 50000);
 
             expect(result.higherPriorityCount).toBe(0);
             expect(result.competitors).toEqual([]);
@@ -197,7 +197,7 @@ describe("priorityUtils", () => {
                 throw new Error("squeue failed");
             });
 
-            const result = getCompetingJobs('nova', 50000);
+            const result = getCompetingJobs('cluster-a', 50000);
 
             expect(result.higherPriorityCount).toBe(0);
             expect(result.error).toBe("squeue failed");
@@ -206,12 +206,12 @@ describe("priorityUtils", () => {
 
     describe("getRunningJobsCount", () => {
         it("should count running jobs correctly", () => {
-            executeCommand.mockReturnValue(`9226771
-9226770
-9226769
-9226768`);
+            executeCommand.mockReturnValue(`3001
+3002
+3003
+3004`);
 
-            const result = getRunningJobsCount('nova');
+            const result = getRunningJobsCount('cluster-a');
 
             expect(result).toBe(4);
         });
@@ -219,7 +219,7 @@ describe("priorityUtils", () => {
         it("should return 0 for empty output", () => {
             executeCommand.mockReturnValue('');
 
-            const result = getRunningJobsCount('nova');
+            const result = getRunningJobsCount('cluster-a');
 
             expect(result).toBe(0);
         });
@@ -229,7 +229,7 @@ describe("priorityUtils", () => {
                 throw new Error("squeue failed");
             });
 
-            const result = getRunningJobsCount('nova');
+            const result = getRunningJobsCount('cluster-a');
 
             expect(result).toBe(0);
         });

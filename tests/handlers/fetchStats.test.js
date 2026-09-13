@@ -313,25 +313,25 @@ NodeName=node3 Gres=gpu:a40:4 State=ALLOCATED
         { 
           job_id: "1001", 
           job_state: "RUNNING", 
-          partition: "nova",
+          partition: "cluster-a",
           gpu_allocations: { total: 2, types: { a100: 2 } }
         },
         { 
           job_id: "1002", 
           job_state: "RUNNING", 
-          partition: "nova",
+          partition: "cluster-a",
           gpu_allocations: { total: 1, types: { v100: 1 } }
         },
         { 
           job_id: "1003", 
           job_state: "RUNNING", 
-          partition: "nova",
+          partition: "cluster-a",
           gpu_allocations: { total: 1, types: { a100: 1 } }
         },
         { 
           job_id: "1004", 
           job_state: "PENDING", 
-          partition: "nova",
+          partition: "cluster-a",
           gpu_allocations: { total: 2, types: { a100: 2 } } // Should be ignored
         }
       ]
@@ -584,21 +584,21 @@ NodeName=node2 Gres=gpu:a100:4 Partitions=gpu State=IDLE
   it("should correctly handle mixed GPU allocation formats (with and without explicit count)", async () => {
     // Real-world scenario: some jobs specify count, some don't (defaults to 1)
     executeCommandStreaming.mockResolvedValue(`
-NodeName=node1 Gres=gpu:a100:8 Partitions=nova State=MIXED
-NodeName=node2 Gres=gpu:a100-pcie:4 Partitions=nova State=MIXED
-NodeName=node3 Gres=gpu:a100:8 Partitions=nova State=MIXED
+NodeName=node001 Gres=gpu:a100:8 Partitions=cluster-a State=MIXED
+NodeName=node002 Gres=gpu:a100-pcie:4 Partitions=cluster-a State=MIXED
+NodeName=node003 Gres=gpu:a100:8 Partitions=cluster-a State=MIXED
 `);
     
     const mockJobsData = {
       jobs: [
-        { job_id: "1", job_state: "RUNNING", partition: "nova", gpu_allocations: { total: 4, types: { a100: 4 } } },
-        { job_id: "2", job_state: "RUNNING", partition: "nova", gpu_allocations: { total: 2, types: { a100: 2 } } },
-        { job_id: "3", job_state: "RUNNING", partition: "nova", gpu_allocations: { total: 1, types: { a100: 1 } } },
-        { job_id: "4", job_state: "RUNNING", partition: "nova", gpu_allocations: { total: 1, types: { a100: 1 } } },
-        { job_id: "5", job_state: "RUNNING", partition: "nova", gpu_allocations: { total: 1, types: { a100: 1 } } },
-        { job_id: "6", job_state: "RUNNING", partition: "nova", gpu_allocations: { total: 1, types: { a100: 1 } } },
-        { job_id: "7", job_state: "RUNNING", partition: "nova", gpu_allocations: { total: 1, types: { "a100-pcie": 1 } } },
-        { job_id: "8", job_state: "RUNNING", partition: "nova", gpu_allocations: { total: 1, types: { "a100-pcie": 1 } } }
+        { job_id: "1", job_state: "RUNNING", partition: "cluster-a", gpu_allocations: { total: 4, types: { a100: 4 } } },
+        { job_id: "2", job_state: "RUNNING", partition: "cluster-a", gpu_allocations: { total: 2, types: { a100: 2 } } },
+        { job_id: "3", job_state: "RUNNING", partition: "cluster-a", gpu_allocations: { total: 1, types: { a100: 1 } } },
+        { job_id: "4", job_state: "RUNNING", partition: "cluster-a", gpu_allocations: { total: 1, types: { a100: 1 } } },
+        { job_id: "5", job_state: "RUNNING", partition: "cluster-a", gpu_allocations: { total: 1, types: { a100: 1 } } },
+        { job_id: "6", job_state: "RUNNING", partition: "cluster-a", gpu_allocations: { total: 1, types: { a100: 1 } } },
+        { job_id: "7", job_state: "RUNNING", partition: "cluster-a", gpu_allocations: { total: 1, types: { "a100-pcie": 1 } } },
+        { job_id: "8", job_state: "RUNNING", partition: "cluster-a", gpu_allocations: { total: 1, types: { "a100-pcie": 1 } } }
       ]
     };
     const dataCache = require("../../modules/dataCache"); dataCache.getData.mockReturnValue(mockJobsData);

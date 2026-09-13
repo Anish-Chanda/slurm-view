@@ -198,7 +198,7 @@ describe('normalizeJob detail fields', () => {
     const job = jobWith({
       eligible_time: { number: 1725799100, set: true, infinite: false },
       priority: { number: 12345, set: true, infinite: false },
-      standard_error: '/home/alice/slurm-300.err',
+      standard_error: '/work/project-a/user-a/workload/slurm-300.err',
       tasks: { number: 16, set: true, infinite: false },
       cpus_per_task: { number: 2, set: true, infinite: false },
       features: 'a100,ib',
@@ -209,7 +209,7 @@ describe('normalizeJob detail fields', () => {
     });
     expect(job.eligibleTime).toEqual(new Date(1725799100 * 1000));
     expect(job.priority).toBe(12345);
-    expect(job.stderrPath).toBe('/home/alice/slurm-300.err');
+    expect(job.stderrPath).toBe('/work/project-a/user-a/workload/slurm-300.err');
     expect(job.taskCount).toBe(16);
     expect(job.cpusPerTask).toBe(2);
     expect(job.constraints).toBe('a100,ib');
