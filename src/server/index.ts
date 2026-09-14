@@ -16,10 +16,6 @@ import {
   USER_CONFIG_DIR_PATH
 } from './config/runtime-config.js';
 
-// Legacy CommonJS boundaries (not migrated in this chunk).
-const backgroundPolling = require('../../service/backgroundPolling.js');
-const dataCache = require('../../modules/dataCache.js');
-
 const port: number = 3000;
 
 function getErrorMessage(error: unknown): string {
@@ -71,18 +67,12 @@ async function startServer(): Promise<ServerRuntime> {
   const qosCache = new QosCache({ parser });
   const sprioWeightsCache = new SprioWeightsCache({ parser });
 
-  // The legacy poller keeps running for pending-reason, which still
-  // reads the legacy per-job cache.
   const jobsPoller = new PollingService(
     (signal) => jobsCache.refresh({ signal }),
     JOBS_POLL_INTERVAL_MS
   );
   console.log('[Main Worker] Starting v1 jobs snapshot poller...');
   jobsPoller.start();
-
-  //start the legacy background polling service
-  console.log('[Main Worker] Starting background worker service...');
-  backgroundPolling.start();
 
   const app = createApp({
     jobsCache,
@@ -100,21 +90,13 @@ async function startServer(): Promise<ServerRuntime> {
 
   const server: Server = app.listen(port, () => {
     console.log(`[Main Worker] App listening on port ${port}`);
-
-    // Initialize account limits on startup
-    initializeAccountLimits();
-
-    // Initialize QOS limits on startup
-    initializeQOSLimits();
   });
 
   // Graceful shutdown
   function gracefulShutdown(): void {
     console.log('[Main Worker] Graceful shutdown initiated...');
 
-    // First stop the background polling
     jobsPoller.stop();
-    backgroundPolling.stop();
 
     // Then close the server
     server.close(() => {
@@ -133,62 +115,6 @@ async function startServer(): Promise<ServerRuntime> {
   process.on('SIGINT', gracefulShutdown);
 
   return { app, server, jobsCache, nodesCache, partitionsCache, assocCache, qosCache, sprioWeightsCache, jobsPoller };
-}
-
-/**
- * Initialize account limits cache on startup
- */
-async function initializeAccountLimits(): Promise<void> {
-  try {
-    const { fetchAccountLimits } = require('../../helpers/accountLimits.js');
-    const limitsData = fetchAccountLimits();
-    dataCache.setAccountLimits(limitsData);
-    console.log('[Startup] Account limits initialized');
-
-    // Refresh hourly
-    setInterval(() => {
-      try {
-        if (dataCache.isAccountLimitsStale()) {
-          const updatedLimits = fetchAccountLimits();
-          dataCache.setAccountLimits(updatedLimits);
-          console.log('[Background] Account limits refreshed');
-        }
-      } catch (error) {
-        console.error('[Background] Failed to refresh account limits:', getErrorMessage(error));
-      }
-    }, 3600000); // 1 hour
-
-  } catch (error) {
-    console.error('[Startup] Failed to initialize account limits:', getErrorMessage(error));
-  }
-}
-
-/**
- * Initialize QOS limits cache on startup
- */
-async function initializeQOSLimits(): Promise<void> {
-  try {
-    const { fetchQOSLimits } = require('../../helpers/accountLimits.js');
-    const qosData = fetchQOSLimits();
-    dataCache.setQOSLimits(qosData);
-    console.log('[Startup] QOS limits initialized');
-
-    // Refresh hourly
-    setInterval(() => {
-      try {
-        if (dataCache.isQOSLimitsStale()) {
-          const updatedQOS = fetchQOSLimits();
-          dataCache.setQOSLimits(updatedQOS);
-          console.log('[Background] QOS limits refreshed');
-        }
-      } catch (error) {
-        console.error('[Background] Failed to refresh QOS limits:', getErrorMessage(error));
-      }
-    }, 3600000); // 1 hour
-
-  } catch (error) {
-    console.error('[Startup] Failed to initialize QOS limits:', getErrorMessage(error));
-  }
 }
 
 export { startServer };
