@@ -1,10 +1,9 @@
-// Single place where the client derives API URLs. The page may be mounted
-// at the app root (dev, future cutover) or under the temporary /react/
-// staging route, with or without an Open OnDemand base path in front.
+// Single place where the client derives API URLs. The page is mounted at
+// the application root, with or without an Open OnDemand base path in front.
 
 function appDirFromPageUrl(pageUrl: string | URL): URL {
   const url = new URL(pageUrl.toString());
-  // Job deep links (e.g. /react/jobs/123) live below the mount point.
+  // Job deep links (e.g. /jobs/123) live below the mount point.
   const deepLink = url.pathname.match(/^(.*)\/jobs\/[^/]+\/?$/);
   if (deepLink) {
     url.pathname = `${deepLink[1]}/`;
@@ -15,11 +14,7 @@ function appDirFromPageUrl(pageUrl: string | URL): URL {
 }
 
 export function appBaseFromPageUrl(pageUrl: string | URL): URL {
-  const pageBase = appDirFromPageUrl(pageUrl);
-  if (pageBase.pathname.endsWith('/react/')) {
-    return new URL('../', pageBase);
-  }
-  return pageBase;
+  return appDirFromPageUrl(pageUrl);
 }
 
 export function apiUrl(path: string): string {
@@ -28,7 +23,7 @@ export function apiUrl(path: string): string {
 
 // Router basepath sharing the API layer's mount understanding. Internal
 // routes stay "/" and "/jobs/$jobId"; the basepath carries the deployment
-// prefix ("/react" while staged, plain base after cutover).
+// prefix (e.g. "/pun/sys/slurm-view" under Open OnDemand).
 export function routerBasepathFromPageUrl(pageUrl: string | URL): string {
   const mountPath = appDirFromPageUrl(pageUrl).pathname;
   if (mountPath === '/') {

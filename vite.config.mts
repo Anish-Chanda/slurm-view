@@ -17,8 +17,8 @@ export default defineConfig({
 
   root: 'src/client',
 
-  // Relative asset paths so the built client works from the nested
-  // /react/ route, locally and under an OOD base path.
+  // Relative asset paths so the built client works from the application
+  // root, locally and under an OOD base path.
   base: './',
 
   server: {
