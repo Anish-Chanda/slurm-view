@@ -1,5 +1,6 @@
 import { CommandError, runCommand } from '../../../src/server/adapters/slurm/command-runner.js';
 import type { ExecFileLike } from '../../../src/server/adapters/slurm/command-runner.js';
+import type { ExecFileOptions } from 'node:child_process';
 
 const NODE = process.execPath;
 
@@ -108,5 +109,40 @@ describe('runCommand', () => {
     await expect(
       runCommand(NODE, ['ok', 42 as unknown as string])
     ).rejects.toBeInstanceOf(TypeError);
+  });
+
+  test('defaults to a 128 MiB bounded output buffer', async () => {
+    let seen: ExecFileOptions | null = null;
+    const execFileFn: ExecFileLike = (_exe, _args, opts, callback) => {
+      seen = opts;
+      callback(null, '', '');
+    };
+    await runCommand('squeue', ['--json=v0.0.45'], {}, { execFileFn });
+    expect(seen?.maxBuffer).toBe(128 * 1024 * 1024);
+  });
+
+  test('forces compact Slurm JSON while preserving the inherited environment', async () => {
+    let seen: ExecFileOptions | null = null;
+    const execFileFn: ExecFileLike = (_exe, _args, opts, callback) => {
+      seen = opts;
+      callback(null, '', '');
+    };
+    const previous = process.env.SLURM_JSON;
+    process.env.SLURM_JSON = 'verbose';
+    try {
+      await runCommand('squeue', ['--json=v0.0.45'], {}, { execFileFn });
+    } finally {
+      if (previous === undefined) {
+        delete process.env.SLURM_JSON;
+      } else {
+        process.env.SLURM_JSON = previous;
+      }
+    }
+    expect(seen?.env).toEqual(
+      expect.objectContaining({
+        PATH: process.env.PATH,
+        SLURM_JSON: 'compact',
+      })
+    );
   });
 });

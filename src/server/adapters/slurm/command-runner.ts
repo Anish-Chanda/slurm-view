@@ -2,7 +2,7 @@ import { execFile as defaultExecFile } from 'node:child_process';
 import type { ExecException, ExecFileOptions } from 'node:child_process';
 
 export const DEFAULT_COMMAND_TIMEOUT_MS = 15_000;
-export const DEFAULT_COMMAND_MAX_BUFFER_BYTES = 32 * 1024 * 1024;
+export const DEFAULT_COMMAND_MAX_BUFFER_BYTES = 128 * 1024 * 1024;
 
 const STDERR_SNIPPET_MAX_CHARS = 500;
 
@@ -176,6 +176,10 @@ async function runCommandCapture(
         encoding: 'utf8',
         signal: options.signal,
         shell: false,
+        env: {
+          ...process.env,
+          SLURM_JSON: 'compact',
+        },
       },
       (error, stdout, stderr) => {
         const out = typeof stdout === 'string' ? stdout : '';
