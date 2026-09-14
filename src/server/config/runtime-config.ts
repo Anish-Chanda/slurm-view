@@ -1,10 +1,10 @@
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
-const YAML = require('yaml');
-const { z } = require('zod');
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import YAML from 'yaml';
+import { z } from 'zod';
 
-const SYSTEM_CONFIG_DIR_PATH = path.resolve(__dirname, '..', 'config.d');
+const SYSTEM_CONFIG_DIR_PATH = path.resolve(__dirname, '..', '..', '..', 'config.d');
 const USER_CONFIG_DIR_PATH = path.join(os.homedir(), '.local', 'slurm-view', 'config.d');
 const hexColorSchema = z.string().regex(/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, 'must be a valid hex color like #123abc');
 
@@ -12,6 +12,8 @@ const cpuLoadThresholdsSchema = z.object({
     lowMax: z.number().gt(0).lt(1),
     mediumMax: z.number().gt(0).lt(1)
 }).strict();
+
+type CpuLoadThresholds = z.infer<typeof cpuLoadThresholdsSchema>;
 
 const chartDisplaySchema = z.object({
     showSecondaryLayer: z.boolean()
@@ -47,6 +49,8 @@ const runtimeConfigSchema = z.object({
     }
 });
 
+type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;
+
 const runtimeConfigPartialSchema = z.object({
     stats: z.object({
         cpuLoad: z.object({
@@ -76,9 +80,9 @@ const runtimeConfigPartialSchema = z.object({
     }).strict().optional()
 }).strict();
 
-let loadedConfig = null;
+let loadedConfig: RuntimeConfig | null = null;
 
-function normalizeComparableValue(value) {
+function normalizeComparableValue(value: unknown): unknown {
     if (typeof value === 'number' && Number.isFinite(value)) {
         return Number(value.toFixed(12));
     }
@@ -86,7 +90,7 @@ function normalizeComparableValue(value) {
     return value;
 }
 
-function valuesAreEqual(left, right) {
+function valuesAreEqual(left: unknown, right: unknown): boolean {
     if (typeof left === 'number' && typeof right === 'number') {
         return Math.abs(left - right) < 1e-12;
     }
@@ -94,7 +98,7 @@ function valuesAreEqual(left, right) {
     return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function flattenLeafValues(value, prefix = '', target = {}) {
+function flattenLeafValues(value: unknown, prefix = '', target: Record<string, unknown> = {}): Record<string, unknown> {
     if (value === null || typeof value !== 'object' || Array.isArray(value)) {
         if (!prefix) {
             return target;
@@ -104,16 +108,16 @@ function flattenLeafValues(value, prefix = '', target = {}) {
         return target;
     }
 
-    Object.keys(value).sort().forEach((key) => {
+    Object.keys(value as Record<string, unknown>).sort().forEach((key) => {
         const nextPrefix = prefix ? `${prefix}.${key}` : key;
-        flattenLeafValues(value[key], nextPrefix, target);
+        flattenLeafValues((value as Record<string, unknown>)[key], nextPrefix, target);
     });
 
     return target;
 }
 
-function mergeObjectsWithFirstValue(base, override) {
-    const output = { ...base };
+function mergeObjectsWithFirstValue(base: Record<string, unknown>, override: Record<string, unknown>): Record<string, unknown> {
+    const output: Record<string, unknown> = { ...base };
 
     Object.keys(override).forEach((key) => {
         const baseValue = output[key];
@@ -127,7 +131,10 @@ function mergeObjectsWithFirstValue(base, override) {
             !Array.isArray(baseValue) &&
             !Array.isArray(overrideValue)
         ) {
-            output[key] = mergeObjectsWithFirstValue(baseValue, overrideValue);
+            output[key] = mergeObjectsWithFirstValue(
+                baseValue as Record<string, unknown>,
+                overrideValue as Record<string, unknown>
+            );
             return;
         }
 
@@ -141,7 +148,7 @@ function mergeObjectsWithFirstValue(base, override) {
     return output;
 }
 
-function formatZodError(error) {
+function formatZodError(error: z.ZodError): string {
     return error.issues
         .map((issue) => {
             const issuePath = issue.path.length ? issue.path.join('.') : 'root';
@@ -150,7 +157,19 @@ function formatZodError(error) {
         .join('; ');
 }
 
-function normalizeLoadOptions(options = undefined) {
+interface LoadOptionsObject {
+    systemConfigDir?: string | null | undefined;
+    userConfigDir?: string | null | undefined;
+}
+
+type LoadOptions = string | LoadOptionsObject | undefined;
+
+interface NormalizedLoadOptions {
+    systemConfigDir: string | null | undefined;
+    userConfigDir: string | null | undefined;
+}
+
+function normalizeLoadOptions(options: LoadOptions = undefined): NormalizedLoadOptions {
     if (typeof options === 'string') {
         return {
             systemConfigDir: options,
@@ -160,15 +179,20 @@ function normalizeLoadOptions(options = undefined) {
 
     return {
         systemConfigDir: options && Object.prototype.hasOwnProperty.call(options, 'systemConfigDir')
-            ? options.systemConfigDir
+            ? (options as LoadOptionsObject).systemConfigDir
             : SYSTEM_CONFIG_DIR_PATH,
         userConfigDir: options && Object.prototype.hasOwnProperty.call(options, 'userConfigDir')
-            ? options.userConfigDir
+            ? (options as LoadOptionsObject).userConfigDir
             : USER_CONFIG_DIR_PATH
     };
 }
 
-function getConfigFilesForDirectory(configDir, isOptional) {
+interface ConfigFileRef {
+    fileName: string;
+    filePath: string;
+}
+
+function getConfigFilesForDirectory(configDir: string | null | undefined, isOptional: boolean): ConfigFileRef[] {
     if (!configDir || !fs.existsSync(configDir)) {
         if (isOptional) {
             return [];
@@ -186,7 +210,7 @@ function getConfigFilesForDirectory(configDir, isOptional) {
         }));
 }
 
-function loadRuntimeConfig(options = undefined) {
+function loadRuntimeConfig(options: LoadOptions = undefined): RuntimeConfig {
     const { systemConfigDir, userConfigDir } = normalizeLoadOptions(options);
     const configFiles = [
         ...getConfigFilesForDirectory(userConfigDir, true),
@@ -197,17 +221,17 @@ function loadRuntimeConfig(options = undefined) {
         throw new Error(`No YAML configuration files found in: ${systemConfigDir}`);
     }
 
-    const seenValuesByPath = new Map();
-    let mergedConfig = {};
+    const seenValuesByPath = new Map<string, { value: unknown; filePath: string }>();
+    let mergedConfig: Record<string, unknown> = {};
 
     configFiles.forEach(({ fileName, filePath }) => {
         const fileContent = fs.readFileSync(filePath, 'utf8');
 
-        let parsedConfig;
+        let parsedConfig: unknown;
         try {
             parsedConfig = YAML.parse(fileContent);
         } catch (error) {
-            throw new Error(`Invalid YAML in ${fileName}: ${error.message}`);
+            throw new Error(`Invalid YAML in ${fileName}: ${(error as Error).message}`);
         }
 
         const normalizedConfig = parsedConfig === null ? {} : parsedConfig;
@@ -228,7 +252,7 @@ function loadRuntimeConfig(options = undefined) {
                 return;
             }
 
-            const previous = seenValuesByPath.get(keyPath);
+            const previous = seenValuesByPath.get(keyPath)!;
             const isSameValue = valuesAreEqual(previous.value, value);
             const duplicateReason = isSameValue ? 'Duplicate key' : 'Conflicting duplicate key';
             console.warn(
@@ -236,7 +260,7 @@ function loadRuntimeConfig(options = undefined) {
             );
         });
 
-        mergedConfig = mergeObjectsWithFirstValue(mergedConfig, partialValidation.data);
+        mergedConfig = mergeObjectsWithFirstValue(mergedConfig, partialValidation.data as Record<string, unknown>);
     });
 
     const finalValidation = runtimeConfigSchema.safeParse(mergedConfig);
@@ -248,11 +272,11 @@ function loadRuntimeConfig(options = undefined) {
     return loadedConfig;
 }
 
-function initializeRuntimeConfig(options = undefined) {
+function initializeRuntimeConfig(options: LoadOptions = undefined): RuntimeConfig {
     return loadRuntimeConfig(options);
 }
 
-function getRuntimeConfig() {
+function getRuntimeConfig(): RuntimeConfig {
     if (!loadedConfig) {
         return loadRuntimeConfig();
     }
@@ -260,15 +284,18 @@ function getRuntimeConfig() {
     return loadedConfig;
 }
 
-function resetRuntimeConfigForTests() {
+function resetRuntimeConfigForTests(): void {
     loadedConfig = null;
 }
 
-module.exports = {
+export {
     SYSTEM_CONFIG_DIR_PATH,
     USER_CONFIG_DIR_PATH,
     initializeRuntimeConfig,
     getRuntimeConfig,
     loadRuntimeConfig,
-    resetRuntimeConfigForTests
+    resetRuntimeConfigForTests,
+    runtimeConfigSchema,
+    runtimeConfigPartialSchema
 };
+export type { RuntimeConfig, CpuLoadThresholds };

@@ -4,12 +4,12 @@ import path from 'path';
 import { engine } from 'express-handlebars';
 import { createV1Router } from './routes/v1/index.js';
 import type { V1RouterDeps } from './routes/v1/index.js';
+import { getRuntimeConfig } from './config/runtime-config.js';
 
 // Legacy CommonJS boundaries (not migrated in this commit).
 const { getCPUsByState, getMemByState, getGPUByState } = require('../../handlers/fetchStats.js');
 const { DEFAULT_PAGE_SIZE, JOB_STATE_REASONS } = require('../../constants.js');
 const jobsService = require('../../service/jobsService.js');
-const { getRuntimeConfig } = require('../../modules/runtimeConfig.js');
 const { getPartitions } = require('../../handlers/fetchPartitions.js');
 const { getJobStates } = require('../../handlers/fetchJobStates.js');
 const { getPendingReason } = require('../../handlers/fetchPendingReason.js');

@@ -1,7 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { loadRuntimeConfig, resetRuntimeConfigForTests } = require('../../modules/runtimeConfig');
+const { loadRuntimeConfig, resetRuntimeConfigForTests } = require('../../../src/server/config/runtime-config');
 
 function createTempConfigDir() {
     return fs.mkdtempSync(path.join(os.tmpdir(), 'slurm-view-config-'));
@@ -157,6 +157,44 @@ describe('runtime config loader', () => {
         expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Conflicting duplicate key 'ui.navbar.enabled'"));
         expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Conflicting duplicate key 'ui.navbar.title'"));
         expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Conflicting duplicate key 'ui.navbar.color'"));
+    });
+
+    test('explicit userConfigDir null disables the default user config lookup', () => {
+        tempConfigDir = createTempConfigDir();
+        const fakeHome = path.join(tempConfigDir, 'fake-home');
+        const systemConfigDir = path.join(tempConfigDir, 'system');
+        const defaultUserConfigDir = path.join(fakeHome, '.local', 'slurm-view', 'config.d');
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+        writeConfigFile(systemConfigDir, 'default.yaml', createBaseConfigLines().join('\n'));
+        writeConfigFile(defaultUserConfigDir, 'override.yaml', [
+            'ui:',
+            '  navbar:',
+            '    enabled: false',
+            '    title: Custom Slurm View',
+            '    color: "#1d4ed8"'
+        ].join('\n'));
+
+        // Point the module's own default user config path at the fake home so
+        // the test fails if explicit null falls back to the default lookup.
+        const actualOs = jest.requireActual('os');
+        const osMockFactory = () => Object.assign({}, actualOs, { homedir: () => fakeHome });
+        jest.resetModules();
+        jest.doMock('os', osMockFactory);
+        jest.doMock('node:os', osMockFactory);
+        try {
+            const isolated = require('../../../src/server/config/runtime-config');
+            const config = isolated.loadRuntimeConfig({ systemConfigDir, userConfigDir: null });
+
+            expect(config.ui.navbar.enabled).toBe(true);
+            expect(config.ui.navbar.title).toBe('Slurm View');
+            expect(config.ui.navbar.color).toBe('#0f766e');
+            expect(warnSpy).not.toHaveBeenCalled();
+        } finally {
+            jest.dontMock('os');
+            jest.dontMock('node:os');
+            jest.resetModules();
+        }
     });
 
     test('fails when config violates schema constraints', () => {

@@ -3,16 +3,11 @@ import { asyncHandler } from '../middleware/async-handler.js';
 import { HttpError } from '../middleware/error-handler.js';
 import { ProblemCode } from '../../shared/api/v1/common.js';
 import type { StatsResponse } from '../../shared/api/v1/stats.js';
-import type { CpuLoadThresholds } from '../models/stats.js';
 import type { NodesCache } from '../cache/nodes-cache.js';
 import { StatsService } from '../services/stats-service.js';
 import type { StatsResult } from '../services/stats-service.js';
 import { toHttpError } from './errors.js';
-
-// Thresholds come from the YAML-backed runtime config.
-const { getRuntimeConfig } = require('../../../modules/runtimeConfig.js') as {
-  getRuntimeConfig: () => { stats: { cpuLoad: { thresholds: CpuLoadThresholds } } };
-};
+import { getRuntimeConfig } from '../config/runtime-config.js';
 
 const statsQuerySchema = z.strictObject({
   partition: z

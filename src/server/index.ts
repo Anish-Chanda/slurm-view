@@ -10,15 +10,15 @@ import { AssocCache } from './cache/assoc-cache.js';
 import { QosCache } from './cache/qos-cache.js';
 import { SprioWeightsCache } from './cache/sprio-weights-cache.js';
 import { PollingService } from './services/polling-service.js';
+import {
+  initializeRuntimeConfig,
+  SYSTEM_CONFIG_DIR_PATH,
+  USER_CONFIG_DIR_PATH
+} from './config/runtime-config.js';
 
 // Legacy CommonJS boundaries (not migrated in this chunk).
 const backgroundPolling = require('../../service/backgroundPolling.js');
 const dataCache = require('../../modules/dataCache.js');
-const {
-  initializeRuntimeConfig,
-  SYSTEM_CONFIG_DIR_PATH,
-  USER_CONFIG_DIR_PATH
-} = require('../../modules/runtimeConfig.js');
 
 const port: number = 3000;
 
