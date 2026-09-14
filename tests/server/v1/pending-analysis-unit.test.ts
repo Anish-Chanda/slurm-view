@@ -171,6 +171,13 @@ describe('run-minute UsageFactor', () => {
     expect(sum.total).toBeCloseTo(180, 0);
   });
 
+  test('memory run-minutes accumulate MiB-minutes', () => {
+    const jobs = [makeJob({ id: '1', qos: 'normal', allocated: { cpus: 2, memoryMiB: 10240, nodes: 1, gpus: { total: 0, byType: {} } }, ...base })];
+    const sum = sumRunMinutes(jobs, now, qosStore, () => true, (job) => job.allocated.memoryMiB);
+    expect(sum.total).toBeCloseTo(10240 * 30, 0);
+    expect(sum.unknown).toBe(0);
+  });
+
   test('UNLIMITED jobs are counted, not silently absorbed', () => {
     const jobs = [
       makeJob({ id: '9', qos: 'normal', state: 'RUNNING', startTime: new Date('2026-01-01T00:00:00Z'), timeLimit: { kind: 'infinite' } }),
@@ -186,6 +193,7 @@ describe('usage scopes stay explicit', () => {
     makeJob({ id: '1', account: 'organization-a', user: 'alice', qos: 'normal', state: 'RUNNING' }),
     makeJob({ id: '2', account: 'other', user: 'bob', qos: 'normal', state: 'RUNNING' }),
     makeJob({ id: '3', account: 'organization-a', user: 'alice', qos: 'normal', state: 'PENDING' }),
+    makeJob({ id: '4', account: 'organization-a', user: 'alice', qos: 'normal', state: 'COMPLETED' }),
   ];
 
   test('QOS group is QOS-global, never account-scoped', () => {

@@ -65,6 +65,9 @@ describe('GET /api/v1/jobs/:id', () => {
     ['extern suffix', '123.extern'],
     ['numeric step', '123.0'],
     ['injection', '1;rm'],
+    ['backtick injection', '123`whoami`'],
+    ['subshell injection', '123$(id)'],
+    ['pipe injection', '123|ls'],
     ['non-numeric', 'abc'],
     ['empty-ish', '1_'],
   ])('non-canonical ID (%s) becomes 400', async (_label, id) => {

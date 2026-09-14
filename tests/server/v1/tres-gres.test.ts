@@ -24,8 +24,16 @@ describe('parseTresString', () => {
     ['mem=2T', 2 * 1024 * 1024],
     ['mem=1P', 1024 * 1024 * 1024],
     ['mem=1.5G', 1536],
+    ['mem=1g', 1024],
+    ['mem=1024k', 1],
+    ['mem=100m', 100],
   ])('converts %s to MiB', (pair, expected) => {
     expect(parseTresString(`cpu=1,${pair}`)?.memoryMiB).toBe(expected);
+  });
+
+  test('rejects trailing garbage in memory values', () => {
+    expect(parseTresString('cpu=1,mem=100Mc')?.memoryMiB).toBeNull();
+    expect(parseMemoryToMiB('100Mc')).toBeNull();
   });
 
   test('generic and typed entries for the same GPUs do not double-count', () => {
@@ -55,6 +63,20 @@ describe('parseTresString', () => {
     expect(parseTresString('cpu=4,gres/gpu:a100=4,gres/gpu:h100=2')?.gpus).toEqual({
       total: 6,
       byType: { a100: 4, h100: 2 },
+    });
+  });
+
+  test('accumulates repeated entries of the same GPU type', () => {
+    expect(parseTresString('cpu=4,gres/gpu:a100=2,gres/gpu:a100=3')?.gpus).toEqual({
+      total: 5,
+      byType: { a100: 5 },
+    });
+  });
+
+  test('preserves hyphenated GPU type names', () => {
+    expect(parseTresString('cpu=1,gres/gpu:v100-sxm2-32G=1')?.gpus).toEqual({
+      total: 1,
+      byType: { 'v100-sxm2-32G': 1 },
     });
   });
 
@@ -108,6 +130,13 @@ describe('parseGresDetailEntries', () => {
     expect(parseGresDetailEntries(['shard:8(-/5,5/5)', 'gpu:a100:1', null])).toEqual({
       total: 1,
       byType: { a100: 1 },
+    });
+  });
+
+  test('accumulates repeated entries and hyphenated types', () => {
+    expect(parseGresDetailEntries(['gpu:a100:2(IDX:0-1)', 'gpu:a100:3', 'gpu:a100-pcie:1(IDX:0)'])).toEqual({
+      total: 6,
+      byType: { a100: 5, 'a100-pcie': 1 },
     });
   });
 });

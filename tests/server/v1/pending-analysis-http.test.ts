@@ -194,20 +194,23 @@ describe('GET /api/v1/jobs/:id/pending-analysis contract', () => {
     expect(res.body.detail).toMatch(/RUNNING/);
   });
 
-  test('simple reasons echo stateReason with analysis null', async () => {
-    const app = buildApp({
-      targeted: targetedEnvelope(
-        squeueJob({ job_id: 43, job_state: ['PENDING'], state_reason: 'BeginTime' })
-      ),
-      squeue: jobsEnvelope([]),
-    });
-    const res = await request(app).get('/api/v1/jobs/43/pending-analysis');
-    expect(res.status).toBe(200);
-    expect(res.body.stateReason).toBe('BeginTime');
-    expect(res.body.analysis).toBeNull();
-    expect(typeof res.body.updatedAt).toBe('string');
-    expect(res.body).not.toHaveProperty('message');
-  });
+  test.each([['BeginTime'], ['JobHeldUser'], ['InvalidQOS']])(
+    'simple reason %s echoes stateReason with analysis null',
+    async (stateReason) => {
+      const app = buildApp({
+        targeted: targetedEnvelope(
+          squeueJob({ job_id: 43, job_state: ['PENDING'], state_reason: stateReason })
+        ),
+        squeue: jobsEnvelope([]),
+      });
+      const res = await request(app).get('/api/v1/jobs/43/pending-analysis');
+      expect(res.status).toBe(200);
+      expect(res.body.stateReason).toBe(stateReason);
+      expect(res.body.analysis).toBeNull();
+      expect(typeof res.body.updatedAt).toBe('string');
+      expect(res.body).not.toHaveProperty('message');
+    }
+  );
 
   test('resources analysis reports current fit without eligibility claims', async () => {
     const app = buildApp({

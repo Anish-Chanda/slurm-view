@@ -39,6 +39,12 @@ describe('parseDashboardSearch', () => {
     });
   });
 
+  test('drops partitions with pipes, spaces, or overlong input', () => {
+    expect(parseDashboardSearch({ partition: 'compute|ls' })).toEqual({ page: 1, pageSize: 20 });
+    expect(parseDashboardSearch({ partition: 'compute partition' })).toEqual({ page: 1, pageSize: 20 });
+    expect(parseDashboardSearch({ user: 'a'.repeat(201) })).toEqual({ page: 1, pageSize: 20 });
+  });
+
   test('accepts numeric values from router state', () => {
     expect(parseDashboardSearch({ page: 3, pageSize: 10 })).toEqual({ page: 3, pageSize: 10 });
   });

@@ -30,6 +30,13 @@ describe('jobs formatting', () => {
     expect(formatDuration(0)).toBe('0s');
     expect(formatDuration(90)).toBe('1m 30s');
     expect(formatDuration(90123)).toBe('1d 1h 2m 3s');
+    expect(formatDuration(3661)).toBe('1h 1m 1s');
+    expect(formatDuration(7325)).toBe('2h 2m 5s');
+    expect(formatDuration(30 * 86400)).toBe('30d');
+  });
+
+  test('formatDateTime renders valid ISO timestamps', () => {
+    expect(formatDateTime('2026-09-09T10:00:00.000Z')).not.toBe('—');
   });
 
   test('time limits handle finite, infinite, and missing', () => {
@@ -43,6 +50,11 @@ describe('jobs formatting', () => {
     expect(formatTimeLeft(baseJob, now)).toBe('1h');
   });
 
+  test('time left rounds sub-minute remainders up', () => {
+    const now = Date.parse('2026-09-09T11:59:01.500Z');
+    expect(formatTimeLeft(baseJob, now)).toBe('59s');
+  });
+
   test('time left falls back to startTime plus limit', () => {
     const now = Date.parse('2026-09-09T10:30:00.000Z');
     expect(formatTimeLeft({ ...baseJob, endTime: null }, now)).toBe('1h 30m');
@@ -51,6 +63,7 @@ describe('jobs formatting', () => {
   test('time left reports pending, exceeded, and terminal states', () => {
     expect(formatTimeLeft({ ...baseJob, state: 'PENDING' })).toBe('Not started');
     expect(formatTimeLeft(baseJob, Date.parse('2026-09-09T13:00:00.000Z'))).toBe('Exceeded');
+    expect(formatTimeLeft(baseJob, Date.parse('2026-09-09T12:00:00.000Z'))).toBe('Exceeded');
     expect(formatTimeLeft({ ...baseJob, state: 'COMPLETED' })).toBe('—');
     expect(formatTimeLeft({ ...baseJob, state: 'FAILED' })).toBe('—');
     expect(formatTimeLeft({ ...baseJob, state: 'CANCELLED' })).toBe('—');

@@ -39,6 +39,7 @@ describe('JobsService.listJobs', () => {
     ['name substring', { name: 'train' }, ['101']],
     ['user case-insensitive', { user: 'ALICE' }, ['101']],
     ['account substring', { account: 'teach' }, ['100_2']],
+    ['account substring upper', { account: 'TEACH' }, ['100_2']],
     ['state exact', { state: 'PENDING' }, ['100_2']],
     ['stateReason substring', { stateReason: 'resour' }, ['100_2']],
   ])('filters by %s', (_label, filter, expectedIds) => {
@@ -96,6 +97,12 @@ describe('JobsService.listJobs', () => {
     await expect(
       service.listJobs({ name: '*MODEL' }, PAGE).then((r) => r.jobs.map((j) => j.id))
     ).resolves.toEqual(['101']);
+    await expect(
+      service.listJobs({ stateReason: 'Res*' }, PAGE).then((r) => r.jobs.map((j) => j.id))
+    ).resolves.toEqual(['100_2']);
+    await expect(
+      service.listJobs({ stateReason: 'res*es' }, PAGE).then((r) => r.jobs.map((j) => j.id))
+    ).resolves.toEqual(['100_2']);
   });
 
   test('null domain values never match', async () => {

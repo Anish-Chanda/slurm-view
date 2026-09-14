@@ -27,9 +27,7 @@ const KEY_ALIASES: Record<string, CanonicalKey> = {
   statereason: 'stateReason',
 };
 
-// Static suggestion source for state reasons. Ported from the legacy
-// `constants.js` JOB_STATE_REASONS list; the full pending-reason endpoint
-// is future work, so no new API is introduced for this.
+// Static suggestion source for state reasons.
 const STATE_REASON_SUGGESTIONS = [
   'AssocGrp*',
   'AssocMax*',
@@ -72,8 +70,7 @@ function stripSurroundingQuotes(value: string): string {
   return value;
 }
 
-// Quote-aware split on spaces. Ported from public/js/filters.js
-// parseQuickFilters so `name:"my job" user:alice` stays two tokens.
+// Quote-aware split on spaces so `name:"my job" user:alice` stays two tokens.
 function splitFilterTokens(filterString: string): string[] {
   const pairs: string[] = [];
   let current = '';
@@ -173,9 +170,9 @@ function toValueSuggestion(id: string, prefix: string): FilterSuggestion {
   return { id, name: id, prefix, kind: 'value' };
 }
 
-// Suggestion sources mirror public/js/autocomplete.js: live partitions,
-// shared JOB_STATES vocabulary, and the static state-reason list. Free-text
-// keys (id/name/user/account) offer no value suggestions.
+// Suggestion sources: live partitions, shared JOB_STATES vocabulary, and the
+// static state-reason list. Free-text keys (id/name/user/account) offer no
+// value suggestions.
 function getSuggestionsForPrefixedWord(word: string): FilterSuggestion[] | null {
   const lower = word.toLowerCase();
   if (lower.startsWith('partition:')) {

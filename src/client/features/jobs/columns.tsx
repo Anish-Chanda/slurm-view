@@ -17,7 +17,7 @@ const columnHelper = createColumnHelper<typeof jobsTableFeatures, JobDto>();
 // important fields (User, Time Left, Nodes) survive down to `md`;
 // Time Limit to `lg`; Account/Submitted (useful but secondary) to `xl`.
 // State reason is intentionally not a default column: it belongs to the
-// forthcoming job-details/pending-reason experience.
+// job-details pending-analysis experience.
 interface JobsColumnMeta {
   responsiveClass?: string;
 }

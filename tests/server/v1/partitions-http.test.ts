@@ -37,6 +37,16 @@ describe('GET /api/v1/partitions', () => {
     expect(res.body.partitions).toEqual(['all', 'gpu']);
   });
 
+  test('an empty Slurm partition list yields an empty array, not an error', async () => {
+    const app = createApp({
+      partitionsCache: new PartitionsCache({ parser: 'v0.0.45', run: partitionsRun([]) }),
+    });
+    const res = await request(app).get('/api/v1/partitions');
+
+    expect(res.status).toBe(200);
+    expect(res.body.partitions).toEqual([]);
+  });
+
   test('unknown query parameters become RFC 9457 Bad Request', async () => {
     const app = createApp({
       partitionsCache: new PartitionsCache({ parser: 'v0.0.45', run: partitionsRun(['gpu']) }),
