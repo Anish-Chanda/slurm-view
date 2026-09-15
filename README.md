@@ -1,64 +1,94 @@
-# Slurm View (for Open OnDemand)
-[![Node.js CI](https://github.com/Anish-Chanda/slurm-view-ood/actions/workflows/node-ci.yml/badge.svg)](https://github.com/Anish-Chanda/slurm-view-ood/actions/workflows/node-ci.yml)
+# Slurm View
 
-Slurm View is a lightweight, web-based dashboard designed to provide a simple, at-a-glance overview of a High-Performance Computing (HPC) cluster running the Slurm Workload Manager. It is built as a Node.js application, intended to be integrated as a plugin for Open OnDemand.
+[![CI](https://github.com/Anish-Chanda/slurm-view/actions/workflows/ci.yml/badge.svg)](https://github.com/Anish-Chanda/slurm-view/actions/workflows/ci.yml)
+[![GitHub Release](https://img.shields.io/github/v/release/Anish-Chanda/slurm-view?include_prereleases)](https://github.com/Anish-Chanda/slurm-view/releases)
+[![License](https://img.shields.io/github/license/Anish-Chanda/slurm-view)](LICENSE)
 
-The primary goal is to offer a clean, modern, and responsive interface for users and administrators to quickly check resource utilization and the status of the job queue.
+Slurm View is an Open OnDemand application for exploring a Slurm cluster without having to piece everything together from command-line tools.
 
-### Key Features
-- Resource Utilization Dashboard: Interactive sunburst charts provide a clear visual breakdown of CPU, Memory, and GPU usage across the cluster.
-- Partition-Specific Stats: Easily filter the resource utilization and active jobs to see statistics for a specific Slurm partition.
-- Interactive Job Queue: View the live job queue (squeue) in a clean, sortable table with filters for jobId, partition, name, user and state.
-- **Quick Filters:** Apply multiple filters at once using the format `key1:value1 key2:value2` (e.g., `user:jdoe partition:gpu state:running`) for rapid job filtering without multiple clicks.
-- **Expandable Job Details:** Click on any job to instantly see detailed information like the command, working directory, and requested resources.
-- **Job Efficiency Reports:** For completed jobs, expand the details to see a visual report of CPU and Memory efficiency, powered by the `seff` command.
-- Efficient Backend: A background service periodically polls Slurm and caches the job data to ensure the UI is fast and responsive, minimizing direct load on the Slurm controller, especially in the case where the dashboard is accessed by many users.
-- Simple & Fast UI: Built with a "HTML-over-the-wire" approach using Handlebars partials, keeping the client-side logic minimal and the experience snappy.
-
-### Screenshots
-![slurm-view-ood-screenshot-1](https://github.com/user-attachments/assets/7c0df7c8-b245-4186-aec9-b4e65e9de47d)
-
-Job Details
-![slurm view details blurred](https://github.com/user-attachments/assets/f0372b92-3903-443c-8f01-5deb15eefc96)
-
-Job Efficiency Report
-![slurm view efficiency blurred](https://github.com/user-attachments/assets/451c2eb6-a585-4e64-b981-4bc711cd849a)
-
-Pending Reason Analysis (Resources):
-<img width="1323" height="1073" alt="slurm-view-pending-resources-blurred" src="https://github.com/user-attachments/assets/b9a44288-052c-460d-9123-18e0d2b0db10" />
-
-Pending Reason Association Limit:
-<img width="2048" height="1035" alt="slurm-view-assoc-grp-mem-limit" src="https://github.com/user-attachments/assets/26c7986b-d8b4-4ebf-802c-1c96368b21cc" />
-
-
-Pending Reason Analysis (Priority):
-<img width="1341" height="1237" alt="slurm-view-pending-priority-blurred" src="https://github.com/user-attachments/assets/397cc994-1b35-4bc4-9d51-9f9557cd9e9e" />
+It gives users a quick view of cluster utilization and the job queue, while still making the details available when something needs a closer look. That includes requested resources, job timing, efficiency information, and analysis of why a pending job is waiting.
 
 
 
-### Tech Stack
-- Backend: Node.js, Express.js
-- Frontend: Handlebars (Server-Side Rendering), D3.js (Charts), Tailwind CSS (Styling)
-- Testing:
-    - Unit/Integration: Jest
-- **Core Dependencies:** Direct interaction with Slurm command-line tools and `seff`.
+## What it does
 
-### Getting Started
+### Cluster overview
 
-#### Prerequisites
-Before installation, ensure the following are available on the system where the app will run:
-- A functioning **Slurm** installation.
-- The **`seff`** CLI Tool must be installed and available. This is required for the Job Efficiency Report feature. 
+See CPU, memory, and GPU utilization across the cluster, with the option to narrow the view to a specific partition.
 
+### Job queue
+
+Browse the live queue in a sortable and searchable table. Jobs can be filtered by fields such as user, partition, state, job ID, and name.
+
+### Job details
+
+Open a job to inspect its state, timing, requested resources, allocation, execution details, and other Slurm metadata in one place.
+
+### Pending reason analysis
+
+Slurm's pending reason is useful, but it often does not tell the whole story.
+
+For supported reasons, Slurm View looks at the surrounding scheduler state and presents the information that helps explain why the job is waiting. This includes resource constraints, priority, dependencies, association and QOS limits, required nodes, partitions, reservations, and array throttling.
+
+The analysis stays tied to information reported by Slurm rather than trying to predict when a job will start.
+
+### Job efficiency
+
+Completed jobs can include CPU and memory efficiency information from `seff`, making it easier to spot jobs that requested substantially more resources than they used.
+
+## Requirements
+
+Slurm View currently runs alongside Open OnDemand and talks directly to the Slurm command-line tools available in the user's environment.
+
+You will need:
+
+- Open OnDemand
+- Slurm
+- Node.js 22 or newer
+- npm
+- Slurm CLI tools available from the Open OnDemand environment
+
+`seff` is optional, but is required for job efficiency reports.
+
+## Installation
+
+Prebuilt releases are available on the [Releases page](https://github.com/Anish-Chanda/slurm-view/releases).
+
+Release archives contain both the compiled server and web client, so installing Slurm View does not require building the React or TypeScript application on the cluster.
+
+Installation and upgrade instructions are included with each release.
+
+## Configuration
+
+Slurm View ships with a default configuration in:
+
+```text
+config.d/default.yaml
 ```
-mkdir -p ~/ondemand/dev
-cd ~/ondemand/dev
-git clone git@github.com:Anish-Chanda/slurm-view-ood.git
-cd slurm-view-ood
-module load npm
-npm install
-```
-Then go to your sandbox apps in the OOD page and launch the app
 
-### Contributing
-Contributions are welcome! If you find a bug or have a feature request, please open an issue. If you'd like to contribute code, please fork the repository and submit a pull request. Starring the repo is much appreciated :)
+Users can override those defaults without modifying the application itself by placing YAML files in:
+
+```text
+~/.local/slurm-view/config.d/
+```
+User configuration is loaded before the bundled defaults, so values defined there take precedence.
+
+## Compatibility
+
+Slurm View is currently designed for Open OnDemand installations where the application can invoke the local Slurm command-line tools.
+
+It has been tested against multiple production Slurm environments, but clusters differ considerably in scheduler configuration and available Slurm versions. Reports from other sites are welcome, especially when something behaves differently from your existing Slurm tools.
+
+## Contributing
+
+First, thank you for considering contributing to Slurm View. Bug reports, ideas, compatibility feedback, documentation improvements, and code contributions are all greatly appreciated.
+
+Bug reports, feature requests, compatibility reports, and pull requests are welcome.
+
+If you are reporting cluster-specific behavior, please include the relevant Slurm version and command output where possible. Remove usernames, account names, node names, paths, and other site-specific information before posting anything sensitive.
+
+See the issue tracker to report a problem or suggest an improvement.
+
+## License
+
+Slurm View is available under the MIT License.
