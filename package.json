@@ -1,6 +1,6 @@
 {
   "name": "slurm-view",
-  "version": "1.0.0",
+  "version": "1.0.0-rc.1",
   "private": true,
   "description": "A web interface for monitoring and understanding Slurm clusters.",
   "main": "app.js",
