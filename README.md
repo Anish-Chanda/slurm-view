@@ -8,7 +8,41 @@ Slurm View is an Open OnDemand application for exploring a Slurm cluster without
 
 It gives users a quick view of cluster utilization and the job queue, while still making the details available when something needs a closer look. That includes requested resources, job timing, efficiency information, and analysis of why a pending job is waiting.
 
+## Screenshots
 
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img width="100%" src="https://github.com/user-attachments/assets/aa6930f5-0ff7-4ecd-b71c-6e42f6083a00" alt="Slurm View dashboard">
+      <br>
+      <sub>Cluster overview</sub>
+    </td>
+    <td width="50%" align="center">
+      <img width="100%" src="https://github.com/user-attachments/assets/d03638ac-3217-4a6a-a621-a3abd02222b0" alt="Slurm View job details">
+      <br>
+      <sub>Job details</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img width="100%" src="https://github.com/user-attachments/assets/d668d58f-b3a2-47fa-b025-3a863636f197" alt="Pending reason: resources">
+      <br>
+      <sub>Pending reason: resources</sub>
+    </td>
+    <td width="50%" align="center">
+      <img width="100%" src="https://github.com/user-attachments/assets/270260aa-336e-42f8-8a61-fe08c7bf0564" alt="Pending reason: association limits">
+      <br>
+      <sub>Pending reason: association limits</sub>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center">
+      <img width="49%" src="https://github.com/user-attachments/assets/dade98b1-45f0-4952-ab3c-29535d5b21a4" alt="Pending reason: priority">
+      <br>
+      <sub>Pending reason: priority</sub>
+    </td>
+  </tr>
+</table>
 
 ## What it does
 
