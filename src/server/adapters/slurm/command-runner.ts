@@ -59,11 +59,19 @@ interface CapturedCommandResult {
   exitCode: number;
 }
 
+type ExecFileError = Omit<ExecException, "code"> & {
+  code?: string | number;
+};
+
 type ExecFileLike = (
   file: string,
   args: readonly string[],
   options: ExecFileOptions,
-  callback: (error: (ExecException & { code?: unknown }) | null, stdout: string, stderr: string) => void
+  callback: (
+    error: ExecFileError | null,
+    stdout: string,
+    stderr: string,
+  ) => void,
 ) => unknown;
 
 interface RunCommandDeps {
@@ -79,9 +87,9 @@ function snippet(value: string): string {
 function toCommandError(
   executable: string,
   args: readonly string[],
-  error: ExecException & { code?: unknown },
+  error: ExecFileError,
   stderr: string,
-  aborted: boolean
+  aborted: boolean,
 ): CommandError {
   if (aborted) {
     return new CommandError({
@@ -229,4 +237,11 @@ async function runCommand(
 }
 
 export { CommandError, runCommand, runCommandCapture };
-export type { CapturedCommandResult, ExecFileLike, RunCommandDeps, RunCommandOptions, RunCommandResult };
+export type {
+  CapturedCommandResult,
+  ExecFileError,
+  ExecFileLike,
+  RunCommandDeps,
+  RunCommandOptions,
+  RunCommandResult,
+};
