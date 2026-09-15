@@ -1,0 +1,247 @@
+import { execFile as defaultExecFile } from 'node:child_process';
+import type { ExecException, ExecFileOptions } from 'node:child_process';
+
+export const DEFAULT_COMMAND_TIMEOUT_MS = 15_000;
+export const DEFAULT_COMMAND_MAX_BUFFER_BYTES = 128 * 1024 * 1024;
+
+const STDERR_SNIPPET_MAX_CHARS = 500;
+
+export type CommandErrorKind =
+  | 'executable-not-found'
+  | 'timeout'
+  | 'output-too-large'
+  | 'non-zero-exit'
+  | 'spawn-failed'
+  | 'aborted';
+
+// Log-only diagnostics; never expose stderr or paths through the API.
+class CommandError extends Error {
+  public readonly kind: CommandErrorKind;
+  public readonly executable: string;
+  public readonly args: readonly string[];
+  public readonly exitCode: number | null;
+  public readonly stderrSnippet: string;
+
+  constructor(options: {
+    kind: CommandErrorKind;
+    executable: string;
+    args: readonly string[];
+    exitCode?: number | null;
+    stderrSnippet?: string;
+    message: string;
+  }) {
+    super(options.message);
+    this.name = 'CommandError';
+    this.kind = options.kind;
+    this.executable = options.executable;
+    this.args = options.args;
+    this.exitCode = options.exitCode ?? null;
+    this.stderrSnippet = options.stderrSnippet ?? '';
+  }
+}
+
+interface RunCommandOptions {
+  timeoutMs?: number;
+  maxBufferBytes?: number;
+  signal?: AbortSignal;
+}
+
+interface RunCommandResult {
+  stdout: string;
+  stderr: string;
+}
+
+// Preserves output for non-zero exits. Only seff needs this: it can print
+// usable data and still exit non-zero.
+interface CapturedCommandResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
+
+type ExecFileError = Omit<ExecException, "code"> & {
+  code?: string | number;
+};
+
+type ExecFileLike = (
+  file: string,
+  args: readonly string[],
+  options: ExecFileOptions,
+  callback: (
+    error: ExecFileError | null,
+    stdout: string,
+    stderr: string,
+  ) => void,
+) => unknown;
+
+interface RunCommandDeps {
+  execFileFn?: ExecFileLike;
+}
+
+function snippet(value: string): string {
+  return value.length > STDERR_SNIPPET_MAX_CHARS
+    ? `${value.slice(0, STDERR_SNIPPET_MAX_CHARS)}…`
+    : value;
+}
+
+function toCommandError(
+  executable: string,
+  args: readonly string[],
+  error: ExecFileError,
+  stderr: string,
+  aborted: boolean,
+): CommandError {
+  if (aborted) {
+    return new CommandError({
+      kind: 'aborted',
+      executable,
+      args,
+      stderrSnippet: snippet(stderr),
+      message: `Command aborted: ${executable}`,
+    });
+  }
+
+  if (error.code === 'ENOENT') {
+    return new CommandError({
+      kind: 'executable-not-found',
+      executable,
+      args,
+      stderrSnippet: snippet(stderr),
+      message: `Executable not found: ${executable}`,
+    });
+  }
+
+  // A child killed for exceeding maxBuffer also reports killed; the buffer
+  // check takes priority over the timeout check below.
+  if (error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' || /maxbuffer/i.test(error.message)) {
+    return new CommandError({
+      kind: 'output-too-large',
+      executable,
+      args,
+      stderrSnippet: snippet(stderr),
+      message: `Command output exceeded buffer limit: ${executable}`,
+    });
+  }
+
+  // execFile kills the child when its timeout fires.
+  if (error.killed === true) {
+    return new CommandError({
+      kind: 'timeout',
+      executable,
+      args,
+      stderrSnippet: snippet(stderr),
+      message: `Command timed out: ${executable}`,
+    });
+  }
+
+  if (typeof error.code === 'number') {
+    return new CommandError({
+      kind: 'non-zero-exit',
+      executable,
+      args,
+      exitCode: error.code,
+      stderrSnippet: snippet(stderr),
+      message: `Command exited with code ${error.code}: ${executable}`,
+    });
+  }
+
+  return new CommandError({
+    kind: 'spawn-failed',
+    executable,
+    args,
+    stderrSnippet: snippet(stderr),
+    message: `Failed to run command ${executable}: ${error.message}`,
+  });
+}
+
+// Same safety as runCommand (argv via execFile, no shell, bounded timeout
+// and output, AbortSignal) but resolves non-zero exits instead of throwing.
+async function runCommandCapture(
+  executable: string,
+  args: readonly string[],
+  options: RunCommandOptions = {},
+  deps: RunCommandDeps = {}
+): Promise<CapturedCommandResult> {
+  if (typeof executable !== 'string' || executable.length === 0) {
+    throw new TypeError('executable must be a non-empty string');
+  }
+  if (!Array.isArray(args) || args.some((arg) => typeof arg !== 'string')) {
+    throw new TypeError('args must be an array of strings');
+  }
+
+  const execFileFn: ExecFileLike =
+    deps.execFileFn ?? (defaultExecFile as unknown as ExecFileLike);
+  const timeoutMs = options.timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS;
+  const maxBufferBytes = options.maxBufferBytes ?? DEFAULT_COMMAND_MAX_BUFFER_BYTES;
+
+  return new Promise<CapturedCommandResult>((resolve, reject) => {
+    execFileFn(
+      executable,
+      args,
+      {
+        timeout: timeoutMs,
+        maxBuffer: maxBufferBytes,
+        encoding: 'utf8',
+        signal: options.signal,
+        shell: false,
+        env: {
+          ...process.env,
+          SLURM_JSON: 'compact',
+        },
+      },
+      (error, stdout, stderr) => {
+        const out = typeof stdout === 'string' ? stdout : '';
+        const err = typeof stderr === 'string' ? stderr : '';
+        if (!error) {
+          resolve({ stdout: out, stderr: err, exitCode: 0 });
+          return;
+        }
+        const commandError = toCommandError(
+          executable,
+          args,
+          error,
+          err,
+          options.signal?.aborted === true
+        );
+        if (commandError.kind === 'non-zero-exit' && commandError.exitCode !== null) {
+          resolve({ stdout: out, stderr: err, exitCode: commandError.exitCode });
+          return;
+        }
+        reject(commandError);
+      }
+    );
+  });
+}
+
+// Runs a binary with an explicit argv array via execFile (no shell, so
+// arguments pass through verbatim). Accepts any executable so tests can
+// drive process.execPath; Slurm adapters hard-code their own binaries.
+async function runCommand(
+  executable: string,
+  args: readonly string[],
+  options: RunCommandOptions = {},
+  deps: RunCommandDeps = {}
+): Promise<RunCommandResult> {
+  const captured = await runCommandCapture(executable, args, options, deps);
+  if (captured.exitCode !== 0) {
+    throw new CommandError({
+      kind: 'non-zero-exit',
+      executable,
+      args,
+      exitCode: captured.exitCode,
+      stderrSnippet: snippet(captured.stderr),
+      message: `Command exited with code ${captured.exitCode}: ${executable}`,
+    });
+  }
+  return { stdout: captured.stdout, stderr: captured.stderr };
+}
+
+export { CommandError, runCommand, runCommandCapture };
+export type {
+  CapturedCommandResult,
+  ExecFileError,
+  ExecFileLike,
+  RunCommandDeps,
+  RunCommandOptions,
+  RunCommandResult,
+};

@@ -1,0 +1,271 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: Validate and package
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    outputs:
+      release_name: ${{ steps.meta.outputs.release_name }}
+      tag: ${{ steps.meta.outputs.tag }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Resolve release metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            TAG="$GITHUB_REF_NAME"
+
+            if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+              echo "Invalid release tag: $TAG"
+              echo "Expected something like v1.0.0 or v1.0.0-rc.1"
+              exit 1
+            fi
+
+            VERSION="${TAG#v}"
+
+            if [[ "$VERSION" != "$PACKAGE_VERSION" ]]; then
+              echo "Tag/package version mismatch:"
+              echo "  tag:          $VERSION"
+              echo "  package.json: $PACKAGE_VERSION"
+              exit 1
+            fi
+
+            DEFAULT_BRANCH="${{ github.event.repository.default_branch }}"
+            git fetch origin "$DEFAULT_BRANCH" --no-tags
+
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/$DEFAULT_BRANCH"; then
+              echo "Release tag $TAG does not point to a commit reachable from $DEFAULT_BRANCH."
+              exit 1
+            fi
+
+            RELEASE_NAME="slurm-view-${TAG}"
+
+            if [[ "$VERSION" == *-* ]]; then
+              PRERELEASE=true
+            else
+              PRERELEASE=false
+            fi
+          else
+            SHORT_SHA="${GITHUB_SHA:0:7}"
+            TAG="dry-run-${SHORT_SHA}"
+            RELEASE_NAME="slurm-view-${TAG}"
+            PRERELEASE=true
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "release_name=$RELEASE_NAME" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+
+          echo "Release name: $RELEASE_NAME"
+          echo "Package version: $PACKAGE_VERSION"
+          echo "Prerelease: $PRERELEASE"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Assemble release tree
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RELEASE_NAME="${{ steps.meta.outputs.release_name }}"
+          RELEASE_DIR="release/${RELEASE_NAME}"
+
+          mkdir -p "$RELEASE_DIR"
+
+          cp \
+            app.js \
+            manifest.yml \
+            package.json \
+            package-lock.json \
+            LICENSE \
+            "$RELEASE_DIR/"
+
+          cp -a config.d "$RELEASE_DIR/"
+          cp -a dist "$RELEASE_DIR/"
+
+          # Release completeness checks.
+          test -f "$RELEASE_DIR/app.js"
+          test -f "$RELEASE_DIR/manifest.yml"
+          test -f "$RELEASE_DIR/package.json"
+          test -f "$RELEASE_DIR/package-lock.json"
+          test -f "$RELEASE_DIR/config.d/default.yaml"
+          test -f "$RELEASE_DIR/dist/server/index.js"
+          test -f "$RELEASE_DIR/dist/client/index.html"
+
+      - name: Verify production-only installation
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RELEASE_NAME="${{ steps.meta.outputs.release_name }}"
+          RELEASE_DIR="$GITHUB_WORKSPACE/release/${RELEASE_NAME}"
+          SMOKE_DIR="$RUNNER_TEMP/${RELEASE_NAME}"
+
+          cp -a "$RELEASE_DIR" "$SMOKE_DIR"
+
+          cd "$SMOKE_DIR"
+
+          npm ci --omit=dev
+
+          # Loading the compiled server exercises its runtime dependency graph
+          # without starting Slurm polling or binding a port.
+          node <<'NODE'
+          const server = require('./dist/server/index.js');
+
+          if (typeof server.startServer !== 'function') {
+            throw new Error('Compiled server does not export startServer');
+          }
+
+          console.log('Production runtime dependency smoke test passed.');
+          NODE
+
+      - name: Create release archive
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RELEASE_NAME="${{ steps.meta.outputs.release_name }}"
+          SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")"
+
+          # Stable file ordering, ownership and timestamps make repeated
+          # packaging of the same commit deterministic.
+          tar \
+            --sort=name \
+            --mtime="@${SOURCE_DATE_EPOCH}" \
+            --owner=0 \
+            --group=0 \
+            --numeric-owner \
+            -cf - \
+            -C release \
+            "$RELEASE_NAME" \
+            | gzip -n -9 \
+            > "release/${RELEASE_NAME}.tar.gz"
+
+          (
+            cd release
+            sha256sum "${RELEASE_NAME}.tar.gz" \
+              > "${RELEASE_NAME}.tar.gz.sha256"
+          )
+
+          ls -lh \
+            "release/${RELEASE_NAME}.tar.gz" \
+            "release/${RELEASE_NAME}.tar.gz.sha256"
+
+      - name: Upload packaged release
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.meta.outputs.release_name }}-assets
+          path: |
+            release/${{ steps.meta.outputs.release_name }}.tar.gz
+            release/${{ steps.meta.outputs.release_name }}.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub Release
+
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+
+    needs:
+      - package
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Download packaged release
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.package.outputs.release_name }}-assets
+          path: release-assets
+
+      - name: Render release description
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TAG="${{ needs.package.outputs.tag }}"
+
+          sed \
+            "s/{{TAG}}/${TAG}/g" \
+            .github/release-body.md \
+            > "$RUNNER_TEMP/release-body.md"
+
+      - name: Create GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          TAG="${{ needs.package.outputs.tag }}"
+          RELEASE_NAME="${{ needs.package.outputs.release_name }}"
+          PRERELEASE="${{ needs.package.outputs.prerelease }}"
+
+          ARGS=(
+            release create
+            "$TAG"
+            "release-assets/${RELEASE_NAME}.tar.gz"
+            "release-assets/${RELEASE_NAME}.tar.gz.sha256"
+            --verify-tag
+            --title "Slurm View ${TAG}"
+            --generate-notes
+            --notes-file "$RUNNER_TEMP/release-body.md"
+          )
+
+          if [[ "$PRERELEASE" == "true" ]]; then
+            ARGS+=(--prerelease)
+          fi
+
+          gh "${ARGS[@]}"

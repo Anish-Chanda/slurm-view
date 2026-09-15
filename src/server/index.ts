@@ -1,0 +1,128 @@
+import type { Express } from 'express';
+import type { Server } from 'http';
+import { createApp } from './app.js';
+import { negotiateDataParser, SlurmCompatibilityError } from './adapters/slurm/parser-version.js';
+import type { SupportedDataParser } from './adapters/slurm/parser-version.js';
+import { JobsCache, JOBS_POLL_INTERVAL_MS } from './cache/jobs-cache.js';
+import { NodesCache } from './cache/nodes-cache.js';
+import { PartitionsCache } from './cache/partitions-cache.js';
+import { AssocCache } from './cache/assoc-cache.js';
+import { QosCache } from './cache/qos-cache.js';
+import { SprioWeightsCache } from './cache/sprio-weights-cache.js';
+import { PollingService } from './services/polling-service.js';
+import {
+  initializeRuntimeConfig,
+  SYSTEM_CONFIG_DIR_PATH,
+  USER_CONFIG_DIR_PATH
+} from './config/runtime-config.js';
+
+const port: number = 3000;
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+interface ServerRuntime {
+  app: Express;
+  server: Server;
+  jobsCache: JobsCache;
+  nodesCache: NodesCache;
+  partitionsCache: PartitionsCache;
+  assocCache: AssocCache;
+  qosCache: QosCache;
+  sprioWeightsCache: SprioWeightsCache;
+  jobsPoller: PollingService;
+}
+
+async function initializeSlurm(): Promise<SupportedDataParser> {
+  const parser = await negotiateDataParser();
+  console.log(`[Slurm] Using data_parser ${parser}`);
+  return parser;
+}
+
+async function startServer(): Promise<ServerRuntime> {
+  // Load runtime configuration on startup, fail if config is invalid or cannot be loaded
+  try {
+    initializeRuntimeConfig();
+    console.log(`[Config] Runtime configuration loaded from ${SYSTEM_CONFIG_DIR_PATH} with optional user overrides from ${USER_CONFIG_DIR_PATH}`);
+  } catch (error) {
+    console.error(`[Config] Failed to load runtime configuration: ${getErrorMessage(error)}`);
+    process.exit(1);
+  }
+
+  // Startup exits non-zero below on permanent Slurm incompatibility.
+  // Later transient controller failures surface as 503s, never exits.
+  const parser = await initializeSlurm().catch((error: unknown): SupportedDataParser => {
+    const detail = error instanceof SlurmCompatibilityError
+      ? error.message
+      : getErrorMessage(error);
+    console.error(`[Slurm] ${detail}`);
+    process.exit(1);
+  });
+
+  const jobsCache = new JobsCache({ parser });
+  const nodesCache = new NodesCache({ parser });
+  const partitionsCache = new PartitionsCache({ parser });
+  const assocCache = new AssocCache({ parser });
+  const qosCache = new QosCache({ parser });
+  const sprioWeightsCache = new SprioWeightsCache({ parser });
+
+  const jobsPoller = new PollingService(
+    (signal) => jobsCache.refresh({ signal }),
+    JOBS_POLL_INTERVAL_MS
+  );
+  console.log('[Main Worker] Starting v1 jobs snapshot poller...');
+  jobsPoller.start();
+
+  const app = createApp({
+    jobsCache,
+    nodesCache,
+    partitionsCache,
+    pendingAnalysis: {
+      slurmContext: { parser },
+      jobsCache,
+      nodesCache,
+      assocCache,
+      qosCache,
+      sprioWeightsCache,
+    },
+  });
+
+  const server: Server = app.listen(port, () => {
+    console.log(`[Main Worker] App listening on port ${port}`);
+  });
+
+  // Graceful shutdown
+  function gracefulShutdown(): void {
+    console.log('[Main Worker] Graceful shutdown initiated...');
+
+    jobsPoller.stop();
+
+    // Then close the server
+    server.close(() => {
+      console.log('Express server closed.');
+      process.exit(0);
+    });
+
+    // If server hasn't closed in 10 seconds, force shutdown
+    setTimeout(() => {
+      console.error('Could not close connections in time, forcefully shutting down');
+      process.exit(1);
+    }, 10000);
+  }
+
+  process.on('SIGTERM', gracefulShutdown);
+  process.on('SIGINT', gracefulShutdown);
+
+  return { app, server, jobsCache, nodesCache, partitionsCache, assocCache, qosCache, sprioWeightsCache, jobsPoller };
+}
+
+export { startServer };
+export type { ServerRuntime };
+
+if (require.main === module) {
+  startServer().catch((error) => {
+    console.error(`[Startup] Failed to start server: ${getErrorMessage(error)}`);
+    process.exit(1);
+  });
+}

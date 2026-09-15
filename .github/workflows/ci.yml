@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: Core CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=moderate
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v7
+        with:
+          name: node-coverage
+          path: coverage/lcov.info
+          if-no-files-found: error
+          retention-days: 1
+
+  socket-security:
+    name: Socket dependency scan
+
+    if: >-
+      github.actor != 'dependabot[bot]' &&
+      (
+        github.event_name != 'pull_request' ||
+        github.event.pull_request.head.repo.full_name == github.repository
+      )
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      SOCKET_SECURITY_API_KEY: ${{ secrets.SOCKET_SECURITY_API_KEY }}
+      SOCKET_CLI_GITHUB_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install Socket CLI
+        if: env.SOCKET_SECURITY_API_KEY != ''
+        run: npm install --global socket@1.1.171
+
+      - name: Run Socket scan
+        if: env.SOCKET_SECURITY_API_KEY != ''
+        run: socket ci
+
+      - name: Socket not configured
+        if: env.SOCKET_SECURITY_API_KEY == ''
+        run: |
+          echo "::warning::SOCKET_SECURITY_API_KEY is not configured; skipping Socket dependency scan."
+
+  sonar-analysis:
+    name: SonarQube Analysis
+
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    needs:
+      - core
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    continue-on-error: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Download coverage
+        uses: actions/download-artifact@v8
+        with:
+          name: node-coverage
+          path: coverage
+
+      - name: Run SonarQube analysis
+        uses: SonarSource/sonarqube-scan-action@v8
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}

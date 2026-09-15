@@ -1,0 +1,70 @@
+{
+  "_comment": "SYNTHETIC fixture shaped like scontrol --json=v0.0.43 show node output. Not captured from a live cluster.",
+  "meta": { "plugin": { "type": "v0.0.43", "name": "node_info" } },
+  "errors": [],
+  "warnings": [],
+  "last_update": 1725800100,
+  "nodes": [
+    {
+      "name": "gpu01",
+      "state": ["MIXED"],
+      "partitions": ["gpu", "debug"],
+      "cpus": { "number": 64, "set": true, "infinite": false },
+      "effective_cpus": { "number": 64, "set": true, "infinite": false },
+      "alloc_cpus": { "number": 16, "set": true, "infinite": false },
+      "alloc_idle_cpus": { "number": 48, "set": true, "infinite": false },
+      "cpu_load": { "number": 1250, "set": true, "infinite": false },
+      "real_memory": { "number": 256000, "set": true, "infinite": false },
+      "alloc_memory": { "number": 64000, "set": true, "infinite": false },
+      "free_mem": { "number": 180000, "set": true, "infinite": false },
+      "gres": "gpu:a100:4",
+      "gres_used": "gpu:a100:2(IDX:0-1)",
+      "ignored_test_field": 42
+    },
+    {
+      "name": "cpu01",
+      "state": ["IDLE"],
+      "partitions": ["compute"],
+      "cpus": 32,
+      "effective_cpus": 32,
+      "alloc_cpus": 0,
+      "alloc_idle_cpus": 0,
+      "cpu_load": 5,
+      "real_memory": 128000,
+      "alloc_memory": 0,
+      "free_mem": 120000,
+      "gres": "(null)",
+      "gres_used": "(null)"
+    },
+    {
+      "name": "gpu02",
+      "state": ["IDLE", "DRAIN"],
+      "partitions": ["gpu"],
+      "cpus": { "number": 64, "set": true, "infinite": false },
+      "effective_cpus": { "number": 60, "set": true, "infinite": false },
+      "alloc_cpus": { "number": 0, "set": true, "infinite": false },
+      "alloc_idle_cpus": { "number": 0, "set": true, "infinite": false },
+      "cpu_load": { "number": 100, "set": true, "infinite": false },
+      "real_memory": { "number": 256000, "set": true, "infinite": false },
+      "alloc_memory": { "number": 0, "set": true, "infinite": false },
+      "free_mem": { "number": 250000, "set": true, "infinite": false },
+      "gres": "gpu:a100:4,shard:8",
+      "gres_used": ""
+    },
+    {
+      "name": "down01",
+      "state": ["DOWN"],
+      "partitions": ["compute", "debug"],
+      "cpus": { "number": 32, "set": true, "infinite": false },
+      "effective_cpus": { "number": 0, "set": true, "infinite": false },
+      "alloc_cpus": { "number": 0, "set": true, "infinite": false },
+      "alloc_idle_cpus": { "number": 0, "set": true, "infinite": false },
+      "cpu_load": { "number": 0, "set": false, "infinite": false },
+      "real_memory": { "number": 128000, "set": true, "infinite": false },
+      "alloc_memory": { "number": 0, "set": true, "infinite": false },
+      "free_mem": { "number": 0, "set": false, "infinite": false },
+      "gres": "gpu:v100:2",
+      "gres_used": "gpu:v100:0"
+    }
+  ]
+}
