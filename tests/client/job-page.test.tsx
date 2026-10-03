@@ -338,7 +338,6 @@ describe('JobPage states', () => {
     expect(screen.getByText('39.1 GiB peak / 64 GiB allocated')).toBeTruthy();
     expect(screen.queryByText(/of the allocated CPU time was used/)).toBeNull();
     expect(screen.queryByText(/reached .* of the allocation/)).toBeNull();
-    // Terminal jobs keep their exit result as canonical detail.
     expect(screen.getByText('Exit code')).toBeTruthy();
   });
 
@@ -380,11 +379,9 @@ describe('JobPage states', () => {
     expect(screen.queryByText('Running')).toBeNull();
     expect(screen.queryByText('Remaining')).toBeNull();
     expect(screen.queryByText('Resource usage')).toBeNull();
-    // No lifecycle reading of the timestamps…
     expect(screen.queryByText('Started')).toBeNull();
     expect(screen.queryByText('Eligible to start')).toBeNull();
     expect(screen.queryByText('Submit to start')).toBeNull();
-    // …only neutral timestamp rows alongside the exact scheduler values.
     expect(screen.getByText('Start time')).toBeTruthy();
     expect(screen.getByText('End time')).toBeTruthy();
     expect(screen.getByText('Submitted')).toBeTruthy();
@@ -431,8 +428,8 @@ describe('JobPage states', () => {
     ).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Technical details' })).toBeNull();
     expect(screen.queryByText('Array job ID')).toBeNull();
-    // Configured Slurm values keep plain labels even with substitution
-    // syntax: the UI never claims to know resolved paths.
+    // Values with substitution syntax stay plain because the resolved paths
+    // are unknown.
     expect(screen.getByText('Stdout')).toBeTruthy();
     expect(screen.getByText('/work/project-b/user-b/workload/slurm-100_%a.out')).toBeTruthy();
     expect(screen.queryByText(/pattern/i)).toBeNull();
@@ -479,7 +476,6 @@ describe('JobPage states', () => {
     renderJobPage('101', { job: makeJob({ command }) });
 
     await waitFor(() => expect(screen.getByText('Execution')).toBeTruthy());
-    // Long commands render in full, never permanently truncated.
     expect(screen.getByText(command)).toBeTruthy();
     await user.click(screen.getByRole('button', { name: 'Copy command' }));
     await waitFor(() => expect(screen.getByText('Copied')).toBeTruthy());
@@ -873,8 +869,8 @@ describe('job details snapshot behavior', () => {
     expect(detailFetchCount(first.fetchMock)).toBe(1);
     first.unmount();
 
-    // The router session is reused, so no new-visit loader work is due:
-    // the fresh cache is adopted and mounting observers never refetch.
+    // The reused router session reads the fresh cache without another loader
+    // request or mount refetch.
     render(
       <QueryClientProvider client={first.queryClient}>
         <RouterProvider router={first.router} />

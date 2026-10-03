@@ -5,11 +5,13 @@ import { CommandError } from '../../../src/server/adapters/slurm/command-runner.
 import { createApp } from '../../../src/server/app.js';
 import { JobsCache } from '../../../src/server/cache/jobs-cache.js';
 import type { SlurmRunFn } from '../../../src/server/adapters/slurm/context.js';
+import { formattedSqueue } from './formatted-squeue-fixture.js';
 
 const FIXTURES = path.join(__dirname, 'fixtures');
 
 function fixtureRun(): SlurmRunFn {
-  const stdout = fs.readFileSync(path.join(FIXTURES, 'v45-jobs.json'), 'utf8');
+  const fixture = JSON.parse(fs.readFileSync(path.join(FIXTURES, 'v45-jobs.json'), 'utf8')) as { jobs: Array<Record<string, unknown>> };
+  const stdout = formattedSqueue(fixture.jobs);
   return jest.fn().mockResolvedValue({ stdout, stderr: '' });
 }
 
@@ -44,10 +46,12 @@ describe('GET /api/v1/jobs', () => {
     expect(first).toMatchObject({
       id: '101',
       state: 'RUNNING',
-      stateReason: null,
       timeLimit: { kind: 'finite', seconds: 7200 },
-      requested: { cpus: 8, memoryMiB: 32768 },
     });
+    expect(Object.keys(first).sort()).toEqual([
+      'account', 'endTime', 'id', 'name', 'nodeCount', 'nodeExpression',
+      'partition', 'startTime', 'state', 'submitTime', 'timeLimit', 'user',
+    ]);
     expect(first).not.toHaveProperty('job_state');
     expect(first).not.toHaveProperty('N/A');
   });
@@ -99,14 +103,14 @@ describe('GET /api/v1/jobs', () => {
   });
 
   test('malformed Slurm payload becomes 502 without leaking the payload', async () => {
-    const run: SlurmRunFn = jest.fn().mockResolvedValue({ stdout: 'not json {', stderr: '' });
+    const run: SlurmRunFn = jest.fn().mockResolvedValue({ stdout: 'malformed output', stderr: '' });
     const app = createApp({ jobsCache: new JobsCache({ parser: 'v0.0.45', run }) });
     const res = await request(app).get('/api/v1/jobs');
 
     expect(res.status).toBe(502);
     expect(res.headers['content-type']).toMatch(/application\/problem\+json/);
     expect(res.body.code).toBe('UPSTREAM_INVALID_RESPONSE');
-    expect(JSON.stringify(res.body)).not.toContain('not json');
+    expect(JSON.stringify(res.body)).not.toContain('malformed output');
   });
 
   test('missing cache wiring becomes 503, not a crash', async () => {

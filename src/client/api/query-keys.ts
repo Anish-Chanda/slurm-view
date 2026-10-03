@@ -62,9 +62,8 @@ const pendingAnalysisKeys = {
   detail: (id: string) => ['pending-analysis', 'detail', { id }] as const,
 };
 
-// UI settings are effectively immutable for the lifetime of the server:
-// fetch once and cache indefinitely (staleTime: Infinity at the call
-// site). The frontend holds no copy of the admin defaults.
+// Server UI settings are immutable for the process lifetime and cached with
+// staleTime: Infinity.
 const uiSettingsKeys = {
   all: ['ui-settings'] as const,
   detail: ['ui-settings', 'detail'] as const,

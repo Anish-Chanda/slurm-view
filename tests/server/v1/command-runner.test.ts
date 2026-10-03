@@ -145,4 +145,23 @@ describe('runCommand', () => {
       })
     );
   });
+
+  test('merges per-command environment overrides and keeps compact JSON forced', async () => {
+    let seen: ExecFileOptions | null = null;
+    const execFileFn: ExecFileLike = (_exe, _args, opts, callback) => {
+      seen = opts;
+      callback(null, '', '');
+    };
+    await runCommand(
+      'squeue',
+      ['--noheader'],
+      { env: { SLURM_TIME_FORMAT: '%s', SLURM_JSON: 'verbose', SLURM_VIEW_TEST_OVERRIDE: 'present' } },
+      { execFileFn }
+    );
+    const env = seen?.env as NodeJS.ProcessEnv;
+    expect(env.SLURM_TIME_FORMAT).toBe('%s');
+    expect(env.SLURM_JSON).toBe('compact');
+    expect(env.SLURM_VIEW_TEST_OVERRIDE).toBe('present');
+    expect(env.PATH).toBe(process.env.PATH);
+  });
 });

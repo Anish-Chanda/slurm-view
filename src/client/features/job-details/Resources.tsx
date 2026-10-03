@@ -17,8 +17,8 @@ function GpuCount({ total, byType }: { total: number; byType: Record<string, num
   );
 }
 
-// A zero GPU total means "none" only when sibling resource data came
-// through; with no resource data at all the row is omitted instead.
+// A zero GPU total means "none" only when other resource data is present;
+// omit the row when all resource data is missing.
 function showGpuRow(resources: RequestedResourcesDto): boolean {
   return (
     resources.gpus.total > 0 ||
@@ -36,9 +36,8 @@ function ResourceCell({ value, mono }: { value: string | null; mono?: boolean })
   return <span className={mono === true ? 'font-mono' : undefined}>{value}</span>;
 }
 
-// Requested vs allocated, side by side. Missing is an em dash, never zero;
-// invented allocations are worse than empty cells. Node identity lives in
-// the node-list row below the table; time limit belongs to Timing.
+// Missing values use an em dash. Node identity appears below the table;
+// time limits appear in Timing.
 function Resources({ job }: { job: JobDto }) {
   const pending = job.state === 'PENDING';
   const requestedNodes = job.requested.nodes ?? (pending ? job.nodeCount : null);

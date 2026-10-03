@@ -7,8 +7,8 @@ interface PartitionSnapshot {
   capturedAt: Date;
 }
 
-// Partitions change infrequently; scontrol show partition is an RPC to slurmctld, so cache
-// lazily for about 10 minutes with no polling loop.
+// Partitions change infrequently, and scontrol show partition calls slurmctld
+// over RPC. Cache lazily for about 10 minutes without a polling loop.
 const PARTITIONS_TTL_MS = 600_000;
 
 function createPartitionSnapshot(partitions: string[], capturedAt: Date = new Date()): PartitionSnapshot {

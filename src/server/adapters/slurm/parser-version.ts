@@ -1,7 +1,7 @@
 import { CommandError, runCommand } from './command-runner.js';
 import type { RunCommandResult } from './command-runner.js';
 
-// Newest first. v0.0.43 is the compatibility floor for Slurm 25.05+.
+// Check newest versions first. v0.0.43 is required for Slurm 25.05 and later.
 const SUPPORTED_DATA_PARSERS = ['v0.0.45', 'v0.0.44', 'v0.0.43'] as const;
 
 type SupportedDataParser = (typeof SUPPORTED_DATA_PARSERS)[number];
@@ -14,7 +14,8 @@ type RunFn = (
   options?: { timeoutMs?: number; maxBufferBytes?: number }
 ) => Promise<RunCommandResult>;
 
-// Permanent environment incompatibility. Startup exits non-zero on these.
+// These errors indicate a permanent environment incompatibility, so startup
+// exits with a non-zero status.
 class SlurmCompatibilityError extends Error {
   constructor(message: string) {
     super(message);
@@ -30,7 +31,7 @@ function extractParserTokens(output: string): string[] {
   return [...seen];
 }
 
-// Newest supported parser present in `--json=list` stdout, or null.
+// Return the newest supported parser listed in `--json=list`, or null.
 function selectDataParser(listOutput: string): SupportedDataParser | null {
   const installed = new Set(extractParserTokens(listOutput));
   for (const parser of SUPPORTED_DATA_PARSERS) {
@@ -41,7 +42,7 @@ function selectDataParser(listOutput: string): SupportedDataParser | null {
   return null;
 }
 
-// Runs `scontrol --json=list` once; the result is reused by all adapters.
+// Negotiate this once at startup and reuse it in Slurm JSON adapters.
 async function negotiateDataParser(deps: { run?: RunFn } = {}): Promise<SupportedDataParser> {
   const run: RunFn = deps.run ?? runCommand;
 

@@ -1,7 +1,5 @@
-// Targeted current-job lookup for pending analysis: one fresh
-// `scontrol --json show job <id>` for state, stateReason, and fields the
-// shared squeue snapshot does not carry (node lists, array throttle,
-// MinMemory flavors).
+// Fetch a job's detail-page and pending-analysis data, including requested
+// resources, dependencies, and array limits missing from the queue snapshot.
 import { z } from 'zod';
 import { runCommand } from './command-runner.js';
 import type { SlurmContext, SlurmRunFn } from './context.js';
@@ -9,7 +7,7 @@ import { describeNotice, normalizeSlurmNumber, slurmNumericSchema, slurmNoticeSc
 import { rawJobSchema } from './schemas/jobs.js';
 import type { RawJob } from './schemas/jobs.js';
 import type { SupportedDataParser } from './parser-version.js';
-import { normalizeJob } from './jobs.js';
+import { normalizeJob } from './job-normalizer.js';
 import type { Job } from '../../models/job.js';
 import { SlurmUpstreamError, UpstreamInvalidError, summarizeZodIssues } from './errors.js';
 import { parseMemoryToMiB } from './tres.js';
@@ -18,8 +16,9 @@ import { canonicalJobIdSchema } from '../../validation/job-id.js';
 const TARGETED_JOB_COMMAND_TIMEOUT_MS = 15_000;
 const TARGETED_JOB_COMMAND_MAX_BUFFER_BYTES = 4 * 1024 * 1024;
 
-// Extra pending-relevant keys. scontrol JSON spellings vary by parser
-// generation, so common aliases are accepted; absent keys stay null.
+// These additional fields are used by pending analysis. Their scontrol JSON
+// names vary by parser generation, so common aliases are accepted; missing
+// fields remain null.
 const rawTargetedJobSchema = rawJobSchema.extend({
   sched_nodes: z.union([z.string(), z.array(z.union([z.string(), z.number()]))]).nullish(),
   sched_nodelist: z.union([z.string(), z.array(z.union([z.string(), z.number()]))]).nullish(),
@@ -50,15 +49,15 @@ interface TargetedJob {
   readonly schedNodeList: string | null;
   readonly reqNodeList: string | null;
   readonly arrayThrottle: number | null;
-  // Collapsed memory value used by limit analyzers.
+  // Combined memory value used by limit analyzers.
   readonly minMemoryMiB: number | null;
   readonly memory: MemoryRequirement;
   readonly requestedNodes: number | null;
   readonly capturedAt: Date;
 }
 
-// Slurm memory constraints are modal (--mem vs --mem-per-cpu vs
-// --mem-per-gpu); fit analysis consumes this instead of minMemoryMiB.
+// Slurm supports mutually exclusive --mem, --mem-per-cpu, and --mem-per-gpu
+// modes. Resource-fit analysis uses this mode instead of minMemoryMiB.
 type MemoryRequirement =
   | { kind: 'perNode'; memoryMiB: number }
   | { kind: 'perCpu'; memoryMiB: number }
@@ -152,7 +151,7 @@ function normalizeMemoryRequirement(
   raw: RawTargetedJob,
   requestedMemoryMiB: number | null
 ): MemoryRequirement {
-  // Exactly one memory mode is in effect per Slurm submission.
+  // Each Slurm submission uses one memory mode.
   const perNode = normalizeMinMemoryValue(raw.min_memory_node ?? null);
   if (perNode !== null) {
     return { kind: 'perNode', memoryMiB: perNode };
@@ -170,8 +169,8 @@ function normalizeMemoryRequirement(
 }
 
 function normalizeMinMemoryMiB(raw: RawTargetedJob, requestedMemoryMiB: number | null): number | null {
-  // Collapsed form kept for limit analyzers, which need a single amount;
-  // resource-fit analysis uses the modal `memory` field instead.
+  // Limit analyzers need one combined amount; resource-fit analysis uses the
+  // mode-specific `memory` field instead.
   for (const candidate of [raw.min_memory_node, raw.min_memory_cpu, raw.min_memory_per_cpu]) {
     const parsed = normalizeMinMemoryValue(candidate ?? null);
     if (parsed !== null) {
@@ -223,8 +222,8 @@ function rawCanonicalId(raw: RawTargetedJob): string | null {
   ) {
     return `${Math.trunc(arrayJob)}_${Math.trunc(arrayTask)}`;
   }
-  // ArrayTaskId may be a range ("1-10%2"); only a single numeric task id
-  // composes an exact identity.
+  // ArrayTaskId may be a range ("1-10%2"). Only a single numeric task ID
+  // identifies one exact task.
   if (typeof raw.array_task_id === 'string' && /^\d+$/.test(raw.array_task_id.trim()) && /^\d+$/.test(jobId)) {
     return `${jobId}_${raw.array_task_id.trim()}`;
   }
@@ -245,8 +244,8 @@ function parseTargetedJobStdout(
       `scontrol returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`
     );
   }
-  // Pending-specific fields are optional, so one parse covers all parser
-  // generations.
+  // Pending-specific fields are optional, so the same schema covers every
+  // parser generation.
   const envelope = targetedJobResponseEnvelopeSchema.safeParse(parsed);
   if (!envelope.success) {
     throw new UpstreamInvalidError(
@@ -261,7 +260,7 @@ function parseTargetedJobStdout(
       `[Slurm] scontrol warnings: ${envelope.data.warnings.map(describeNotice).join('; ')}`
     );
   }
-  // The requested canonical id must match; never the array master.
+  // The returned canonical ID must match the request, not the array master.
   const match = envelope.data.jobs.find((entry) => rawCanonicalId(entry) === jobId) ?? null;
   if (match === null) {
     return null;

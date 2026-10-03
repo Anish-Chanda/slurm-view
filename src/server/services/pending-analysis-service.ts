@@ -1,4 +1,4 @@
-// Loads Slurm context and dispatches the analyzer for the current pending reason.
+// Load Slurm context and dispatch the analyzer for the job's pending reason.
 import { HttpError } from '../middleware/error-handler.js';
 import { ProblemCode } from '../../shared/api/v1/common.js';
 import type { PendingAnalysisDto } from '../../shared/api/v1/pending-analysis.js';
@@ -157,7 +157,7 @@ function isContradiction(analysis: PendingAnalysisDto | null): boolean {
   return analysis.used + analysis.requested <= analysis.limit;
 }
 
-// Refresh the evidence behind a contradiction. A failed refresh keeps the
+// Refresh the evidence behind a contradiction. If refresh fails, keep the
 // original measurement.
 interface RefreshOutcome {
   jobsOk: boolean;
@@ -170,7 +170,7 @@ async function refreshEvidenceForContradiction(
   analysis: PendingAnalysisDto,
   signal?: AbortSignal
 ): Promise<RefreshOutcome> {
-  // Aborts propagate instead of returning stale analysis.
+  // Propagate aborts so callers do not receive stale analysis.
   const track = async (work: Promise<unknown>): Promise<boolean> => {
     try {
       await work;
@@ -243,7 +243,6 @@ class PendingAnalysisService {
     }
     const reason = targeted.job.stateReason;
     const analyzer = selectAnalyzer(reason);
-    // updatedAt always means final response production time, on every path.
     if (analyzer === null) {
       return { stateReason: reason, analysis: null, updatedAt: new Date() };
     }
@@ -252,8 +251,8 @@ class PendingAnalysisService {
     if (!isContradiction(first)) {
       return { stateReason: reason, analysis: first, updatedAt: new Date() };
     }
-    // Refresh once per cooldown window; a failed refresh keeps the original
-    // measurement instead of recomputing from the same stale data.
+    // Refresh once per cooldown window. If refresh fails, keep the original
+    // measurement rather than recomputing from stale data.
     const asserted = first as PendingAnalysisDto;
     const key = asserted.kind === 'limit' ? asserted.domain : 'other';
     const now = nowMs ?? Date.now();

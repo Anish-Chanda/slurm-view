@@ -19,7 +19,7 @@ function toEfficiencyResponse(efficiency: Efficiency, updatedAt: Date): Efficien
   };
 }
 
-// seff runs only for live COMPLETED jobs; anything else never spawns it.
+// Run seff only for live COMPLETED jobs; other jobs do not invoke it.
 function createEfficiencyHandler(jobsCache: JobsCache | undefined, run?: SeffRunFn) {
   return asyncHandler(async (req, res) => {
     if (!jobsCache) {
@@ -34,14 +34,14 @@ function createEfficiencyHandler(jobsCache: JobsCache | undefined, run?: SeffRun
     }
     try {
       const service = new JobsService(jobsCache);
-      const detail = await service.getJobById(parsed.data);
-      if (detail === null) {
+      const job = await service.findSnapshotJobById(parsed.data);
+      if (job === null) {
         throw new HttpError(
           ProblemCode.NotFound,
           `Job ${parsed.data} is no longer available in the live scheduler data. Historical accounting is not queried.`
         );
       }
-      if (detail.job.state !== 'COMPLETED') {
+      if (job.state !== 'COMPLETED') {
         throw new HttpError(
           ProblemCode.BadRequest,
           'Efficiency data is only available for completed jobs.'

@@ -1,6 +1,5 @@
-// The Jest jsdom build predates the Web globals TanStack Router touches at
-// import time (TextEncoder) and at runtime (Response). Borrow Node's copies,
-// falling back to stubs that only satisfy instanceof checks.
+// This jsdom version lacks Web globals used by TanStack Router. Use Node's
+// implementations when available; the stubs only support instanceof checks.
 const globals = globalThis;
 
 try {
@@ -9,7 +8,6 @@ try {
   globals.TextEncoder ??= util.TextEncoder;
   globals.TextDecoder ??= util.TextDecoder;
 } catch {
-  // require is always available under Jest; kept defensive.
 }
 
 globals.Response ??= class Response {};

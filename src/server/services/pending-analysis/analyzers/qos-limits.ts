@@ -1,6 +1,6 @@
-// QOS limit analyzers (QOSGrp*/QOSMax*). Job QOS and partition QOS stay
-// distinct: partition-QOS cohorts resolve by partition membership, never
-// job.qos equality.
+// Analyze QOSGrp* and QOSMax* limits. Job QOS and partition QOS remain
+// separate: build partition-QOS cohorts from partition membership, not from
+// job.qos values.
 import type { AnalyzerContext } from '../types.js';
 import type { LimitAnalysisDto, LimitMetric } from '../../../../shared/api/v1/pending-analysis.js';
 import type { QosEntry } from '../../../models/qos.js';
@@ -91,7 +91,7 @@ async function analyzeQosLimits(ctx: AnalyzerContext): Promise<LimitAnalysisDto 
       if (effective === null || effective.entry === null) {
         return null;
       }
-      // Relative QOS limits are percents, not absolute counts.
+      // Relative QOS limits are percentages of capacity.
       if (isRelativeQos(effective.entry)) {
         return null;
       }
@@ -158,7 +158,7 @@ async function analyzeQosLimits(ctx: AnalyzerContext): Promise<LimitAnalysisDto 
           topConsumers: consumers.slice(0, 5).length > 0 ? consumers.slice(0, 5) : undefined,
         };
       }
-      // Job-QOS group usage is QOS-global, never account-filtered.
+      // Job-QOS group usage spans every account using this QOS.
       const pick = metric === 'cpus' ? allocatedCpus : metric === 'memoryMiB' ? allocatedMemoryMiB : (): number | null => 1;
       const groupUsage = calculateQosGroupUsage(effective.name, { jobs }, pick);
       const total = groupUsage.unknown > 0 ? null : groupUsage.total;

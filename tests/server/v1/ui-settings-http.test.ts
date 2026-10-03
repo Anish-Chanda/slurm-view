@@ -18,7 +18,7 @@ describe('GET /api/v1/ui-settings', () => {
       title: expect.any(String),
       color: expect.any(String),
     });
-    // No raw config surface: thresholds, file paths, or merge details.
+    // The response omits thresholds, file paths, and config merge details.
     expect(JSON.stringify(res.body)).not.toContain('threshold');
     expect(JSON.stringify(res.body)).not.toContain('config.d');
   });

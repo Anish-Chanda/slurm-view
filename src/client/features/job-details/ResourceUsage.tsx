@@ -6,7 +6,7 @@ import { errorMessage } from '../../api/client.ts';
 import { RefreshWarning } from '../../components/RefreshWarning.tsx';
 import { MISSING, formatDuration, formatMemoryMiB } from '../jobs/formatting.ts';
 
-// Bars are decorative: every value they encode also appears as text.
+// Every value represented by a bar is also shown as text.
 function UsageBar({ percent }: { percent: number | null }) {
   if (percent === null) {
     return null;
@@ -72,9 +72,8 @@ function ResourceUsageSkeleton() {
   );
 }
 
-// Mounted only for completed jobs: seff data describes finished execution.
-// Percentages are descriptive data as reported, never grades. A future GPU
-// block slots in beside CPU and Memory.
+// seff reports execution measurements only for completed jobs. Percentages
+// are measurements, not ratings.
 function ResourceUsage({ jobId }: { jobId: string }) {
   const efficiencyQuery = useQuery(efficiencyQueryOptions(jobId));
 

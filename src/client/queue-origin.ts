@@ -4,7 +4,7 @@ declare module '@tanstack/history' {
   }
 }
 
-// True when the jobs table linked here, so Back can restore its state.
+// Indicates navigation from the jobs table, allowing Back to restore its state.
 function hasJobsQueueOrigin(state: unknown): boolean {
   return (
     typeof state === 'object' &&

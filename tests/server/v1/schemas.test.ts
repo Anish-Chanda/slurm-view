@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { jobResponseSchemaFor } from '../../../src/server/adapters/slurm/schemas/jobs.js';
+import { rawJobSchema } from '../../../src/server/adapters/slurm/schemas/jobs.js';
 import { nodeResponseSchemaFor } from '../../../src/server/adapters/slurm/schemas/nodes.js';
 import type { SupportedDataParser } from '../../../src/server/adapters/slurm/parser-version.js';
 
@@ -10,85 +10,54 @@ function readFixture(name: string): string {
   return fs.readFileSync(path.join(FIXTURES, name), 'utf8');
 }
 
-describe.each([
-  ['v0.0.43', 'v43-jobs.json'],
-  ['v0.0.44', 'v44-jobs.json'],
-  ['v0.0.45', 'v45-jobs.json'],
-] as Array<[SupportedDataParser, string]>)('job schemas (%s)', (parser, file) => {
+describe.each(['v43-jobs.json', 'v44-jobs.json', 'v45-jobs.json'])('targeted job schema (%s)', (file) => {
   test('representative response validates', () => {
-    const result = jobResponseSchemaFor(parser).safeParse(JSON.parse(readFixture(file)));
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.jobs).toHaveLength(3);
-    }
+    const fixture = JSON.parse(readFixture(file)) as { jobs: unknown[] };
+    expect(fixture.jobs.map((job) => rawJobSchema.safeParse(job).success)).toEqual([true, true, true]);
   });
 
   test('unknown fields are tolerated', () => {
     const parsed = JSON.parse(readFixture(file)) as { jobs: unknown[] };
-    const result = jobResponseSchemaFor(parser).safeParse(parsed);
-    expect(result.success).toBe(true);
+    expect(rawJobSchema.safeParse(parsed.jobs[0]).success).toBe(true);
   });
 });
 
-describe('job envelope handling', () => {
-  const parser = 'v0.0.45' as const;
-
-  test('missing jobs collection fails validation', () => {
-    expect(jobResponseSchemaFor(parser).safeParse({ meta: {} }).success).toBe(false);
-  });
-
+describe('targeted job record handling', () => {
   test('realistic exit-code status/signal metadata does not fail validation', () => {
-    const result = jobResponseSchemaFor(parser).safeParse({
-      jobs: [
-        {
-          job_id: 1,
-          exit_code: {
-            return_code: { number: 0, set: true, infinite: false },
-            status: ['SUCCESS'],
-            signal: {
-              id: { number: 0, set: false, infinite: false },
-              name: '',
-            },
-          },
-          derived_exit_code: {
-            return_code: { number: 0, set: true, infinite: false },
-            status: ['SUCCESS'],
-            signal: {
-              id: { number: 0, set: false, infinite: false },
-              name: '',
-            },
-          },
+    const result = rawJobSchema.safeParse({
+      job_id: 1,
+      exit_code: {
+        return_code: { number: 0, set: true, infinite: false },
+        status: ['SUCCESS'],
+        signal: {
+          id: { number: 0, set: false, infinite: false },
+          name: '',
         },
-      ],
+      },
+      derived_exit_code: {
+        return_code: { number: 0, set: true, infinite: false },
+        status: ['SUCCESS'],
+        signal: {
+          id: { number: 0, set: false, infinite: false },
+          name: '',
+        },
+      },
     });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.jobs[0]?.exit_code?.return_code).toEqual({
+      expect(result.data.exit_code?.return_code).toEqual({
         number: 0,
         set: true,
         infinite: false,
       });
-      expect(result.data.jobs[0]?.exit_code).not.toHaveProperty('status');
-      expect(result.data.jobs[0]?.exit_code).not.toHaveProperty('signal');
+      expect(result.data.exit_code).not.toHaveProperty('status');
+      expect(result.data.exit_code).not.toHaveProperty('signal');
     }
   });
 
-  test('missing consumed scalar fields are tolerated (nullable), missing job_id fails', () => {
-    const emptyJob = jobResponseSchemaFor(parser).safeParse({
-      jobs: [{ partition: 'debug' }],
-    });
-    expect(emptyJob.success).toBe(false);
-    const minimal = jobResponseSchemaFor(parser).safeParse({ jobs: [{ job_id: 1 }] });
-    expect(minimal.success).toBe(true);
-  });
-
-  test('slurm errors/warnings shapes parse', () => {
-    const result = jobResponseSchemaFor(parser).safeParse({
-      jobs: [],
-      errors: [{ description: 'Unable to contact controller', error_code: 123 }],
-      warnings: [{ message: 'clock skew?' }],
-    });
-    expect(result.success).toBe(true);
+  test('missing consumed scalar fields are tolerated, missing job_id fails', () => {
+    expect(rawJobSchema.safeParse({ partition: 'debug' }).success).toBe(false);
+    expect(rawJobSchema.safeParse({ job_id: 1 }).success).toBe(true);
   });
 });
 

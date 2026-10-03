@@ -6,7 +6,7 @@ import {
   UpstreamInvalidError,
 } from '../adapters/slurm/errors.js';
 
-// Logs full internals server-side; clients get a generic detail per code.
+// Log full error details on the server and return a generic detail for each code.
 function toHttpError(error: unknown): HttpError {
   if (error instanceof HttpError) {
     return error;

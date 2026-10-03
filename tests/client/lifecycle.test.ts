@@ -63,7 +63,7 @@ describe('isTerminalState', () => {
     expect(isTerminalState('PENDING')).toBe(false);
     expect(isTerminalState('RUNNING')).toBe(false);
     expect(isTerminalState('SUSPENDED')).toBe(false);
-    // UNKNOWN marks uncertainty, never proven termination.
+    // UNKNOWN means the state is uncertain; it does not prove termination.
     expect(isTerminalState('UNKNOWN')).toBe(false);
     for (const state of [
       'COMPLETED',

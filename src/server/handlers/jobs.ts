@@ -7,16 +7,22 @@ import {
   JOBS_PAGE_SIZE_DEFAULT,
   JOBS_PAGE_SIZE_MAX,
 } from '../../shared/api/v1/jobs.js';
-import type { JobDto, JobDetailsResponse, JobsResponse } from '../../shared/api/v1/jobs.js';
+import type { JobDto, JobDetailsResponse, JobSummaryDto, JobsResponse } from '../../shared/api/v1/jobs.js';
 import { JOB_BASE_STATES } from '../models/job.js';
 import type { JobsCache } from '../cache/jobs-cache.js';
 import type { Job } from '../models/job.js';
+import type { QueueJob } from '../models/queue-job.js';
 import { JobsService } from '../services/jobs-service.js';
-import type { JobDetailsResult, JobsFilter, JobsResult } from '../services/jobs-service.js';
+import type { JobsFilter, JobsResult } from '../services/jobs-service.js';
+import type { SlurmContext } from '../adapters/slurm/context.js';
+import { fetchTargetedJob } from '../adapters/slurm/targeted-job.js';
+import { CommandError } from '../adapters/slurm/command-runner.js';
+import { SlurmUpstreamError } from '../adapters/slurm/errors.js';
+import { isMissingJobSignal } from '../services/pending-analysis/missing-job.js';
 import { canonicalJobIdSchema } from '../validation/job-id.js';
 import { toHttpError } from './errors.js';
 
-// Unknown query parameters are rejected rather than ignored.
+// Reject requests that include unknown query parameters.
 const jobsQuerySchema = z.strictObject({
   id: z.string().max(64).optional(),
   partition: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).optional(),
@@ -91,18 +97,40 @@ function toJobDto(job: Job): JobDto {
   };
 }
 
+function toJobSummaryDto(job: QueueJob): JobSummaryDto {
+  return {
+    id: job.id,
+    partition: job.partition,
+    name: job.name,
+    user: job.user,
+    account: job.account,
+    state: job.state,
+    timeLimit:
+      job.timeLimit === null
+        ? null
+        : job.timeLimit.kind === 'infinite'
+          ? { kind: 'infinite' }
+          : { kind: 'finite', seconds: job.timeLimit.seconds },
+    submitTime: toIsoDate(job.submitTime),
+    startTime: toIsoDate(job.startTime),
+    endTime: toIsoDate(job.endTime),
+    nodeCount: job.nodeCount,
+    nodeExpression: job.nodeExpression,
+  };
+}
+
 function toJobsResponse(result: JobsResult): JobsResponse {
   return {
-    jobs: result.jobs.map(toJobDto),
+    jobs: result.jobs.map(toJobSummaryDto),
     pagination: result.pagination,
     updatedAt: result.updatedAt.toISOString(),
   };
 }
 
-function toJobDetailsResponse(result: JobDetailsResult): JobDetailsResponse {
+function toJobDetailsResponse(job: Job, updatedAt: Date): JobDetailsResponse {
   return {
-    job: toJobDto(result.job),
-    updatedAt: result.updatedAt.toISOString(),
+    job: toJobDto(job),
+    updatedAt: updatedAt.toISOString(),
   };
 }
 
@@ -146,12 +174,19 @@ function createJobsHandler(jobsCache: JobsCache | undefined) {
   });
 }
 
-function createJobDetailsHandler(jobsCache: JobsCache | undefined) {
+function isMissingTargetedJob(error: unknown, jobId: string): boolean {
+  if (error instanceof CommandError) {
+    return isMissingJobSignal(`${error.stderrSnippet}\n${error.message}`, jobId);
+  }
+  return error instanceof SlurmUpstreamError && isMissingJobSignal(error.message, jobId);
+}
+
+function createJobDetailsHandler(slurmContext: SlurmContext | undefined) {
   return asyncHandler(async (req, res) => {
-    if (!jobsCache) {
+    if (!slurmContext) {
       throw new HttpError(
         ProblemCode.SlurmUnavailable,
-        'Jobs snapshot is not initialized.'
+        'Slurm job lookup is not initialized.'
       );
     }
     const parsed = canonicalJobIdSchema.safeParse(req.params.id);
@@ -159,20 +194,25 @@ function createJobDetailsHandler(jobsCache: JobsCache | undefined) {
       throw new HttpError(ProblemCode.BadRequest, `Invalid job ID: ${req.params.id}`);
     }
     try {
-      const service = new JobsService(jobsCache);
-      const result = await service.getJobById(parsed.data);
-      if (result === null) {
+      const targeted = await fetchTargetedJob(slurmContext, parsed.data);
+      if (targeted === null) {
         throw new HttpError(
           ProblemCode.NotFound,
           `Job ${parsed.data} is no longer available in the live scheduler data. Historical accounting is not queried.`
         );
       }
-      res.json(toJobDetailsResponse(result));
+      res.json(toJobDetailsResponse(targeted.job, targeted.capturedAt));
     } catch (error) {
+      if (isMissingTargetedJob(error, parsed.data)) {
+        throw new HttpError(
+          ProblemCode.NotFound,
+          `Job ${parsed.data} is no longer available in the live scheduler data. Historical accounting is not queried.`
+        );
+      }
       throw toHttpError(error);
     }
   });
 }
 
-export { createJobDetailsHandler, createJobsHandler, jobsQuerySchema, toJobDetailsResponse, toJobDto, toJobsResponse };
+export { createJobDetailsHandler, createJobsHandler, jobsQuerySchema, toJobDetailsResponse, toJobDto, toJobSummaryDto, toJobsResponse };
 export type { JobsQuery };

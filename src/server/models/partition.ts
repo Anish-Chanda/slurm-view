@@ -1,4 +1,4 @@
-// Normalized single-partition fact record (state, time/node caps).
+// Normalized facts for one partition, including state and time or node caps.
 interface PartitionDetail {
   readonly name: string;
   readonly state: string | null;

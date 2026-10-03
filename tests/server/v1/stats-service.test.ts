@@ -27,8 +27,8 @@ describe('StatsService.getStats', () => {
       effectiveCpus: 156,
       allocatedCpus: 16,
       availableCpus: 80,
-      // down01 contributes 32 whole-node unavailable; the IDLE+DRAIN
-      // node contributes 4 specialized plus 60 unallocated effective CPUs.
+      // down01 contributes 32 unavailable CPUs; IDLE+DRAIN contributes 4
+      // specialized and 60 unallocated effective CPUs.
       unavailableCpus: 96,
       loadGroups: { low: 0, medium: 0, high: 16, unclassified: 0 },
     });
@@ -42,8 +42,8 @@ describe('StatsService.getStats', () => {
     expect(stats.memory).toEqual({
       totalMiB: 768000,
       allocatedMiB: 64000,
-      // Every counted node reports free memory and total - free covers
-      // the allocation, so the whole allocation counts as used.
+      // Complete free-memory data covers the allocation, so all allocated
+      // memory counts as used.
       allocatedUsedMiB: 64000,
       unallocatedMiB: 320000,
       // DRAIN remainder (256000) + DOWN node (128000).
@@ -119,8 +119,7 @@ describe('StatsService.getStats', () => {
     const withoutFree: ClusterNode = { ...nodes[1]!, freeMemoryMiB: null };
     const { stats } = await serviceFor([nodes[0]!, withoutFree]).getStats(null);
     expect(stats.memory.freeMiB).toBeNull();
-    // Used cannot be estimated without complete free data either: never a
-    // partial sum.
+    // Without complete free-memory data, do not report a partial used sum.
     expect(stats.memory.allocatedUsedMiB).toBeNull();
     expect(
       stats.memory.allocatedMiB + stats.memory.unallocatedMiB + stats.memory.unavailableMiB
@@ -136,8 +135,7 @@ describe('StatsService.getStats', () => {
       freeMemoryMiB: 48000,
     };
     const { stats } = await serviceFor([partial]).getStats(null);
-    // total 256000 (fixture node) - free 48000 = 208000 used by OS, but
-    // only 32000 is allocated, so used = 32000.
+    // Although the OS uses 208000 MiB, only 32000 MiB is allocated.
     expect(stats.memory.allocatedUsedMiB).toBe(32000);
   });
 

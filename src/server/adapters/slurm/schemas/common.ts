@@ -1,9 +1,9 @@
 import { z } from 'zod';
 
-// Only consumed fields are modeled; unknown keys are stripped.
+// The schema models consumed fields and strips unknown keys.
 
-// Slurm wraps scalars as `{ number, set, infinite }`. Plain numbers and
-// strings are accepted too since some fields use them directly.
+// Slurm wraps scalars as `{ number, set, infinite }`. Some fields also arrive
+// as plain numbers or strings.
 const slurmNumericSchema = z.union([
   z.number(),
   z.string(),
@@ -44,7 +44,7 @@ function normalizeSlurmNumber(input: unknown): NormalizedNumber {
   return { value: null, infinite: false };
 }
 
-// Known envelope notice fields; anything else is stripped.
+// The schema keeps known envelope notice fields and strips the rest.
 const slurmNoticeSchema = z.object({
   description: z.string().nullish(),
   message: z.string().nullish(),

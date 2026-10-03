@@ -6,6 +6,7 @@ import type { NodesCache } from '../../cache/nodes-cache.js';
 import type { PartitionsCache } from '../../cache/partitions-cache.js';
 import type { SeffRunFn } from '../../adapters/slurm/seff.js';
 import type { PendingAnalysisDeps } from '../../services/pending-analysis-service.js';
+import type { SlurmContext } from '../../adapters/slurm/context.js';
 import { HttpError, errorHandler } from '../../middleware/error-handler.js';
 import { createJobsRouter } from './jobs.js';
 import { createPartitionsRouter } from './partitions.js';
@@ -18,6 +19,7 @@ interface V1RouterDeps {
   partitionsCache?: PartitionsCache;
   seffRun?: SeffRunFn;
   pendingAnalysis?: PendingAnalysisDeps;
+  slurmContext?: SlurmContext;
 }
 
 function createV1Router(deps: V1RouterDeps = {}): Router {
@@ -30,7 +32,7 @@ function createV1Router(deps: V1RouterDeps = {}): Router {
     res.json(body);
   });
 
-  router.use('/jobs', createJobsRouter(deps.jobsCache, deps.seffRun, deps.pendingAnalysis));
+  router.use('/jobs', createJobsRouter(deps.jobsCache, deps.seffRun, deps.pendingAnalysis, deps.slurmContext));
   router.use('/stats', createStatsRouter(deps.nodesCache));
   router.use('/ui-settings', createUiSettingsRouter());
   router.use('/partitions', createPartitionsRouter(deps.partitionsCache));

@@ -8,8 +8,8 @@ function parseTimeMs(iso: string | null): number | null {
   return Number.isNaN(ms) ? null : ms;
 }
 
-// Queue wait is start minus eligible time. Without an eligible time the
-// honest fallback is submit-to-start, labeled as such by callers.
+// Queue wait starts at eligibility when available; callers label the fallback
+// submit-to-start interval explicitly.
 function queueWaitSeconds(job: Pick<JobDto, 'submitTime' | 'eligibleTime' | 'startTime'>): {
   seconds: number;
   fromEligible: boolean;
@@ -29,7 +29,7 @@ function queueWaitSeconds(job: Pick<JobDto, 'submitTime' | 'eligibleTime' | 'sta
   return null;
 }
 
-// How long a pending job has been waiting: since eligible, else since submit.
+// Pending wait duration starts at eligibility, falling back to submit time.
 function waitingSeconds(
   job: Pick<JobDto, 'submitTime' | 'eligibleTime'>,
   nowMs: number
@@ -67,11 +67,8 @@ function remainingSeconds(
   return Math.max(0, (end - nowMs) / 1000);
 }
 
-// Exit results, derived results, and usage data are only meaningful once
-// the scheduler is done with the job. Active jobs may still carry a raw
-// "0" in these fields, so callers gate on state, never on nullness.
-// UNKNOWN is deliberately absent: it marks uncertainty in Slurm-View's
-// state model, not proof of termination.
+// Zero-valued exit fields can appear on active jobs. Require a terminal state
+// before treating exit or usage data as meaningful; UNKNOWN is not terminal.
 const TERMINAL_STATES: ReadonlySet<JobState> = new Set([
   'BOOT_FAIL',
   'CANCELLED',

@@ -1,4 +1,3 @@
-// Slurm returned entries in errors[].
 class SlurmUpstreamError extends Error {
   public readonly notices: readonly string[];
 
@@ -9,7 +8,6 @@ class SlurmUpstreamError extends Error {
   }
 }
 
-// Invalid JSON or structurally invalid payload.
 class UpstreamInvalidError extends Error {
   constructor(message: string) {
     super(message);

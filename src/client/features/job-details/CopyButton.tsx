@@ -17,7 +17,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
       showFeedback('copied');
       return;
     } catch {
-      // Fall through to the legacy path below.
+      // Fall back if the Clipboard API is unavailable or rejects the write.
     }
     let ok = false;
     try {

@@ -1,5 +1,5 @@
-// Association policy fields for pending analysis (hierarchy and TRES-limit
-// evaluation).
+// Association policy fields used to evaluate hierarchy and TRES limits for
+// pending jobs.
 
 // Association ancestry follows ID/ParentID, not account names. Identity
 // (account/user/partition) only resolves the starting association.
@@ -181,8 +181,8 @@ function parsePolicyTresLimit(input: unknown, label: string): AssociationTres {
   return result;
 }
 
-// Identity key: account, user, partition. JSON encoding keeps null
-// distinct from any real string.
+// The identity key contains account, user, and partition. JSON encoding keeps
+// null distinct from every string value.
 function identityKey(account: string, user: string | null, partition: string | null): string {
   return JSON.stringify([account, user, partition]);
 }
@@ -211,10 +211,9 @@ function buildAssociationStore(entries: AssociationEntry[]): AssociationStore {
   return { entries: [...entries], byId, byIdentity };
 }
 
-// Resolve a job's association by identity: partition-specific user entry
-// first, then the generic user entry. A known user never falls back to an
-// account-level entry; account-level entries apply only when the user is
-// unknown.
+// Resolve by identity, checking a partition-specific user entry before the
+// generic user entry. A known user does not fall back to an account entry;
+// account entries apply only when the user is unknown.
 function resolveAssociation(
   store: AssociationStore,
   selector: { account: string; user: string | null; partition: string | null }
@@ -233,8 +232,7 @@ function resolveAssociation(
   return lookup(null, null);
 }
 
-// Descendant association IDs of the given entry, including itself, built
-// from ParentID links.
+// Return this entry and its descendants by following ParentID links.
 function descendantAssociationIds(store: AssociationStore, rootId: string | null): Set<string> | null {
   if (rootId === null) {
     return null;
@@ -265,8 +263,8 @@ function descendantAssociationIds(store: AssociationStore, rootId: string | null
   return ids;
 }
 
-// Walk ParentID from the starting entry up to the root. A missing parent,
-// a cycle, or depth overflow fails instead of returning a truncated chain.
+// Follow ParentID links from the starting entry to the root. A missing
+// parent, cycle, or depth overflow is an error rather than a partial chain.
 function ancestorChainById(
   store: AssociationStore,
   start: AssociationEntry,

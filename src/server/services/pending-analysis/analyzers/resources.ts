@@ -1,6 +1,6 @@
-// Checks whether the job's resource request fits candidate nodes, using
-// currently-unallocated capacity. Aggregate CPU/GPU requests are only
-// per-node for single-node jobs; CPU capacity uses effectiveCpus.
+// Check whether a job's request fits candidate nodes using unallocated
+// capacity. Aggregate CPU/GPU requests become per-node only for single-node
+// jobs. CPU capacity comes from effectiveCpus.
 import { expandSlurmHostlist } from '../../../adapters/slurm/hostlist.js';
 import type { MemoryRequirement } from '../../../adapters/slurm/targeted-job.js';
 import type { AnalyzerContext } from '../types.js';
@@ -29,8 +29,8 @@ function nodeCapacity(node: ClusterNode): NodeCapacity {
   }
   const gpuKnown = node.gpuInventoryKnown;
   return {
-    // Effective set minus allocated; configured CPUs outside the effective
-    // set are not usable.
+    // Subtract allocated CPUs from the effective set. Configured CPUs outside
+    // that set are unavailable.
     cpus: Math.max(0, node.effectiveCpus - node.allocCpus),
     memoryMiB: Math.max(0, node.totalMemoryMiB - node.allocMemoryMiB),
     gpuTotal: gpuKnown ? Math.max(0, node.gpu.total - node.gpu.allocated) : null,
@@ -39,8 +39,8 @@ function nodeCapacity(node: ClusterNode): NodeCapacity {
   };
 }
 
-// Per-node memory requirement, or null when the mode/placement has no
-// valid conversion.
+// Return the per-node memory requirement, or null when its mode or placement
+// cannot be converted.
 function perNodeMemory(
   memory: MemoryRequirement,
   requestedNodes: number | null,
@@ -52,7 +52,7 @@ function perNodeMemory(
     case 'perNode':
       return memory.memoryMiB;
     case 'perCpu':
-      // Single-node: every requested CPU lands on the one node.
+      // For a single-node job, all requested CPUs land on this node.
       if (singleNode && totalCpus !== null && totalCpus > 0) {
         return memory.memoryMiB * totalCpus;
       }
@@ -63,7 +63,7 @@ function perNodeMemory(
       }
       return null;
     case 'unknown': {
-      // Aggregate memory counts per-node only for a single-node job.
+      // Divide aggregate memory per node only for a single-node job.
       if (singleNode && memory.memoryMiB !== null) {
         return memory.memoryMiB;
       }
@@ -102,7 +102,7 @@ async function analyzeResources(ctx: AnalyzerContext): Promise<ResourcesAnalysis
   const byName = new Map(nodesSnapshot.nodes.map((node) => [node.name, node]));
   const requestedNodes = job.requested.nodes ?? targeted.requestedNodes ?? null;
   const singleNode = requestedNodes === 1;
-  // Aggregate CPU/GPU requests convert to per-node for single-node jobs only.
+  // Convert aggregate CPU/GPU requests to per-node values only for single-node jobs.
   const needCpus = singleNode ? job.requested.cpus : null;
   const needMem = perNodeMemory(
     targeted.memory,
@@ -120,12 +120,12 @@ async function analyzeResources(ctx: AnalyzerContext): Promise<ResourcesAnalysis
       }
     }
   }
-  // A proven shortage marks insufficient even when another dimension is
-  // unknown; "sufficient" requires every requested dimension evaluated
-  // with no shortage.
+  // A proven shortage is enough to mark the request insufficient, even if
+  // another dimension is unknown. Mark it sufficient only after evaluating
+  // every requested dimension with no shortage.
   const cpuRequested = job.requested.cpus !== null;
-  // ReqTRES can omit memory that scontrol reports via MinMemory*, so both
-  // sources count as requested.
+  // ReqTRES may omit memory reported by scontrol through MinMemory*, so check
+  // both sources for a memory request.
   const memRequested =
     job.requested.memoryMiB !== null ||
     targeted.memory.kind !== 'unknown' ||
@@ -215,7 +215,7 @@ async function analyzeResources(ctx: AnalyzerContext): Promise<ResourcesAnalysis
     }
   );
   bottlenecks.sort((a, b) => b.nodes - a.nodes);
-  // Insufficient rows first so the detail cap keeps them.
+  // Put insufficient rows first so they remain within the detail cap.
   details.sort((a, b) => {
     const rank = (status: string): number =>
       status === 'insufficient' ? 0 : status === 'unknown' ? 1 : 2;

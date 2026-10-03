@@ -66,8 +66,8 @@ function JobsSection() {
     queryKey: jobsKeys.list(queryInput),
     queryFn: ({ signal }) => fetchJobs(queryInput, { signal }),
     staleTime: 30_000,
-    // Explicitly live: the queue polls and refreshes on remount. Focus
-    // and reconnect refetching stay off via project defaults.
+    // Poll the queue and refresh on remount. Focus and reconnect refetches
+    // remain disabled by the query defaults.
     refetchInterval: 30_000,
     refetchOnMount: true,
     placeholderData: keepPreviousData,

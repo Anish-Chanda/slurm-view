@@ -3,7 +3,6 @@ import * as path from 'node:path';
 import request from 'supertest';
 import { CommandError } from '../../../src/server/adapters/slurm/command-runner.js';
 import { createApp } from '../../../src/server/app.js';
-import { JobsCache } from '../../../src/server/cache/jobs-cache.js';
 import type { SlurmRunFn } from '../../../src/server/adapters/slurm/context.js';
 
 const FIXTURES = path.join(__dirname, 'fixtures');
@@ -13,13 +12,14 @@ function fixtureRun(): SlurmRunFn {
   return jest.fn().mockResolvedValue({ stdout, stderr: '' });
 }
 
-function cacheWith(run: SlurmRunFn): JobsCache {
-  return new JobsCache({ parser: 'v0.0.45', run });
+function appWith(run: SlurmRunFn) {
+  return createApp({ slurmContext: { parser: 'v0.0.45', run } });
 }
 
 describe('GET /api/v1/jobs/:id', () => {
   test('returns one job with the shared semantic contract', async () => {
-    const app = createApp({ jobsCache: cacheWith(fixtureRun()) });
+    const run = fixtureRun();
+    const app = appWith(run);
     const res = await request(app).get('/api/v1/jobs/101');
 
     expect(res.status).toBe(200);
@@ -35,10 +35,15 @@ describe('GET /api/v1/jobs/:id', () => {
     expect(res.body.job).toHaveProperty('eligibleTime');
     expect(res.body.job).toHaveProperty('stderrPath');
     expect(res.body.job).toHaveProperty('priority');
+    expect(run).toHaveBeenCalledWith(
+      'scontrol',
+      ['--json=v0.0.45', 'show', 'job', '101'],
+      expect.objectContaining({ timeoutMs: expect.any(Number) })
+    );
   });
 
   test('resolves composite array task IDs', async () => {
-    const app = createApp({ jobsCache: cacheWith(fixtureRun()) });
+    const app = appWith(fixtureRun());
     const res = await request(app).get('/api/v1/jobs/100_2');
 
     expect(res.status).toBe(200);
@@ -51,7 +56,7 @@ describe('GET /api/v1/jobs/:id', () => {
   });
 
   test('unknown job becomes a 404 with job-specific detail', async () => {
-    const app = createApp({ jobsCache: cacheWith(fixtureRun()) });
+    const app = appWith(fixtureRun());
     const res = await request(app).get('/api/v1/jobs/99999');
 
     expect(res.status).toBe(404);
@@ -71,7 +76,7 @@ describe('GET /api/v1/jobs/:id', () => {
     ['non-numeric', 'abc'],
     ['empty-ish', '1_'],
   ])('non-canonical ID (%s) becomes 400', async (_label, id) => {
-    const app = createApp({ jobsCache: cacheWith(fixtureRun()) });
+    const app = appWith(fixtureRun());
     const res = await request(app).get(`/api/v1/jobs/${encodeURIComponent(id)}`);
 
     expect(res.status).toBe(400);
@@ -82,14 +87,14 @@ describe('GET /api/v1/jobs/:id', () => {
     const run: SlurmRunFn = jest.fn().mockRejectedValue(
       new CommandError({
         kind: 'non-zero-exit',
-        executable: 'squeue',
+        executable: 'scontrol',
         args: [],
         exitCode: 1,
         stderrSnippet: 'slurmdbd: Access denied for secret-internals',
-        message: 'Command exited with code 1: squeue',
+        message: 'Command exited with code 1: scontrol',
       })
     );
-    const app = createApp({ jobsCache: cacheWith(run) });
+    const app = appWith(run);
     const res = await request(app).get('/api/v1/jobs/101');
 
     expect(res.status).toBe(503);
@@ -108,7 +113,7 @@ describe('GET /api/v1/jobs/:id', () => {
     const saved = process.env.PASSENGER_BASE_URI;
     process.env.PASSENGER_BASE_URI = '/pun/dev/slurm-view';
     try {
-      const app = createApp({ jobsCache: cacheWith(fixtureRun()) });
+      const app = appWith(fixtureRun());
       const res = await request(app).get('/pun/dev/slurm-view/api/v1/jobs/101');
       expect(res.status).toBe(200);
       expect(res.body.job.id).toBe('101');

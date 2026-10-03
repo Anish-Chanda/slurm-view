@@ -1,4 +1,3 @@
-// Expands Slurm hostlist bracket expressions into concrete node names.
 function splitTopLevelCommas(value: string): string[] {
   const parts: string[] = [];
   let depth = 0;

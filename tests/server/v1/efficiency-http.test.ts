@@ -6,6 +6,7 @@ import { createApp } from '../../../src/server/app.js';
 import { JobsCache } from '../../../src/server/cache/jobs-cache.js';
 import type { SlurmRunFn } from '../../../src/server/adapters/slurm/context.js';
 import type { SeffRunFn } from '../../../src/server/adapters/slurm/seff.js';
+import { formattedSqueue } from './formatted-squeue-fixture.js';
 
 const FIXTURES = path.join(__dirname, 'fixtures');
 
@@ -22,7 +23,8 @@ Memory Efficiency: 25.00% of 2.00 GB (2.00 GB/core)
 `;
 
 function fixtureRun(): SlurmRunFn {
-  const stdout = fs.readFileSync(path.join(FIXTURES, 'v45-jobs.json'), 'utf8');
+  const fixture = JSON.parse(fs.readFileSync(path.join(FIXTURES, 'v45-jobs.json'), 'utf8')) as { jobs: Array<Record<string, unknown>> };
+  const stdout = formattedSqueue(fixture.jobs);
   return jest.fn().mockResolvedValue({ stdout, stderr: '' });
 }
 
@@ -66,9 +68,9 @@ describe('GET /api/v1/jobs/:id/efficiency', () => {
   });
 
   test('does not spawn seff for failed jobs', async () => {
-    const failedStdout = JSON.stringify({
-      jobs: [{ job_id: 200, job_state: 'FAILED', exit_code: { return_code: { number: 1, set: true } } }],
-    });
+    const failedStdout = formattedSqueue([
+      { job_id: 200, job_state: 'FAILED', exit_code: { return_code: { number: 1, set: true } } },
+    ]);
     const squeueRun: SlurmRunFn = jest.fn().mockResolvedValue({ stdout: failedStdout, stderr: '' });
     const seffRun = seffRunFor(COMPLETED_SEFF);
     const app = appWith(seffRun, squeueRun);

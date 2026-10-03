@@ -5,7 +5,7 @@ import { fetchUiSettings } from '../api/ui-settings.ts';
 import { uiSettingsKeys } from '../api/query-keys.ts';
 import { EMPTY_DASHBOARD_SEARCH } from '../features/jobs/jobs-search.ts';
 
-// YIQ brightness contrast, matching the server's navbar helper.
+// Match the server helper's YIQ brightness calculation.
 function contrastingTextColor(hexColor: string): string {
   let normalized = hexColor.replace('#', '');
   if (normalized.length === 3) {
@@ -33,7 +33,7 @@ function Navbar({ actions }: { actions?: ReactNode }) {
   });
 
   const navbar = uiSettingsQuery.data?.navbar;
-  // Neutral product nav until settings load; configured values apply after.
+  // Use neutral colors until server settings load.
   const navStyle =
     navbar === undefined
       ? undefined

@@ -19,14 +19,12 @@ export default {
     ],
     '^.+\\.jsx?$': 'babel-jest',
   },
-  // Source files use explicit `.js` import suffixes (Node16 resolution).
-  // Strip the suffix under Jest so `./foo.js` resolves to `./foo.ts`.
+  // Map explicit `.js` imports to their TypeScript sources during tests.
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1',
   },
   testMatch: ['**/tests/**/*.test.[jt]s?(x)'],
   setupFiles: ['<rootDir>/tests/setup-web-globals.js'],
-  // d3 and TanStack Table v9 ship ESM only; transform them instead of
-  // ignoring the whole node_modules tree. babel-jest handles the .js output.
+  // Jest must transform these ESM-only packages before loading them.
   transformIgnorePatterns: ['/node_modules/(?!(@tanstack|d3|d3-.*|delaunator|internmap|robust-predicates)/)'],
 };

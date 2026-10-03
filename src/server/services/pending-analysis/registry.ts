@@ -1,5 +1,5 @@
-// Maps Slurm pending reasons to analyzers. Absent reasons yield
-// analysis:null, never an error.
+// Map Slurm pending reasons to analyzers. Unknown or unmapped reasons return
+// `analysis: null`.
 import type { AnalyzerContext, PendingAnalyzer } from './types.js';
 import { analyzeResources } from './analyzers/resources.js';
 import { analyzePriority } from './analyzers/priority.js';
@@ -35,8 +35,8 @@ const analyzers: Record<string, PendingAnalyzer> = {
   PartitionNodeLimit: analyzePartition,
   Reservation: analyzeReservation,
   JobArrayTaskLimit: analyzeArrayThrottle,
-  // No rich analysis: BeginTime, JobHeldUser, JobHeldAdmin, InvalidQOS,
-  // and any unknown/future Slurm reason.
+  // These reasons have no detailed analyzer: BeginTime, JobHeldUser,
+  // JobHeldAdmin, InvalidQOS, and unknown future reasons.
 };
 
 function selectAnalyzer(reason: string | null): PendingAnalyzer | null {

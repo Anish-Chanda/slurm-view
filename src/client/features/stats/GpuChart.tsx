@@ -11,10 +11,8 @@ const GPU_STATE_COLORS: Record<string, string> = {
   Unavailable: '#f4a261',
 };
 
-// Semantic shade families (ported from the legacy charts.js palettes).
-// Each GPU type keeps one stable index from the globally sorted type list;
-// the same relative shade is used inside every parent family so type
-// identity is consistent while the parent state keeps its color meaning.
+// Keep each GPU type's shade consistent across allocated, available, and
+// unavailable families.
 const ALLOCATED_SHADES = ['#e63946', '#f94144', '#f3722c', '#f8961e', '#f9844a'];
 const AVAILABLE_SHADES = ['#2a9d8f', '#52b788', '#76c893', '#99d98c', '#b5e48c'];
 const UNAVAILABLE_SHADES = ['#f4a261', '#f1a66b', '#edae74', '#e7b57f', '#e1bc8b'];
@@ -30,8 +28,7 @@ function gpuColorFor(node: SunburstNode, typeIndex: ReadonlyMap<string, number>)
   const parentName = node.parent?.data.name ?? '';
   const shades = PARENT_SHADES[parentName];
   if (!shades) return '#888888';
-  // The `Unknown` remainder slice (untyped GPUs) takes the next slot after
-  // the sorted types so it stays inside the parent family.
+  // Place the untyped-GPU remainder after sorted types within its state family.
   const index = typeIndex.get(node.data.name) ?? typeIndex.size;
   return shades[index % shades.length] ?? '#888888';
 }

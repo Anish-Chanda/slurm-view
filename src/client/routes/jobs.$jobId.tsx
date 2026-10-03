@@ -10,9 +10,8 @@ export const Route = createFileRoute('/jobs/$jobId')({
       throw notFound();
     }
     prepareJobVisitSnapshot(context.queryClient, params.jobId);
-    // Intent preloads are speculative. They must not clear a diagnostic that
-    // belongs to the page currently being read; a real route visit creates the
-    // fresh auxiliary snapshot instead.
+    // A speculative preload leaves the current page's diagnostic intact.
+    // The actual visit creates a fresh auxiliary snapshot.
     preparePendingAnalysisRouteLoad(context.queryClient, params.jobId, preload);
   },
   component: JobRouteComponent,

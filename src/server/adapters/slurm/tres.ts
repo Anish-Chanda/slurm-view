@@ -40,7 +40,7 @@ function parseCount(raw: string): number | null {
 
 const GPU_TRES_PATTERN = /^gres\/gpu(?::(.+))?$/;
 
-// `(IDX:…)` suffixes are stripped; the count already carries the size.
+// Strip `(IDX:…)` suffixes because the count already includes the size.
 function parseGpuTresEntry(key: string, value: string): { gpuType: string; count: number } | null {
   const match = key.match(GPU_TRES_PATTERN);
   if (!match) {
@@ -76,8 +76,8 @@ function parseTresString(input: string | null | undefined): ParsedTres {
     return result;
   }
 
-  // Generic `gres/gpu=N` and typed `gres/gpu:<type>=N` can describe the
-  // same GPUs, so the generic total wins when present instead of summing.
+  // Generic `gres/gpu=N` and typed `gres/gpu:<type>=N` may describe the
+  // same GPUs. Use the generic total when present rather than summing them.
   let genericGpus: number | null = null;
   const typedGpus = emptyGpuRequest();
 
@@ -124,7 +124,7 @@ function parseTresString(input: string | null | undefined): ParsedTres {
   return result;
 }
 
-// Non-GPU GRES such as `shard` is skipped: shared GRES is not whole GPUs.
+// Skip non-GPU GRES such as `shard`; shared GRES does not represent whole GPUs.
 function parseGresDetailEntries(entries: readonly unknown[]): GpuRequest {
   const request = emptyGpuRequest();
   for (const entry of entries) {

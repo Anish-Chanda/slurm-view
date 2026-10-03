@@ -17,8 +17,7 @@ export default defineConfig({
 
   root: 'src/client',
 
-  // Relative asset paths so the built client works from the application
-  // root, locally and under an OOD base path.
+  // Relative assets work both locally and under an Open OnDemand base path.
   base: './',
 
   server: {

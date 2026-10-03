@@ -50,8 +50,7 @@ describe('query keys', () => {
     const options = efficiencyQueryOptions('103');
     expect(options.staleTime).toBe(EFFICIENCY_STALE_TIME_MS);
     expect(options.gcTime).toBe(EFFICIENCY_GC_TIME_MS);
-    // No local polling declaration; implicit mount/focus/reconnect
-    // behavior comes from the shared QueryClient defaults.
+    // Shared QueryClient defaults control mount, focus, and reconnect behavior.
     expect(options).not.toHaveProperty('refetchInterval');
   });
 

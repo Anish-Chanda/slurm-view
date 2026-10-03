@@ -12,9 +12,8 @@ function responsiveClass(table: JobsTableInstance, columnId: string): string {
 function JobsTable({ table }: { table: JobsTableInstance }) {
   const navigate = useNavigate();
 
-  // The whole row opens the job. Links inside the row (ID, chevron) keep
-  // their native behavior for keyboard, modifier, and new-tab use; clicks
-  // that select text never navigate away from the queue.
+  // The row opens the job, while links keep native keyboard and new-tab
+  // behavior. Text selection should not navigate away from the queue.
   function onRowClick(event: MouseEvent<HTMLTableRowElement>, jobId: string) {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
       return;
@@ -27,7 +26,7 @@ function JobsTable({ table }: { table: JobsTableInstance }) {
         return;
       }
     } catch {
-      // Selection inspection is best-effort; navigate normally.
+      // If selection inspection fails, continue with navigation.
     }
     void navigate({ to: '/jobs/$jobId', params: { jobId }, state: { fromJobsQueue: true } });
   }

@@ -32,8 +32,8 @@ const STATS_BODY = {
     allocatedUsedMiB: 48000,
     unallocatedMiB: 688000,
     unavailableMiB: 16000,
-    // Non-null: the server only sends allocatedUsedMiB when free-memory
-    // data is complete, so a null freeMiB here would be unrepresentative.
+    // The server reports allocatedUsedMiB only with complete free-memory
+    // data, so this fixture must include freeMiB.
     freeMiB: 700000,
   },
   gpu: {
@@ -126,7 +126,6 @@ describe('StatsDashboard', () => {
     setupFetch();
     renderDashboard();
 
-    // Two-line center: title + total, never a single fixed string.
     await waitFor(() => expect(screen.getByText('108')).toBeTruthy());
     expect(screen.getByText('750 GiB')).toBeTruthy();
     expect(screen.getByText('8')).toBeTruthy();
@@ -157,7 +156,6 @@ describe('StatsDashboard', () => {
     renderDashboard();
 
     await waitFor(() => expect(screen.getByText('108')).toBeTruthy());
-    // No Used/Unused promise when the estimate is unavailable.
     expect(screen.getByText(/without the allocated-memory outer ring/)).toBeTruthy();
     expect(
       screen.getByText('OS-reported free memory not available on every node.')
@@ -191,7 +189,6 @@ describe('StatsDashboard', () => {
       () => expect(screen.getByText(/Showing primary resource rings only/)).toBeTruthy(),
       { timeout: 8000 }
     );
-    // Charts still render from semantic stats, flat.
     expect(screen.getByText('108')).toBeTruthy();
     expect(screen.getByText(/without the load-breakdown outer ring/)).toBeTruthy();
   });
@@ -253,7 +250,6 @@ describe('StatsDashboard', () => {
   test('stats error surfaces a retryable panel', async () => {
     let shouldFail = true;
     setupFetch();
-    // Reject the stats request while failing.
     (global.fetch as jest.Mock).mockImplementation((url: string) => {
       if (url.includes('/api/v1/ui-settings')) {
         return Promise.resolve(okJson(UI_SETTINGS_BODY));
@@ -435,14 +431,12 @@ describe('StatsDashboard', () => {
     expect(statsCalls()).toBe(1);
     first.unmount();
 
-    // Past the stats stale time: the explicitly live stats refetch as soon
-    // as they mount again.
+    // Remounting after the stale time refreshes the live stats.
     jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 31_000);
     renderDashboard(client);
     await waitFor(() => expect(screen.getByText('108')).toBeTruthy());
     expect(statsCalls()).toBe(2);
 
-    // Focus and reconnect stay silent for live stats.
     focusManager.setFocused(false);
     await act(async () => {
       focusManager.setFocused(true);

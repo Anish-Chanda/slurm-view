@@ -1,9 +1,6 @@
-// Pure Slurm dependency expression parser. No Slurm I/O.
-// Form (sbatch --dependency): <type:job_id[:job_id][,type:...]>
-// or <?-separated OR form>. Only one separator per expression.
-// Supported: after/afterok/afternotok/afterany/aftercorr/afterburstbuffer
-// with per-id +delay minutes, array element `123_4`, wildcard `123_*`,
-// status markers `(unfulfilled)/(failed)`, and bare `singleton`.
+// Parse `sbatch --dependency` expressions without Slurm I/O, including the
+// `?` OR form, dependency types, delays, array IDs and wildcards, status
+// markers, and `singleton`.
 import type { DependencyStatus } from '../../../shared/api/v1/pending-analysis.js';
 
 const DEPENDENCY_TYPES = new Set([
@@ -104,9 +101,9 @@ function parseDependencyClause(segment: string): DependencyClause | null {
   return { type, jobs };
 }
 
-// In OR form each id of a `type:a:b` group is an alternative
-// (afterok:20:21?afterany:23 means afterok:20 OR afterok:21 OR
-// afterany:23), so flatten each id to its own clause.
+// In OR form, each ID in a `type:a:b` group is an alternative. For example,
+// `afterok:20:21?afterany:23` means `afterok:20 OR afterok:21 OR afterany:23`,
+// so each ID becomes its own clause.
 function parseDependency(raw: string | null): ParsedDependency | null {
   if (raw === null) {
     return null;
@@ -134,7 +131,6 @@ function parseDependency(raw: string | null): ParsedDependency | null {
         clauses.push(clause);
         continue;
       }
-      // Flatten per-id alternatives.
       for (const job of clause.jobs) {
         clauses.push({ type: clause.type, jobs: [job] });
       }

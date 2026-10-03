@@ -5,17 +5,19 @@ import { createJobDetailsHandler, createJobsHandler } from '../../handlers/jobs.
 import { createEfficiencyHandler } from '../../handlers/efficiency.js';
 import { createPendingAnalysisHandler } from '../../handlers/pending-analysis.js';
 import type { PendingAnalysisDeps } from '../../services/pending-analysis-service.js';
+import type { SlurmContext } from '../../adapters/slurm/context.js';
 
 function createJobsRouter(
   jobsCache: JobsCache | undefined,
   run?: SeffRunFn,
-  pendingAnalysis?: PendingAnalysisDeps | undefined
+  pendingAnalysis?: PendingAnalysisDeps | undefined,
+  slurmContext?: SlurmContext | undefined
 ): Router {
   const router = Router();
   router.get('/', createJobsHandler(jobsCache));
   router.get('/:id/efficiency', createEfficiencyHandler(jobsCache, run));
   router.get('/:id/pending-analysis', createPendingAnalysisHandler(pendingAnalysis));
-  router.get('/:id', createJobDetailsHandler(jobsCache));
+  router.get('/:id', createJobDetailsHandler(slurmContext));
   return router;
 }
 

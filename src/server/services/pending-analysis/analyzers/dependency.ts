@@ -1,11 +1,10 @@
-// Dependency analyzer: evaluates the job's Slurm dependency expression.
-// DependencyNeverSatisfied reuses this analyzer; only the scheduler reason
-// itself establishes that conclusion.
+// Evaluate the job's Slurm dependency expression. DependencyNeverSatisfied
+// uses this analyzer, but that conclusion comes from the scheduler reason.
 import { fetchTargetedJob } from '../../../adapters/slurm/targeted-job.js';
 import { CommandError } from '../../../adapters/slurm/command-runner.js';
 import { SlurmUpstreamError } from '../../../adapters/slurm/errors.js';
 import { isMissingJobSignal } from '../missing-job.js';
-import type { Job } from '../../../models/job.js';
+import type { QueueJob } from '../../../models/queue-job.js';
 import type { AnalyzerContext } from '../types.js';
 import { combineStatus, parseDependency } from '../dependency-parser.js';
 import type { DependencyItem } from '../dependency-parser.js';
@@ -39,17 +38,17 @@ const FAILED_STATES: ReadonlySet<string> = new Set([
 const DEPENDENCY_TARGET_CAP = 50;
 
 interface TargetEvidence {
-  job: Job | null;
+  job: QueueJob | null;
   missing: boolean;
 }
 
 // Completed array tasks may have left the live queue, so visible tasks
 // cannot prove that the whole array has completed.
-function collectArrayTasks(ctx: AnalyzerContext, arrayJobId: string): Job[] {
-  const tasks: Job[] = [];
+function collectArrayTasks(ctx: AnalyzerContext, arrayJobId: string): QueueJob[] {
+  const tasks: QueueJob[] = [];
   const prefix = `${arrayJobId}_`;
   for (const job of ctx.jobsSnapshot.jobs) {
-    // The array master itself (bare id) is never one of its tasks.
+    // A bare array master ID does not represent one of its tasks.
     if (job.id.startsWith(prefix) && job.arrayTaskId !== null) {
       tasks.push(job);
     }
@@ -57,9 +56,9 @@ function collectArrayTasks(ctx: AnalyzerContext, arrayJobId: string): Job[] {
   return tasks;
 }
 
-// A bare ArrayJobID dependency applies to the whole array, not the master
-// job record.
-function taskFailedTerminal(task: Job): boolean | null {
+// A bare ArrayJobID dependency applies to the whole array; the master job
+// record does not represent the array's task state.
+function taskFailedTerminal(task: QueueJob): boolean | null {
   if (FAILED_STATES.has(task.state)) {
     return true;
   }
@@ -76,18 +75,18 @@ function taskFailedTerminal(task: Job): boolean | null {
   return null;
 }
 
-// Whole-array rules for a bare ArrayJobID target. Visible tasks can show
-// the dependency is not met, but never that the whole array met it.
+// Apply whole-array rules to a bare ArrayJobID target. Visible tasks can
+// show that a dependency is unmet, but cannot prove it is met by the array.
 function evaluateBareArray(
   type: string,
-  tasks: Job[],
+  tasks: QueueJob[],
   delayMinutes: number | null,
   now: Date
 ): DependencyStatus {
   if (tasks.length === 0) {
     return 'unknown';
   }
-  const terminalOrPreempted = (task: Job): boolean =>
+  const terminalOrPreempted = (task: QueueJob): boolean =>
     TERMINAL_STATES.has(task.state) || task.state === 'PREEMPTED';
   switch (type) {
     case 'after': {
@@ -126,7 +125,7 @@ function evaluateBareArray(
       return 'unknown';
     }
     case 'afternotok': {
-      // Slurm requires the array finished with at least one failed task.
+      // Slurm requires the array to finish with at least one failed task.
       // A live task means the array has not finished, even when another
       // visible task already failed.
       for (const task of tasks) {
@@ -176,8 +175,8 @@ async function resolveTarget(
   if (cached !== undefined) {
     return cached;
   }
-  // Exact task identity only: the array master is never evidence for a
-  // specific task.
+  // Use exact task identity. The array master does not establish a specific
+  // task's state.
   const snapshotHit = ctx.jobsSnapshot.byId.get(key) ?? null;
   if (snapshotHit !== null) {
     const evidence = { job: snapshotHit, missing: false };
@@ -279,7 +278,8 @@ function evaluateAfter(evidence: TargetEvidence, delayMinutes: number | null, no
   if (delayMinutes === null || delayMinutes <= 0) {
     return 'satisfied';
   }
-  // Delayed `after` needs start (or cancel/end) plus the delay interval.
+  // A delayed `after` dependency is met after the job starts or ends and the
+  // delay interval passes.
   const anchor = job.startTime ?? job.endTime;
   if (anchor === null) {
     return 'unknown';
@@ -302,9 +302,9 @@ function evaluateAfterBurstBuffer(evidence: TargetEvidence): DependencyStatus {
   return 'unknown';
 }
 
-// Launch order: submit timestamp first, then numeric job id. Either may be
-// absent; comparison uses whichever evidence exists.
-function compareJobOrder(candidate: Job, self: Job): number | null {
+// Compare launch order by submit timestamp first, then numeric job ID. Either
+// value may be absent, so use the available evidence.
+function compareJobOrder(candidate: QueueJob, self: QueueJob): number | null {
   const candidateTime = candidate.submitTime?.getTime() ?? null;
   const selfTime = self.submitTime?.getTime() ?? null;
   const timesUsable =
@@ -329,8 +329,8 @@ function evaluateSingleton(ctx: AnalyzerContext): DependencyStatus {
   if (job.user === null || job.name === null) {
     return 'unknown';
   }
-  // Singleton blocks on earlier same-name jobs of the same user that have
-  // not terminated. Later jobs never block.
+  // Singleton waits for earlier, unterminated jobs with the same name and
+  // user. Later jobs do not block.
   let unknownOrdering = false;
   for (const entry of ctx.jobsSnapshot.jobs) {
     if (entry.id === job.id || entry.user !== job.user || entry.name !== job.name) {
@@ -362,8 +362,8 @@ async function evaluateItem(
   if (type === 'singleton') {
     return { status: evaluateSingleton(ctx), state: null, exitCode: null };
   }
-  // Wildcard array dependencies (123_*) stay `unknown`: the snapshot
-  // cannot establish array-wide state.
+  // Keep wildcard array dependencies (123_*) as `unknown` because the
+  // snapshot cannot establish array-wide state.
   if (item.arrayWildcard) {
     const evidence = await resolveTarget(ctx, item.jobId, null, cache, budget);
     return {
@@ -372,7 +372,7 @@ async function evaluateItem(
       exitCode: evidence.job?.exitCode ?? null,
     };
   }
-  // Slurm status markers (failed/unfulfilled) short-circuit to unsatisfied.
+  // Slurm's failed or unfulfilled status markers make the dependency unsatisfied.
   if (item.statusMarker !== null) {
     const marker = item.statusMarker.toLowerCase();
     if (marker === 'failed' || marker === 'unfulfilled') {
@@ -481,8 +481,8 @@ async function analyzeDependency(ctx: AnalyzerContext): Promise<DependencyAnalys
       dependencies.push({ type: 'singleton', status, jobs: [] });
       continue;
     }
-    // Every target contributes to the logical result; only the first
-    // DEPENDENCY_TARGET_CAP rows are serialized.
+    // Include every target in the logical result, but serialize at most
+    // DEPENDENCY_TARGET_CAP rows.
     const evaluatedAll: Array<{ status: DependencyStatus; state: JobState | null; exitCode: string | null }> = [];
     for (const item of clause.jobs) {
       evaluatedAll.push(await evaluateItem(ctx, clause.type, item, cache, budget, now));
@@ -501,7 +501,7 @@ async function analyzeDependency(ctx: AnalyzerContext): Promise<DependencyAnalys
           ...(item.arrayWildcard ? { arrayWildcard: true } : {}),
         };
       });
-    // Ids within one `type:a:b` clause combine with AND (OR groups were
+    // IDs within one `type:a:b` clause combine with AND (OR groups were
     // flattened to single-id clauses at parse time).
     const clauseStatus = combineStatus(itemStatuses, 'and');
     clauseStatuses.push(clauseStatus);

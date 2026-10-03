@@ -59,9 +59,7 @@ function JobSkeleton() {
 }
 
 function JobDetailsContent({ job, updatedAt }: { job: JobDto; updatedAt: string }) {
-  // All lifecycle arithmetic describes the captured snapshot, never the
-  // wall clock: a tab left open for hours must not invent newer job state
-  // than the scheduler data actually represents.
+  // Calculate lifecycle values at the snapshot time; this page does not poll.
   const parsed = Date.parse(updatedAt);
   const snapshotMs = Number.isNaN(parsed) ? Date.now() : parsed;
   const snapshotTaken = new Date(updatedAt).toLocaleString();
@@ -89,7 +87,7 @@ function JobDetailsContent({ job, updatedAt }: { job: JobDto; updatedAt: string 
 function JobPage({ jobId }: { jobId: string }) {
   const detailQuery = useQuery(jobDetailQueryOptions(jobId));
 
-  // No snapshot yet: loading, initial 404, or a hard failure.
+  // No snapshot is available yet: loading, initial 404, or hard failure.
   if (detailQuery.data === undefined) {
     if (detailQuery.isPending) {
       return <JobSkeleton />;
@@ -107,9 +105,8 @@ function JobPage({ jobId }: { jobId: string }) {
     );
   }
 
-  // A captured snapshot survives any later refresh failure — including a
-  // 404 when the job leaves the live data. The failure surfaces as a
-  // non-destructive warning, never by replacing the page.
+  // Keep the captured snapshot visible if a later refresh fails, including
+  // a 404 after the job leaves live scheduler data.
   const { job, updatedAt } = detailQuery.data;
   return (
     <JobPageLayout>

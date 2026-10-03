@@ -1,5 +1,5 @@
-// Refresh, wait the interval, refresh. A slow call can never overlap
-// itself. Failures are logged and the schedule continues.
+// Refresh on each interval without overlapping a slow call. Log failures and
+// continue the schedule.
 type RefreshFn = (signal: AbortSignal) => Promise<unknown>;
 
 class PollingService {
@@ -47,7 +47,7 @@ class PollingService {
     try {
       await this.refresh(controller.signal);
     } catch (error) {
-      // stop() aborts the active refresh; that shutdown path is expected.
+      // stop() aborts the active refresh during shutdown.
       if (this.running) {
         console.error(
           `[Polling] Refresh failed, retrying in ${this.intervalMs}ms: ${
@@ -67,7 +67,7 @@ class PollingService {
       this.timer = undefined;
       void this.tick();
     }, this.intervalMs);
-    // Never keep the process alive on a pending wait alone.
+    // A pending wait alone should not keep the process alive.
     if (typeof this.timer.unref === 'function') {
       this.timer.unref();
     }

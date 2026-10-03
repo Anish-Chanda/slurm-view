@@ -324,8 +324,7 @@ describe('app router', () => {
       fetchMock.mock.calls.some(([url]) => (url as string).includes('/api/v1/jobs/102'))
     ).toBe(false);
 
-    // Entering after an intent preload adopts the fresh snapshot: the
-    // visit performs no second detail request.
+    // Reuse the fresh preload instead of requesting the details again.
     await user.click(screen.getByRole('link', { name: '101' }));
     await waitFor(() => expect(screen.getByText('Resources')).toBeTruthy());
     expect(
@@ -341,19 +340,17 @@ describe('app router', () => {
     await waitFor(() => expect(screen.getByText('job-one-two-three')).toBeTruthy());
     first.unmount();
 
-    // Time passes beyond the detail stale time, and the job leaves the
-    // live scheduler data before the user visits again.
+    // The cached details expire before the job disappears and the user returns.
     jest.spyOn(Date, 'now').mockReturnValue(visitedAt + JOB_DETAIL_STALE_TIME_MS + 1000);
     delete handlers.details!['123'];
     const second = renderRouter(['/jobs/123'], handlers, { queryClient });
 
     await waitFor(() => expect(screen.getByText(/is no longer available/)).toBeTruthy());
-    // A fresh request occurred for the new visit…
+    // The return visit checks the scheduler again.
     expect(
       second.fetchMock.mock.calls.some(([url]) => (url as string).includes('/api/v1/jobs/123'))
     ).toBe(true);
-    // …and the previous visit's snapshot was never rendered, so the fresh
-    // 404 is not misclassified as a later refresh failure.
+    // The expired snapshot stays hidden, so the 404 is not a refresh failure.
     expect(screen.queryByText('job-one-two-three')).toBeNull();
     expect(screen.queryByText(/Showing the captured snapshot/)).toBeNull();
   });

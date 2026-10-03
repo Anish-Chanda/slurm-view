@@ -11,7 +11,7 @@ interface CpuLoadGroups {
   high: number;
 }
 
-// ratio < lowMax → low; ratio <= mediumMax → medium; else high.
+// Ratios below lowMax are low, through mediumMax are medium, and higher ratios are high.
 function classifyCpuLoadBucket(ratio: number, thresholds: CpuLoadThresholds): CpuLoadBucket {
   if (ratio < thresholds.lowMax) {
     return 'low';
@@ -30,7 +30,7 @@ interface CpuStats {
   configuredCpus: number;
   effectiveCpus: number;
   allocatedCpus: number;
-  // Schedulable and unallocated. Invariant:
+  // These CPUs are schedulable and unallocated. The totals must satisfy
   // allocatedCpus + availableCpus + unavailableCpus === configuredCpus.
   availableCpus: number;
   unavailableCpus: number;
@@ -45,19 +45,14 @@ interface CpuStats {
 interface MemoryStats {
   totalMiB: number;
   allocatedMiB: number;
-  // Estimated portion of allocated memory in use:
-  // sum over non-down nodes of min(allocated, max(0, total - free)).
-  // Null unless every counted non-down node reports freeMemoryMiB; never
-  // a partial sum. Informational: used + unused === allocatedMiB, and the
-  // allocatedMiB + unallocatedMiB + unavailableMiB === totalMiB invariant
-  // holds regardless.
+  // This estimate sums min(allocated, total - free) across non-down nodes.
+  // It is null if any counted node lacks free-memory data. Memory total
+  // invariants do not depend on this estimate.
   allocatedUsedMiB: number | null;
   unallocatedMiB: number;
   unavailableMiB: number;
-  // OS-reported free memory, informational only. Null unless every
-  // counted node reports it; never a partial sum. Outside the invariant.
-  //
-  // Invariant: allocatedMiB + unallocatedMiB + unavailableMiB === totalMiB
+  // OS-reported free memory is separate from the capacity invariant. This is
+  // null unless every counted node reports it.
   freeMiB: number | null;
 }
 

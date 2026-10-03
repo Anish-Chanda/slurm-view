@@ -1,5 +1,5 @@
-// sacctmgr QOS adapter for pending analysis: group/max limits, factors,
-// flags, and Relative marking. Pipe-delimited output; no JSON.
+// Read QOS group and max limits, factors, flags, and Relative marking for
+// pending analysis. sacctmgr emits pipe-delimited output without JSON.
 import { runCommand } from './command-runner.js';
 import type { SlurmContext, SlurmRunFn } from './context.js';
 import { UpstreamInvalidError } from './errors.js';
@@ -55,9 +55,9 @@ function strictTres(raw: string | undefined, label: string): AssociationTres {
   return parsePolicyTresLimit(raw ?? null, label);
 }
 
-// LimitFactor scales association TRES limits. Blank and the -1 clear value
-// mean no factoring; other non-numeric values are malformed policy. Zero is
-// preserved as configured and ignored when scaling, as in Slurm.
+// LimitFactor scales association TRES limits. Blank and -1 mean no factoring;
+// other non-numeric values are malformed policy. Slurm preserves zero as
+// configured and ignores it when scaling.
 function strictLimitFactor(raw: string | undefined): number | null {
   const text = (raw ?? '').trim();
   if (text === '' || text === '-1' || /^(N\/A|\(null\)|NONE)$/i.test(text)) {
@@ -73,9 +73,9 @@ function strictLimitFactor(raw: string | undefined): number | null {
   return parsed;
 }
 
-// UsageFactor scales TRES-minutes usage. Unset (blank, -1, N/A, (null),
-// NONE) means Slurm's default of 1; other non-numeric values are malformed
-// policy. Zero is a valid configured value.
+// UsageFactor scales TRES-minutes usage. Blank, -1, N/A, (null), and NONE
+// mean Slurm's default of 1. Other non-numeric values are malformed policy;
+// zero is valid.
 function strictUsageFactor(raw: string | undefined): number {
   const text = (raw ?? '').trim();
   if (text === '' || text === '-1' || /^(N\/A|\(null\)|NONE)$/i.test(text)) {
@@ -91,7 +91,7 @@ function strictUsageFactor(raw: string | undefined): number {
   return parsed;
 }
 
-// Prefer GrpTRES. Legacy GrpCPU/GrpMem/GrpNodes fill missing values only.
+// Use GrpTRES when present; legacy GrpCPU/GrpMem/GrpNodes fill only missing values.
 function mergeLegacyTres(
   canonical: AssociationTres,
   legacyCpu: string | null,

@@ -15,8 +15,7 @@ function pageWindow(current: number, total: number): number[] {
 
 interface JobsPaginationProps {
   table: JobsTableInstance;
-  // The rendered rows' own metadata, so placeholder rows are never
-  // described with the newly requested page.
+  // Use the rendered rows' metadata so placeholder rows retain their page label.
   pagination: JobsPaginationDto;
   disabled: boolean;
 }

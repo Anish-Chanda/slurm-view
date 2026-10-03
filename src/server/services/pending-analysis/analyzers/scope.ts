@@ -1,4 +1,4 @@
-// Required-node state, partition facts, and reservation facts.
+// Collect required-node, partition, and reservation facts.
 import { expandSlurmHostlist } from '../../../adapters/slurm/hostlist.js';
 import { fetchPartitionDetail } from '../../../adapters/slurm/partition-detail.js';
 import { fetchReservationDetail } from '../../../adapters/slurm/reservation.js';
@@ -13,7 +13,7 @@ function toIso(date: Date | null): string | null {
   return date === null ? null : date.toISOString();
 }
 
-// Beyond the cap a partial node list would look complete.
+// A node list over the cap would be incomplete and could appear complete.
 const REQUIRED_NODES_CAP = 100;
 
 async function analyzeRequiredNodes(ctx: AnalyzerContext): Promise<RequiredNodesAnalysisDto | null> {
@@ -28,7 +28,7 @@ async function analyzeRequiredNodes(ctx: AnalyzerContext): Promise<RequiredNodes
   if (names.length > REQUIRED_NODES_CAP) {
     return null;
   }
-  // Snapshot only; names absent from it are reported unknown.
+  // Use the snapshot only; report names missing from it as unknown.
   const byName = new Map((ctx.nodesSnapshot?.nodes ?? []).map((node) => [node.name, node]));
   return {
     kind: 'requiredNodes',

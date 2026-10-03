@@ -2,9 +2,8 @@ import { z } from 'zod';
 import type { SupportedDataParser } from '../parser-version.js';
 import { slurmNoticeSchema } from './common.js';
 
-// Only the partition name is consumed; everything else Slurm reports
-// per partition is stripped. This mirrors scontrol --json=<parser>
-// show partition output, where the list lives under `partitions`.
+// scontrol returns partition records under `partitions`. Keep the name and
+// discard fields this endpoint does not use.
 const rawPartitionSchema = z.object({
   name: z.string(),
 });

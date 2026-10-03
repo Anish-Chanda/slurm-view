@@ -1,5 +1,5 @@
-// Single-partition detail adapter: state, time/node caps, configured
-// partition QOS. Unknown keys stay null.
+// Fetch one partition's state, time and node caps, and configured QOS.
+// Unknown fields remain null.
 import { z } from 'zod';
 import { runCommand } from './command-runner.js';
 import type { SlurmContext, SlurmRunFn } from './context.js';
@@ -12,9 +12,8 @@ const PARTITION_DETAIL_COMMAND_MAX_BUFFER_BYTES = 2 * 1024 * 1024;
 
 const PARTITION_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
-// Only the name is guaranteed; every fact field is optional and may
-// arrive as a number, numeric string, {number,set,infinite} wrapper, or
-// time string.
+// Only the name is guaranteed. Other fields are optional and may arrive as
+// numbers, numeric strings, `{number,set,infinite}` wrappers, or time strings.
 const rawPartitionDetailSchema = z
   .object({
     name: z.string(),
@@ -57,8 +56,8 @@ function normalizeState(input: RawPartitionDetail['state']): string | null {
   return null;
 }
 
-// Partition MaxTime arrives as minutes (number/wrapper) or a Slurm time
-// string. UNLIMITED/INFINITE/None means null.
+// Partition MaxTime arrives as minutes (a number or wrapper) or a Slurm time
+// string. UNLIMITED, INFINITE, and None map to null.
 function parseSlurmDurationToSeconds(input: unknown): number | null {
   if (input === null || input === undefined) {
     return null;
@@ -92,7 +91,7 @@ function parseSlurmDurationToSeconds(input: unknown): number | null {
     const minutes = Number(text);
     return Number.isFinite(minutes) && minutes > 0 ? Math.round(minutes * 60) : null;
   }
-  // D-HH:MM:SS, HH:MM:SS, MM:SS
+  // Accept D-HH:MM:SS, HH:MM:SS, and MM:SS.
   const daySplit = text.split('-');
   let days = 0;
   let clock = text;
@@ -161,11 +160,11 @@ function toPartitionDetail(raw: RawPartitionDetail): PartitionDetail {
 }
 
 function parsePartitionDetailStdout(stdout: string, name: string): PartitionDetail | null {
-  // A missing partition is null, never another partition's record.
+  // Return null if the requested partition is absent.
   return parsePartitionTableStdout(stdout).find((entry) => entry.name === name) ?? null;
 }
 
-// Full-cluster partition table, used for the partition to QOS mapping.
+// Fetch the full partition table for partition-to-QOS mapping.
 function parsePartitionTableStdout(stdout: string): PartitionDetail[] {
   let parsed: unknown;
   try {

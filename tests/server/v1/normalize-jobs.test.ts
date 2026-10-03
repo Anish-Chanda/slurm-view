@@ -1,306 +1,210 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import {
-  fetchJobs,
-  normalizeStateReason,
-  parseJobsStdout,
-} from '../../../src/server/adapters/slurm/jobs.js';
-import type { SupportedDataParser } from '../../../src/server/adapters/slurm/parser-version.js';
-import {
-  SlurmUpstreamError,
-  UpstreamInvalidError,
-} from '../../../src/server/adapters/slurm/errors.js';
+import { fetchJobs, JOB_FIELDS, SQUEUE_FORMAT, parseJobsStdout } from '../../../src/server/adapters/slurm/jobs.js';
+import { normalizeJob, normalizeStateReason } from '../../../src/server/adapters/slurm/job-normalizer.js';
+import { UpstreamInvalidError } from '../../../src/server/adapters/slurm/errors.js';
+import type { RawJob } from '../../../src/server/adapters/slurm/schemas/jobs.js';
 
-const FIXTURES = path.join(__dirname, 'fixtures');
+const SEP = '\x1f';
+const END = '\x1e\n';
 
-function jobsFixture(version: string): string {
-  return fs.readFileSync(path.join(FIXTURES, `${version}-jobs.json`), 'utf8');
+function fields(overrides: Record<string, string> = {}): string[] {
+  const values: Record<string, string> = {
+    JobID: '101',
+    JobArrayID: '101',
+    ArrayTaskID: 'N/A',
+    Partition: 'debug',
+    Name: 'train job',
+    UserName: 'alice',
+    Account: 'research',
+    QOS: 'normal',
+    State: 'RUNNING',
+    Reason: 'None',
+    TimeLimit: '2:00:00',
+    SubmitTime: '1725799000',
+    StartTime: '1725799500',
+    EndTime: 'N/A',
+    PriorityLong: '1234',
+    NumNodes: '2',
+    NodeList: 'gpu[01-02]',
+    'tres-alloc': 'cpu=8,mem=32G,node=2,gres/gpu:a100=4',
+    exit_code: '0:0',
+    ...overrides,
+  };
+  return JOB_FIELDS.map(({ name }) => values[name]!);
 }
 
-describe('parseJobsStdout', () => {
+function row(overrides: Record<string, string> = {}): string {
+  return `${fields(overrides).join(SEP)}${END}`;
+}
+
+describe('formatted squeue parser', () => {
+  test('normalizes queue fields, timestamps, duration, exit code, and allocated TRES', () => {
+    const [job] = parseJobsStdout(row());
+    expect(job).toMatchObject({
+      id: '101',
+      jobId: '101',
+      arrayJobId: null,
+      arrayTaskId: null,
+      partition: 'debug',
+      name: 'train job',
+      user: 'alice',
+      account: 'research',
+      qos: 'normal',
+      state: 'RUNNING',
+      stateFlags: [],
+      stateReason: null,
+      timeLimit: { kind: 'finite', seconds: 7200 },
+      submitTime: new Date(1725799000 * 1000),
+      startTime: new Date(1725799500 * 1000),
+      endTime: null,
+      priority: 1234,
+      nodeCount: 2,
+      nodeExpression: 'gpu[01-02]',
+      exitCode: '0',
+    });
+    expect(job!.allocated).toMatchObject({ cpus: 8, memoryMiB: 32768, nodes: 2, gpuPresent: true });
+    expect(job!.allocated.gpus).toEqual({ total: 4, byType: { a100: 4 } });
+  });
+
+  test('parses array task identity and zero task IDs without classifying ordinary jobs as arrays', () => {
+    const [arrayJob] = parseJobsStdout(row({
+      JobID: '100_0', JobArrayID: '100', ArrayTaskID: '0', State: 'PENDING',
+      'tres-alloc': 'cpu=8,mem=4G', StartTime: 'N/A', TimeLimit: 'UNLIMITED',
+    }));
+    expect(arrayJob).toMatchObject({ id: '100_0', jobId: '100_0', arrayJobId: '100', arrayTaskId: '0', state: 'PENDING' });
+    expect(arrayJob!.allocated).toMatchObject({ cpus: null, memoryMiB: null, gpuPresent: false });
+    expect(arrayJob!.timeLimit).toEqual({ kind: 'infinite' });
+
+    const [ordinary] = parseJobsStdout(row({ JobArrayID: '101', ArrayTaskID: 'N/A' }));
+    expect(ordinary!.arrayJobId).toBeNull();
+    expect(ordinary!.arrayTaskId).toBeNull();
+  });
+
+  test('keeps textual fields intact across spaces, punctuation, and Unicode', () => {
+    const [job] = parseJobsStdout(row({
+      Name: 'α train, stage | 2', Partition: 'gpu,fast', NodeList: 'node a,node-b',
+    }));
+    expect(job!.name).toBe('α train, stage | 2');
+    expect(job!.partition).toBe('gpu,fast');
+    expect(job!.nodeExpression).toBe('node a,node-b');
+  });
+
+  test('does not erase sentinel-looking values in arbitrary text fields', () => {
+    const [job] = parseJobsStdout(row({
+      Name: 'N/A', Partition: 'NONE', UserName: 'NONE', Account: 'NONE', QOS: 'NONE',
+    }));
+    expect(job).toMatchObject({
+      name: 'N/A', partition: 'NONE', user: 'NONE', account: 'NONE', qos: 'NONE',
+    });
+  });
+
+  test.each<[string, number]>([
+    ['0:00', 0],
+    ['3:04:05', 11_045],
+    ['2-03:04:05', 183_845],
+  ])('parses Slurm duration %s', (value, seconds) => {
+    const [job] = parseJobsStdout(row({ TimeLimit: value }));
+    expect(job!.timeLimit).toEqual({ kind: 'finite', seconds });
+  });
+
+  test('maps unset values to null and accepts completed exit status', () => {
+    const [job] = parseJobsStdout(row({
+      State: 'COMPLETED', Reason: 'N/A', TimeLimit: 'NOT_SET', SubmitTime: '0',
+      StartTime: 'N/A', EndTime: '1725800000', PriorityLong: 'N/A', NumNodes: 'N/A',
+      NodeList: 'NONE', 'tres-alloc': 'cpu=4,mem=2G', exit_code: '1:9',
+    }));
+    expect(job).toMatchObject({ state: 'COMPLETED', stateReason: null, timeLimit: null,
+      submitTime: null, startTime: null, endTime: new Date(1725800000 * 1000),
+      priority: null, nodeCount: null, nodeExpression: null, exitCode: '1' });
+    expect(job!.allocated).toMatchObject({ cpus: null, memoryMiB: null, gpuPresent: false });
+  });
+
+  test('does not infer a base state from a state flag or unknown token', () => {
+    for (const state of ['REQUEUE_HOLD', 'SOMETHING_NEW']) {
+      const [job] = parseJobsStdout(row({ State: state }));
+      expect(job!.state).toBe('UNKNOWN');
+      expect(job!.stateFlags).toEqual([state]);
+    }
+  });
+
+  test('empty output is an empty snapshot', () => {
+    expect(parseJobsStdout('')).toEqual([]);
+  });
+
   test.each([
-    ['v0.0.43', 'v43'],
-    ['v0.0.44', 'v44'],
-    ['v0.0.45', 'v45'],
-  ] as Array<[SupportedDataParser, string]>)('normalizes %s fixture', (parser, version) => {
-    const jobs = parseJobsStdout(parser, jobsFixture(version));
-    expect(jobs).toHaveLength(3);
-
-    const running = jobs[0]!;
-    expect(running.id).toBe('101');
-    expect(running.jobId).toBe('101');
-    expect(running.state).toBe('RUNNING');
-    expect(running.stateFlags).toEqual([]);
-    expect(running.stateReason).toBeNull();
-    expect(running.timeLimit).toEqual({ kind: 'finite', seconds: 7200 });
-    expect(running.submitTime).toEqual(new Date(1725799000 * 1000));
-    expect(running.startTime).toEqual(new Date(1725799500 * 1000));
-    expect(running.endTime).toBeNull();
-    expect(running.nodeCount).toBe(2);
-    expect(running.nodeExpression).toBe('gpu[01-02]');
-    expect(running.requested.cpus).toBe(8);
-    expect(running.requested.memoryMiB).toBe(32768);
-    expect(running.requested.gpus).toEqual({ total: 4, byType: { a100: 4 } });
-    expect(running.allocated.gpus).toEqual({ total: 4, byType: { a100: 4 } });
-    expect(running.partition).toBe('debug');
+    ['missing final terminator', row().slice(0, -2)],
+    ['wrong field count', `101${SEP}debug${END}`],
+    ['malformed job ID', row({ JobID: '123+4' })],
+    ['malformed integer', row({ PriorityLong: '1.2' })],
+    ['malformed timestamp', row({ SubmitTime: 'yesterday' })],
+    ['malformed duration', row({ TimeLimit: '1:99' })],
+    ['malformed exit code', row({ exit_code: 'done' })],
+    ['unsupported heterogeneous job ID', row({ JobID: '123+1' })],
+    ['inconsistent array identity', row({ JobID: '100_2', JobArrayID: '100', ArrayTaskID: '3' })],
+  ])('rejects %s atomically', (_label, input) => {
+    expect(() => parseJobsStdout(input)).toThrow(UpstreamInvalidError);
   });
 
-  test('derives composite identity from array wrapper fields', () => {
-    const jobs = parseJobsStdout('v0.0.45', jobsFixture('v43'));
-    const arrayTask = jobs[1]!;
-    expect(arrayTask.jobId).toBe('102');
-    expect(arrayTask.arrayJobId).toBe('100');
-    expect(arrayTask.arrayTaskId).toBe('2');
-    expect(arrayTask.id).toBe('100_2');
-    expect(arrayTask.state).toBe('PENDING');
-    expect(arrayTask.stateFlags).toEqual(['REQUEUE_HOLD']);
-    expect(arrayTask.stateReason).toBe('Resources');
-    expect(arrayTask.timeLimit).toEqual({ kind: 'infinite' });
-    expect(arrayTask.startTime).toBeNull();
-    expect(arrayTask.dependency).toBe('afterok:99');
+  test('parses a 30,001-row snapshot completely', () => {
+    const output = Array.from({ length: 30_001 }, (_, index) =>
+      row({ JobID: String(index + 1), JobArrayID: String(index + 1), Name: `job-${index}` })
+    ).join('');
+    const jobs = parseJobsStdout(output);
+    expect(jobs).toHaveLength(30_001);
+    expect(jobs[0]!.id).toBe('1');
+    expect(jobs.at(-1)!.id).toBe('30001');
   });
+});
 
-  test('cleans sentinel/empty strings and joins node arrays', () => {
-    const jobs = parseJobsStdout('v0.0.45', jobsFixture('v43'));
-    const done = jobs[2]!;
-    expect(done.partition).toBeNull();
-    expect(done.name).toBeNull();
-    expect(done.nodeExpression).toBe('node01,node02');
-    expect(done.nodeCount).toBe(1);
-    expect(done.requested.gpus).toEqual({ total: 2, byType: { unknown: 2 } });
-    expect(done.exitCode).toBe('0');
-    expect(done.derivedExitCode).toBe('0');
-  });
-
-  test('tolerates realistic exit-code status/signal metadata without changing return_code', () => {
-    const jobs = parseJobsStdout(
-      'v0.0.45',
-      JSON.stringify({
-        jobs: [
-          {
-            job_id: 200,
-            exit_code: {
-              return_code: { number: 0, set: true, infinite: false },
-              status: ['SUCCESS'],
-              signal: {
-                id: { number: 0, set: false, infinite: false },
-                name: '',
-              },
-            },
-            derived_exit_code: {
-              return_code: { number: 1, set: true, infinite: false },
-              status: ['ERROR'],
-              signal: {
-                id: { number: 0, set: false, infinite: false },
-                name: '',
-              },
-            },
-          },
-        ],
-      })
-    );
-    expect(jobs).toHaveLength(1);
-    expect(jobs[0]?.exitCode).toBe('0');
-    expect(jobs[0]?.derivedExitCode).toBe('1');
-  });
-
-  test('non-array jobs keep scalar identity and null exit codes when unset', () => {
-    const jobs = parseJobsStdout('v0.0.45', jobsFixture('v43'));
-    const running = jobs[0]!;
-    expect(running.id).toBe('101');
-    expect(running.arrayJobId).toBeNull();
-    expect(running.arrayTaskId).toBeNull();
-    expect(running.exitCode).toBeNull();
-  });
-
-  test('a zero array job id is the unset sentinel, never an identifier', () => {
-    for (const arrayJobId of [
-      { number: 0, set: true, infinite: false },
-      { number: 0, set: false, infinite: false },
-      0,
-      '0',
-    ]) {
-      const [job] = parseJobsStdout(
-        'v0.0.45',
-        JSON.stringify({ jobs: [{ job_id: 115, array_job_id: arrayJobId }] })
-      );
-      expect(job!.id).toBe('115');
-      expect(job!.jobId).toBe('115');
-      expect(job!.arrayJobId).toBeNull();
-    }
-  });
-
-  test('a zero array task id stays meaningful under a real parent', () => {
-    const [job] = parseJobsStdout(
-      'v0.0.45',
-      JSON.stringify({
-        jobs: [
-          {
-            job_id: 803,
-            array_job_id: { number: 11519620, set: true, infinite: false },
-            array_task_id: { number: 0, set: true, infinite: false },
-          },
-        ],
-      })
-    );
-    expect(job!.arrayJobId).toBe('11519620');
-    expect(job!.arrayTaskId).toBe('0');
-    expect(job!.id).toBe('11519620_0');
-  });
-
-  test('malformed array wrapper data rejects the payload', () => {
-    const badTask = {
-      job_id: 9,
-      array_job_id: { number: 100, set: true, infinite: false },
-      array_task_id: { number: 'abc', set: true, infinite: false },
+describe('targeted JSON job normalizer', () => {
+  test('retains full detail normalization for targeted scontrol records', () => {
+    const raw: RawJob = {
+      job_id: 300,
+      job_state: 'RUNNING',
+      time_limit: { number: 120, set: true, infinite: false },
+      submit_time: { number: 1725799000, set: true, infinite: false },
+      tres_req_str: 'cpu=32,mem=65536M,node=2,gres/gpu=2',
+      tres_alloc_str: 'cpu=8,mem=32G,node=1,gres/gpu=2',
+      gres_detail: ['gpu:a100:2(IDX:0-1)'],
+      standard_error: '/work/task.err',
     };
-    expect(() =>
-      parseJobsStdout('v0.0.45', JSON.stringify({ jobs: [badTask] }))
-    ).toThrow(UpstreamInvalidError);
-  });
-
-  test('gres_detail enriches GPU types without changing the TRES total', () => {
-    const jobs = parseJobsStdout(
-      'v0.0.45',
-      JSON.stringify({
-        jobs: [
-          {
-            job_id: 7,
-            tres_req_str: 'cpu=2,mem=8G,gres/gpu=2',
-            tres_alloc_str: 'cpu=2,mem=8G,gres/gpu=2',
-            gres_detail: ['gpu:a100:2(IDX:0-1)'],
-          },
-        ],
-      })
-    );
-    expect(jobs[0]?.allocated.gpus).toEqual({ total: 2, byType: { a100: 2 } });
-    expect(jobs[0]?.requested.gpus).toEqual({ total: 2, byType: { unknown: 2 } });
-  });
-
-  test('invalid JSON and schema failures never yield partial data', () => {
-    expect(() => parseJobsStdout('v0.0.45', 'not json')).toThrow(UpstreamInvalidError);
-    expect(() => parseJobsStdout('v0.0.45', JSON.stringify({ meta: {} }))).toThrow(
-      UpstreamInvalidError
-    );
-  });
-});
-
-describe('normalizeJob detail fields', () => {
-  function jobWith(overrides: Record<string, unknown>) {
-    const [job] = parseJobsStdout(
-      'v0.0.45',
-      JSON.stringify({ jobs: [{ job_id: 300, ...overrides }] })
-    );
-    return job!;
-  }
-
-  test('normalizes eligible time, priority, stderr, tasks, and scheduling fields', () => {
-    const job = jobWith({
-      eligible_time: { number: 1725799100, set: true, infinite: false },
-      priority: { number: 12345, set: true, infinite: false },
-      standard_error: '/work/project-a/user-a/workload/slurm-300.err',
-      tasks: { number: 16, set: true, infinite: false },
-      cpus_per_task: { number: 2, set: true, infinite: false },
-      features: 'a100,ib',
-      resv_name: 'weekend',
-      wckey: 'mykey',
-      batch_host: 'node01',
-      tres_req_str: 'cpu=32,mem=65536M,node=2',
-    });
-    expect(job.eligibleTime).toEqual(new Date(1725799100 * 1000));
-    expect(job.priority).toBe(12345);
-    expect(job.stderrPath).toBe('/work/project-a/user-a/workload/slurm-300.err');
-    expect(job.taskCount).toBe(16);
-    expect(job.cpusPerTask).toBe(2);
-    expect(job.constraints).toBe('a100,ib');
-    expect(job.reservation).toBe('weekend');
-    expect(job.wckey).toBe('mykey');
-    expect(job.batchHost).toBe('node01');
+    const job = normalizeJob(raw);
+    expect(job.id).toBe('300');
+    expect(job.timeLimit).toEqual({ kind: 'finite', seconds: 7200 });
+    expect(job.eligibleTime).toBeNull();
+    expect(job.stderrPath).toBe('/work/task.err');
     expect(job.requested.nodes).toBe(2);
+    expect(job.allocated.gpus).toEqual({ total: 2, byType: { a100: 2 } });
   });
 
-  test('absent detail fields normalize to null without failing', () => {
-    const job = jobWith({});
-    expect(job.eligibleTime).toBeNull();
-    expect(job.priority).toBeNull();
-    expect(job.stderrPath).toBeNull();
-    expect(job.taskCount).toBeNull();
-    expect(job.cpusPerTask).toBeNull();
-    expect(job.constraints).toBeNull();
-    expect(job.reservation).toBeNull();
-    expect(job.wckey).toBeNull();
-    expect(job.batchHost).toBeNull();
-    expect(job.requested.nodes).toBeNull();
-  });
-
-  test('unset wrappers and sentinels become null', () => {
-    const job = jobWith({
-      eligible_time: { number: 0, set: false, infinite: false },
-      priority: { number: 0, set: false, infinite: false },
-      standard_error: '(null)',
-      tasks: 'N/A',
-      features: '',
-      resv_name: 'None',
-    });
-    expect(job.eligibleTime).toBeNull();
-    expect(job.priority).toBeNull();
-    expect(job.stderrPath).toBeNull();
-    expect(job.taskCount).toBeNull();
-    expect(job.constraints).toBeNull();
-    expect(job.reservation).toBeNull();
-  });
-
-  test('existing fixtures without detail fields stay valid with nulls', () => {
-    for (const parser of ['v0.0.43', 'v0.0.44', 'v0.0.45'] as SupportedDataParser[]) {
-      const jobs = parseJobsStdout(parser, jobsFixture(parser === 'v0.0.45' ? 'v45' : parser === 'v0.0.44' ? 'v44' : 'v43'));
-      expect(jobs[0]!.eligibleTime).toBeNull();
-      expect(jobs[0]!.stderrPath).toBeNull();
-      expect(jobs[0]!.requested.nodes).toBe(2);
-    }
-  });
-});
-
-describe('parseJobsStdout envelope', () => {
-  test('non-empty Slurm errors fail; warnings only log', () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
-    try {
-      expect(() =>
-        parseJobsStdout(
-          'v0.0.45',
-          JSON.stringify({ jobs: [], errors: [{ description: 'controller down' }] })
-        )
-      ).toThrow(SlurmUpstreamError);
-      const jobs = parseJobsStdout(
-        'v0.0.45',
-        JSON.stringify({ jobs: [], warnings: [{ message: 'skew' }] })
-      );
-      expect(jobs).toEqual([]);
-      expect(warnSpy).toHaveBeenCalled();
-    } finally {
-      warnSpy.mockRestore();
-    }
-  });
-});
-
-describe('normalizeStateReason', () => {
-  test('"None" normalizes to null', () => {
+  test('normalizes state reason sentinels', () => {
     expect(normalizeStateReason('None')).toBeNull();
     expect(normalizeStateReason('NONE')).toBeNull();
     expect(normalizeStateReason(null)).toBeNull();
-    expect(normalizeStateReason('')).toBeNull();
     expect(normalizeStateReason('Resources')).toBe('Resources');
   });
 });
 
-describe('fetchJobs', () => {
-  test('issues versioned argv and validates output', async () => {
-    const run = jest.fn().mockResolvedValue({ stdout: jobsFixture('v45'), stderr: '' });
+describe('formatted squeue command', () => {
+  test('uses a single strict formatted request with per-command time formatting', async () => {
+    const run = jest.fn().mockResolvedValue({ stdout: row(), stderr: '' });
     const jobs = await fetchJobs({ parser: 'v0.0.45', run });
+    expect(jobs).toHaveLength(1);
+    expect(run).toHaveBeenCalledTimes(1);
     expect(run).toHaveBeenCalledWith(
       'squeue',
-      ['--json=v0.0.45', '--states=R,PD,CD'],
-      expect.objectContaining({ timeoutMs: expect.any(Number) })
+      ['--noheader', '--array', '--states=R,PD,CD', `--Format=${SQUEUE_FORMAT}`],
+      expect.objectContaining({ timeoutMs: 20_000, maxBufferBytes: 32 * 1024 * 1024,
+        env: { SLURM_TIME_FORMAT: '%s' } })
     );
-    expect(jobs).toHaveLength(3);
+    expect(SQUEUE_FORMAT.split(',')).toHaveLength(JOB_FIELDS.length);
+    expect(SQUEUE_FORMAT).toContain(`:0${SEP}`);
+    expect(SQUEUE_FORMAT.endsWith(`:0${'\x1e'}`)).toBe(true);
+    expect(SQUEUE_FORMAT).not.toContain('--json');
+  });
+
+  test('malformed output fails without retrying another format', async () => {
+    const run = jest.fn().mockResolvedValue({ stdout: row().slice(0, -2), stderr: '' });
+    await expect(fetchJobs({ parser: 'v0.0.45', run })).rejects.toBeInstanceOf(UpstreamInvalidError);
+    expect(run).toHaveBeenCalledTimes(1);
   });
 });

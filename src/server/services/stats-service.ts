@@ -10,16 +10,9 @@ import type {
   MemoryStats,
 } from '../models/stats.js';
 
-// Aggregates CPU/memory/GPU from one node snapshot.
-//
-// CPU invariant: allocated + available + unavailable === configured.
-// Hard-down nodes count whole as unavailable. Otherwise configured
-// capacity outside the effective set counts as unavailable, allocations
-// persist, and only the unallocated effective remainder is available on
-// schedulable nodes or unavailable on restricted ones. Memory invariant:
-// allocated + unallocated + unavailable === total. `freeMiB` sums
-// OS-reported FreeMem over every node except hard-down ones and sits
-// outside that invariant.
+// Aggregate CPU, memory, and GPU statistics from one node snapshot. CPU and
+// memory totals reflect configured capacity. Down nodes and unusable CPUs
+// count as unavailable; OS-reported free memory is tracked separately.
 interface StatsSource {
   getOrLoad(options?: { signal?: AbortSignal }): Promise<NodeSnapshot>;
 }
@@ -58,8 +51,7 @@ function summarizeCpu(nodes: readonly ClusterNode[], thresholds: CpuLoadThreshol
       stats.unavailableCpus += node.cpus;
       continue;
     }
-    // Configured capacity outside the effective set is specialized away
-    // from scheduling entirely.
+    // Configured capacity outside the effective set is unavailable for scheduling.
     stats.unavailableCpus += Math.max(0, node.cpus - node.effectiveCpus);
     stats.allocatedCpus += node.allocCpus;
     if (node.allocCpus > 0) {
@@ -108,8 +100,9 @@ function summarizeMemory(nodes: readonly ClusterNode[]): MemoryStats {
       usedComplete = false;
     } else {
       freeSum += node.freeMemoryMiB;
-      // Ported from the legacy getAllocatedMemoryInUse(realMem, allocMem,
-      // freeMem): usedByOs = max(0, real - free), used = min(alloc, usedByOs).
+      // This follows the legacy getAllocatedMemoryInUse(realMem, allocMem,
+      // freeMem) calculation: usedByOs = max(0, real - free), then
+      // used = min(alloc, usedByOs).
       usedSum += Math.min(allocated, Math.max(0, node.totalMemoryMiB - node.freeMemoryMiB));
     }
   }
@@ -167,7 +160,7 @@ class StatsService {
     private readonly thresholds: CpuLoadThresholds = DEFAULT_CPU_LOAD_THRESHOLDS
   ) {}
 
-  // A partition scopes to member nodes; null counts every node once.
+  // A partition includes its member nodes; null includes every node once.
   async getStats(partition: string | null = null): Promise<StatsResult> {
     const snapshot = await this.source.getOrLoad();
     const nodes =

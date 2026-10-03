@@ -1,4 +1,3 @@
-// Scope association queries to the local controller's cluster.
 import { runCommand } from './command-runner.js';
 import type { SlurmContext, SlurmRunFn } from './context.js';
 import { UpstreamInvalidError } from './errors.js';

@@ -10,8 +10,8 @@ const NODE_BASE_STATES = [
 
 type NodeBaseState = (typeof NODE_BASE_STATES)[number];
 
-// down: whole node unavailable. restricted: closed for new scheduling,
-// running allocations persist. available: fully schedulable.
+// A down node is unavailable. A restricted node accepts no new work, but
+// existing allocations continue. An available node is fully schedulable.
 type NodeAvailability = 'down' | 'restricted' | 'available';
 
 const HARD_DOWN_FLAGS: ReadonlySet<string> = new Set([
@@ -27,7 +27,7 @@ const RESTRICTED_FLAGS: ReadonlySet<string> = new Set([
   'FAILING',
 ]);
 
-// ERROR blocks new scheduling while existing work drains.
+// ERROR blocks new scheduling while existing work drains from the node.
 function nodeAvailability(state: NodeBaseState, flags: readonly string[]): NodeAvailability {
   if (state === 'DOWN' || state === 'FUTURE') {
     return 'down';
@@ -50,8 +50,8 @@ interface GpuInventory {
   byType: Record<string, { total: number; allocated: number }>;
 }
 
-// Memory fields are MiB. freeMemoryMiB is null when Slurm omits it.
-// reason is the node reason text (e.g. down/drained), or null.
+// Memory fields use MiB. freeMemoryMiB is null when Slurm omits it.
+// reason contains Slurm's node reason (for example, down or drained), or null.
 interface ClusterNode {
   readonly name: string;
   readonly partitions: readonly string[];

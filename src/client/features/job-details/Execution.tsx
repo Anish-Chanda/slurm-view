@@ -27,8 +27,8 @@ function CodeField({
 }
 
 function Execution({ job }: { job: JobDto }) {
-  // Exit results are only meaningful once the scheduler is done with the
-  // job; active jobs can carry a raw "0" that must never read as an outcome.
+  // Show exit results only after the job ends; active jobs may carry a raw
+  // "0" that is not an outcome.
   const showExit = isTerminalState(job.state);
   const exitCode = showExit ? job.exitCode : null;
   const derivedExitCode = showExit ? job.derivedExitCode : null;
@@ -58,10 +58,8 @@ function Execution({ job }: { job: JobDto }) {
             copyLabel="Copy working directory"
           />
         ) : null}
-        {/* Stdout/stderr keep their plain labels for every value: they name
-            Slurm's configured values, which may still carry substitution
-            syntax (xtb_6_%A_%a.out) or literal percent characters. A bare
-            '%' never proves a pattern, so no pattern labeling is attempted. */}
+        {/* These are Slurm output paths. Substitution syntax or percent
+            characters do not establish the file's content type. */}
         {job.stdoutPath !== null ? (
           <CodeField
             id="execution-stdout"

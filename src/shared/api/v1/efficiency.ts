@@ -1,5 +1,4 @@
-// Public v1 efficiency contract: semantic numerics with explicit units.
-// Percentages are descriptive data as reported by seff, never grades.
+// Efficiency API contract. Percentages are reported by seff; units are explicit.
 export interface CpuEfficiencyDto {
   efficiencyPercent: number | null;
   utilizedSeconds: number | null;

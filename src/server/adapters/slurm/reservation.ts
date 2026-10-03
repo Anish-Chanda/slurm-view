@@ -1,5 +1,5 @@
-// Single-reservation lookup. Reservation output has no stable JSON
-// contract across parser generations; all fields stay nullable.
+// Fetch one reservation. Its output has no stable JSON contract across parser
+// generations, so all fields remain nullable.
 import { runCommand } from './command-runner.js';
 import { CommandError } from './command-runner.js';
 import { UpstreamInvalidError } from './errors.js';
@@ -44,8 +44,8 @@ interface ReservationDetail {
 }
 
 function parseReservationText(stdout: string): ParsedReservation | null {
-  // Classic "ReservationName=X StartTime=... EndTime=... State=..." text,
-  // possibly across multiple lines; take the first record.
+  // Parse classic "ReservationName=X StartTime=... EndTime=... State=..."
+  // text, which may span multiple lines. Use the first record.
   const text = stdout.trim();
   if (text.length === 0) {
     return null;
@@ -142,9 +142,9 @@ async function fetchReservationDetail(
     return null;
   }
   const run: SlurmRunFn = context.run ?? runCommand;
-  // Fall back to text only when this Slurm version does not support JSON
-  // output. A usable JSON command with an unusable payload is an upstream
-  // error; aborts, timeouts, and controller failures propagate.
+  // Use text output when this Slurm version does not support JSON. If the
+  // JSON command succeeds but returns an unusable payload, report an upstream
+  // error. Propagate aborts, timeouts, and controller failures.
   try {
     const json = await run('scontrol', [`--json=${context.parser}`, 'show', 'reservation', name], {
       timeoutMs: RESERVATION_COMMAND_TIMEOUT_MS,
@@ -186,7 +186,7 @@ async function fetchReservationDetail(
   return requireIdentity(fromText, name);
 }
 
-// Require the returned reservation name to match the requested one.
+// Accept the result only when its reservation name matches the request.
 function requireIdentity(record: ParsedReservation, name: string): ReservationDetail {
   if (record.name === null) {
     throw new UpstreamInvalidError(

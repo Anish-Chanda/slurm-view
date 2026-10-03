@@ -1,5 +1,5 @@
 {
-  "_comment": "SYNTHETIC fixture shaped like squeue --json=v0.0.43 output. Not captured from a live cluster.",
+  "_comment": "Synthetic fixture modeled on targeted scontrol --json=v0.0.43 show job output; it was not captured from a cluster.",
   "meta": { "plugin": { "type": "v0.0.43", "name": "job_info" }, "client": {}, "slurm": {} },
   "errors": [],
   "warnings": [],

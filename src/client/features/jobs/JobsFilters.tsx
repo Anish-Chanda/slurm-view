@@ -72,9 +72,7 @@ interface JobsFiltersProps {
   onFiltersChange: (filters: JobsFilterValues) => void;
 }
 
-// Compact field selector + single intelligent input (old UI model).
-// Typing only edits the draft; Enter/Apply commits. Suggestions never
-// commit on their own. Server requests fire on commit, never per keystroke.
+// Typing edits the draft; Enter or Apply commits it and triggers the request.
 function JobsFilters({
   filters,
   partitions,
@@ -83,7 +81,7 @@ function JobsFilters({
   onPartitionsRetry,
   onFiltersChange,
 }: JobsFiltersProps) {
-  // Job ID first, matching the old UI's initial field.
+  // Start with the Job ID field.
   const [field, setField] = useState<CanonicalKey>('id');
   const [draft, setDraft] = useState('');
   const [suggestions, setSuggestions] = useState<FilterSuggestion[]>([]);
@@ -124,8 +122,7 @@ function JobsFilters({
     setSuggestions([]);
     setDropdownOpen(false);
     setActiveIndex(-1);
-    // Return focus and restore the cursor after the inserted value so a
-    // compound query can keep being typed without committing.
+    // Restore focus and the cursor so the user can continue the query.
     requestAnimationFrame(() => {
       inputRef.current?.focus();
       inputRef.current?.setSelectionRange(cursorPos, cursorPos);
@@ -142,8 +139,7 @@ function JobsFilters({
     }
     const parsed = parseFilterInput(trimmed);
     if (parsed.errors.length > 0) {
-      // e.g. state:bananas — hint and commit nothing rather than letting
-      // the strict v1 API answer 400.
+      // Do not submit invalid states (for example, `state:bananas`) to the API.
       setHint(parsed.errors.join(' '));
       setSuggestions([]);
       setDropdownOpen(false);
@@ -159,8 +155,7 @@ function JobsFilters({
       return;
     }
     if (parsed.hasColon) {
-      // Colon present but no valid key:value pair (old "Invalid format!"
-      // feedback, surfaced accessibly instead of via placeholder).
+      // Report malformed key:value input accessibly.
       setHint('Invalid format! Use: key1:value1 key2:value2');
       setSuggestions([]);
       setDropdownOpen(false);
@@ -212,8 +207,7 @@ function JobsFilters({
           aria-label="Filter field"
           className="rounded border p-2 text-sm disabled:opacity-50"
           value={field}
-          // In compound mode the draft carries its own keys, so the
-          // selector is irrelevant: disable and dim it (old UI behavior).
+          // Compound queries specify their own keys, so disable the selector.
           disabled={compound}
           onChange={(event) => {
             const next = event.target.value as CanonicalKey;
@@ -258,8 +252,7 @@ function JobsFilters({
                 event.preventDefault();
                 setActiveIndex((index) => (index - 1 + suggestions.length) % suggestions.length);
               } else if (event.key === 'Enter' && dropdownOpen && activeIndex >= 0) {
-                // Accepting a suggestion edits the draft only; a second
-                // Enter commits the full query.
+                // Selecting a suggestion edits the draft; a second Enter commits it.
                 event.preventDefault();
                 const suggestion = suggestions[activeIndex];
                 if (suggestion) acceptSuggestion(suggestion);
@@ -271,7 +264,7 @@ function JobsFilters({
               }
             }}
             onBlur={() => {
-              // Deferred so suggestion clicks (mousedown) win over blur.
+              // Defer blur handling so suggestion mousedown can run first.
               blurTimer.current = setTimeout(() => {
                 setSuggestions([]);
                 setDropdownOpen(false);
@@ -303,7 +296,7 @@ function JobsFilters({
                     index === activeIndex ? 'bg-blue-100' : ''
                   }`}
                   onMouseDown={(event) => {
-                    // Prevent input blur before the click registers.
+                    // Keep focus until the click handler runs.
                     event.preventDefault();
                     acceptSuggestion(suggestion);
                   }}

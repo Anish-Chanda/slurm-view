@@ -1,4 +1,4 @@
-import { normalizeJob } from '../../../src/server/adapters/slurm/jobs.js';
+import { normalizeJob } from '../../../src/server/adapters/slurm/job-normalizer.js';
 import { CommandError } from '../../../src/server/adapters/slurm/command-runner.js';
 import { ProblemCode, ProblemDefinitions } from '../../../src/shared/api/v1/common.js';
 import {
@@ -92,7 +92,7 @@ describe('association hierarchy via ID/ParentID', () => {
   test('walks ParentID links, not names', () => {
     const store = buildAssociationStore([
       assocEntry({ id: '1', parentId: '2', account: 'leaf' }),
-      // Misleading ParentName on purpose; traversal must ignore it.
+      // A misleading ParentName confirms that traversal follows parent IDs.
       assocEntry({ id: '2', parentId: '3', account: 'mid', parentAccount: 'wrong-name' }),
       assocEntry({ id: '3', parentId: null, account: 'root' }),
     ]);

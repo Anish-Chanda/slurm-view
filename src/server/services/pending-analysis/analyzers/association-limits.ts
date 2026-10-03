@@ -1,5 +1,5 @@
-// Association limit analyzers (AssocGrp*/AssocMaxJobsLimit). Usage is
-// scoped by the limiting association, never by bare account name.
+// Analyze AssocGrp* and AssocMaxJobsLimit policies. Scope usage to the
+// limiting association, since account names alone do not identify its users.
 import type { AnalyzerContext } from '../types.js';
 import type { LimitAnalysisDto, LimitMetric } from '../../../../shared/api/v1/pending-analysis.js';
 import type { AssociationEntry } from '../../../models/association.js';
@@ -48,8 +48,8 @@ function isAssocReason(reason: string | null): reason is AssocKind {
 interface LevelMeasurement {
   entry: AssociationEntry;
   effectiveLimit: number | null;
-  // Exact total, or null when a contributor is unquantifiable. knownUsed
-  // is the quantified lower bound.
+  // Exact total, or null if any contributor cannot be quantified. knownUsed
+  // holds the quantified lower bound.
   used: number | null;
   knownUsed: number;
   runningJobs: number;
@@ -81,8 +81,8 @@ function buildHierarchy(
   });
 }
 
-// The winner is the first proven level from the user association toward
-// the root, matching Slurm's bottom-up enforcement order.
+// Select the first proven level from the user association toward the root,
+// matching Slurm's bottom-up enforcement order.
 function selectProvenLimiting(
   levels: LevelMeasurement[],
   requested: number
@@ -280,8 +280,8 @@ async function analyzeAssocLimits(ctx: AnalyzerContext): Promise<LimitAnalysisDt
       if (job.user === null) {
         return null;
       }
-      // MaxJobs is per-association: the first-defined entry up the chain
-      // wins, and sibling users never count. GrpJobs is a separate limit.
+      // MaxJobs applies per association, so the first defined entry up the
+      // chain wins and sibling users do not count. GrpJobs is a separate limit.
       const winner = chain.find((entry) => entry.maxJobs !== null) ?? null;
       if (winner === null || winner.maxJobs === null) {
         return null;
@@ -364,9 +364,9 @@ async function analyzeAssocLimits(ctx: AnalyzerContext): Promise<LimitAnalysisDt
       if (levels.length === 0) {
         return null;
       }
-      // Run-minute `requested` stays null: only limit/used evidence is
-      // reported. Usage alone proves the condition only when already over
-      // the limit, at the first such level up the chain.
+      // Leave run-minute `requested` null and report only limit/usage
+      // evidence. Usage proves the condition only when it exceeds the limit,
+      // at the first such level up the chain.
       let limiting: AssociationEntry | null = null;
       for (const level of levels) {
         if (level.knownUsed > (level.effectiveLimit ?? 0)) {

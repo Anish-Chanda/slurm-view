@@ -1,11 +1,7 @@
 import { z } from 'zod';
-import type { SupportedDataParser } from '../parser-version.js';
-import { slurmNoticeSchema, slurmNumericSchema } from './common.js';
+import { slurmNumericSchema } from './common.js';
 
-// Only consumed fields are modeled; the rest is stripped. The per-parser
-// record keeps each generation an explicit contract; they share one
-// definition while the consumed fields stay identical.
-// Only the consumed exit-code fields are modeled; the rest is stripped.
+// This schema models the fields used to normalize targeted scontrol JSON.
 const slurmExitCodeSchema = z.object({
   return_code: slurmNumericSchema.nullish(),
 });
@@ -50,26 +46,5 @@ const rawJobSchema = z.object({
 
 type RawJob = z.infer<typeof rawJobSchema>;
 
-const jobResponseEnvelopeSchema = z.object({
-  jobs: z.array(rawJobSchema),
-  meta: z.unknown().optional(),
-  errors: z.array(slurmNoticeSchema).nullish(),
-  warnings: z.array(slurmNoticeSchema).nullish(),
-  last_update: z.unknown().optional(),
-  last_backfill: z.unknown().optional(),
-});
-
-type JobResponseEnvelope = z.infer<typeof jobResponseEnvelopeSchema>;
-
-const jobResponseSchemas: Record<SupportedDataParser, typeof jobResponseEnvelopeSchema> = {
-  'v0.0.45': jobResponseEnvelopeSchema,
-  'v0.0.44': jobResponseEnvelopeSchema,
-  'v0.0.43': jobResponseEnvelopeSchema,
-};
-
-function jobResponseSchemaFor(parser: SupportedDataParser): typeof jobResponseEnvelopeSchema {
-  return jobResponseSchemas[parser];
-}
-
-export { jobResponseSchemaFor, jobResponseSchemas, rawJobSchema };
-export type { JobResponseEnvelope, RawJob };
+export { rawJobSchema };
+export type { RawJob };

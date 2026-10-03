@@ -1,8 +1,7 @@
-// Regression tests for pending-analysis.
 import { parseTargetedJobStdout } from '../../../src/server/adapters/slurm/targeted-job.js';
 import type { MemoryRequirement } from '../../../src/server/adapters/slurm/targeted-job.js';
 import { fetchAssocSnapshot, parseAssocStdout } from '../../../src/server/adapters/slurm/sacctmgr-assoc.js';
-import { normalizeJob } from '../../../src/server/adapters/slurm/jobs.js';
+import { normalizeJob } from '../../../src/server/adapters/slurm/job-normalizer.js';
 import { normalizeNode } from '../../../src/server/adapters/slurm/nodes.js';
 import { fetchLocalClusterName, parseClusterName } from '../../../src/server/adapters/slurm/cluster-name.js';
 import { UpstreamInvalidError } from '../../../src/server/adapters/slurm/errors.js';
@@ -18,6 +17,7 @@ import { SprioWeightsCache } from '../../../src/server/cache/sprio-weights-cache
 import type { SlurmRunFn } from '../../../src/server/adapters/slurm/context.js';
 import { PendingAnalysisService } from '../../../src/server/services/pending-analysis-service.js';
 import { clearContradictionCooldownForTests } from '../../../src/server/services/pending-analysis/contradiction-cooldown.js';
+import { formattedSqueue } from './formatted-squeue-fixture.js';
 import { analyzeResources } from '../../../src/server/services/pending-analysis/analyzers/resources.js';
 import { analyzeAssocLimits } from '../../../src/server/services/pending-analysis/analyzers/association-limits.js';
 import { analyzeQosLimits } from '../../../src/server/services/pending-analysis/analyzers/qos-limits.js';
@@ -470,8 +470,8 @@ describe('association scoping by entry', () => {
       requested: { cpus: 9, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } },
     });
     const jobs = [
-      makeJob({ id: '41', account: 'organization-a', partition: 'other' }), // must not count
-      makeJob({ id: '42', account: 'organization-a', partition: 'debug' }), // counts: 4
+      makeJob({ id: '41', account: 'organization-a', partition: 'other' }), // Different partition; excluded.
+      makeJob({ id: '42', account: 'organization-a', partition: 'debug' }), // Contributes 4 CPUs.
     ];
     const result = await analyzeAssocLimits({ ...makeCtx(pending, { jobs }), assoc: { store: buildAssociationStore(entries), capturedAt: new Date() } });
     expect(result?.used).toBe(4);
@@ -891,11 +891,8 @@ describe('service refresh, cooldown, and missing-job mapping', () => {
     const fake: Fake = {
       targeted: pendingCpuJob(52, 'AssocGrpCpuLimit'),
       squeueTexts: [
-        JSON.stringify({ errors: [], jobs: [] }),
-        JSON.stringify({
-          errors: [],
-          jobs: [squeueJob({ job_id: 90, job_state: ['RUNNING'], tres_req_str: 'cpu=10,mem=100M,node=1', tres_alloc_str: 'cpu=10,mem=100M,node=1' })],
-        }),
+        '',
+        formattedSqueue([squeueJob({ job_id: 90, job_state: ['RUNNING'], tres_req_str: 'cpu=10,mem=100M,node=1', tres_alloc_str: 'cpu=10,mem=100M,node=1' })]),
       ],
       assocTexts: [`${assocHeader}\n1||c|organization-a|||root|cpu=10||||\n2|1|c|organization-a|alice||organization-a|||||`],
       qosTexts: [qosRow],
@@ -913,7 +910,7 @@ describe('service refresh, cooldown, and missing-job mapping', () => {
   test('stale association policy corrected by refresh', async () => {
     const fake: Fake = {
       targeted: pendingCpuJob(53, 'AssocGrpCpuLimit'),
-      squeueTexts: [JSON.stringify({ errors: [], jobs: [] })],
+      squeueTexts: [''],
       assocTexts: [
         `${assocHeader}\n1||c|organization-a|||root|cpu=100||||\n2|1|c|organization-a|alice||organization-a|||||`,
         `${assocHeader}\n1||c|organization-a|||root|cpu=1||||\n2|1|c|organization-a|alice||organization-a|||||`,
@@ -937,7 +934,7 @@ describe('service refresh, cooldown, and missing-job mapping', () => {
     let qosCalls = 0;
     const base: Fake = {
       targeted: { ...pendingCpuJob(54, 'QOSGrpCpuLimit'), account: 'organization-a', qos: 'shared' },
-      squeueTexts: [JSON.stringify({ errors: [], jobs: [] })],
+      squeueTexts: [''],
       assocTexts: [],
       qosTexts: [qosLoose],
       calls: { squeue: 0, assoc: 0, qos: 0, partition: 0 },
@@ -983,7 +980,7 @@ describe('service refresh, cooldown, and missing-job mapping', () => {
   test('cooldown suppresses repeat refresh; later window refreshes again', async () => {
     const fake: Fake = {
       targeted: pendingCpuJob(55, 'AssocGrpCpuLimit'),
-      squeueTexts: [JSON.stringify({ errors: [], jobs: [] })],
+      squeueTexts: [''],
       assocTexts: [`${assocHeader}\n1||c|organization-a|||root|cpu=100||||\n2|1|c|organization-a|alice||organization-a|||||`],
       qosTexts: [qosRow],
       calls: { squeue: 0, assoc: 0, qos: 0, partition: 0 },
@@ -1004,7 +1001,7 @@ describe('service refresh, cooldown, and missing-job mapping', () => {
   test('missing job via errors[] becomes 404; unrelated errors stay 503', async () => {
     const base: Fake = {
       targeted: pendingCpuJob(56, 'Resources'),
-      squeueTexts: [JSON.stringify({ errors: [], jobs: [] })],
+      squeueTexts: [''],
       assocTexts: [],
       qosTexts: [],
       calls: { squeue: 0, assoc: 0, qos: 0, partition: 0 },
@@ -1548,7 +1545,7 @@ describe('canonical missing-job signal and refresh timestamps', () => {
   ])('missing job %s becomes 404', async (_label, stderr) => {
     const fake: Fake = {
       targeted: squeueJob({ job_id: 170, job_state: ['PENDING'], state_reason: 'Resources' }),
-      squeueTexts: [JSON.stringify({ errors: [], jobs: [] })],
+      squeueTexts: [''],
       assocTexts: [],
       qosTexts: [],
       calls: { squeue: 0, assoc: 0, qos: 0 },
@@ -1565,7 +1562,7 @@ describe('canonical missing-job signal and refresh timestamps', () => {
   ])('non-job failure (%s) never becomes 404', async (_label, stderr) => {
     const fake: Fake = {
       targeted: squeueJob({ job_id: 171, job_state: ['PENDING'], state_reason: 'Resources' }),
-      squeueTexts: [JSON.stringify({ errors: [], jobs: [] })],
+      squeueTexts: [''],
       assocTexts: [],
       qosTexts: [],
       calls: { squeue: 0, assoc: 0, qos: 0 },
@@ -1578,7 +1575,7 @@ describe('canonical missing-job signal and refresh timestamps', () => {
     const probe: { capturedAt: string | null } = { capturedAt: null };
     const fake: Fake = {
       targeted: squeueJob({ job_id: 172, job_state: ['PENDING'], state_reason: 'AssocGrpCpuLimit', tres_req_str: 'cpu=1,mem=100M,node=1' }),
-      squeueTexts: [JSON.stringify({ errors: [], jobs: [] })],
+      squeueTexts: [''],
       assocTexts: [`${assocHeader}\n1||c|organization-a|||root|cpu=100||||\n2|1|c|organization-a|alice||organization-a|||||`],
       qosTexts: [qosRow],
       calls: { squeue: 0, assoc: 0, qos: 0 },
@@ -1595,7 +1592,7 @@ describe('canonical missing-job signal and refresh timestamps', () => {
     const probe: { capturedAt: string | null } = { capturedAt: null };
     const fake: Fake = {
       targeted: squeueJob({ job_id: 173, job_state: ['PENDING'], state_reason: 'AssocGrpCpuLimit', tres_req_str: 'cpu=1,mem=100M,node=1' }),
-      squeueTexts: [JSON.stringify({ errors: [], jobs: [] })],
+      squeueTexts: [''],
       assocTexts: [`${assocHeader}\n1||c|organization-a|||root|cpu=100||||\n2|1|c|organization-a|alice||organization-a|||||`],
       qosTexts: [qosRow],
       calls: { squeue: 0, assoc: 0, qos: 0 },
@@ -1618,7 +1615,7 @@ describe('canonical missing-job signal and refresh timestamps', () => {
         return { stdout: 'ClusterName=cluster-a\n', stderr: '' };
       }
       if (executable === 'squeue') {
-        return { stdout: JSON.stringify({ errors: [], jobs: [] }), stderr: '' };
+        return { stdout: '', stderr: '' };
       }
       if (executable === 'scontrol' && argv.includes('show job')) {
         return {
@@ -2257,7 +2254,7 @@ describe('bare array-job dependencies apply to the whole array', () => {
     });
   }
 
-  // Pin taskCount (ntasks) to verify it is not treated as array cardinality.
+  // taskCount is the ntasks value, not the number of array elements.
   function arrayMaster(arrayId: string): Job {
     return makeJob({
       id: arrayId, jobId: arrayId, arrayJobId: arrayId, state: 'PENDING',
@@ -2585,7 +2582,7 @@ describe('configured GPU GRES vs unknown inventory', () => {
 });
 
 describe('full association ancestry in hierarchy', () => {
-  // root -> organization-a -> division-a -> department-a -> project-a -> user-a @ project-a
+  // Account path: root → organization-a → division-a → department-a → project-a.
   const fullChainEntries = [
     assocEntry({ id: '1', parentId: null, account: 'root', parentAccount: null }),
     assocEntry({ id: '2', parentId: '1', account: 'organization-a', parentAccount: 'root' }),

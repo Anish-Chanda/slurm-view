@@ -1,6 +1,6 @@
-// Missing-job recognition for the targeted lookup and dependency targets.
-// The canonical Slurm signal is the exact phrase "Invalid job id
-// specified". Other patterns must also name the job id.
+// Recognize missing jobs in targeted lookups and dependency probes. Slurm's
+// definitive message is "Invalid job id specified"; other matches must name
+// the job ID.
 const CANONICAL_MISSING_JOB = /invalid job id specified/i;
 
 function mentionsJobId(text: string, jobId: string): boolean {

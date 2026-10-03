@@ -1,7 +1,6 @@
 import type { JobSnapshot } from '../cache/jobs-cache.js';
-import type { Job } from '../models/job.js';
+import type { QueueJob } from '../models/queue-job.js';
 
-// Filters and paginates in memory over the snapshot.
 interface JobsSource {
   getOrLoad(options?: { signal?: AbortSignal }): Promise<JobSnapshot>;
 }
@@ -27,13 +26,8 @@ interface Pagination extends PaginationInput {
 }
 
 interface JobsResult {
-  jobs: Job[];
+  jobs: QueueJob[];
   pagination: Pagination;
-  updatedAt: Date;
-}
-
-interface JobDetailsResult {
-  job: Job;
   updatedAt: Date;
 }
 
@@ -76,7 +70,7 @@ function isBlank(filter: string | undefined): boolean {
   return filter === undefined || filter.trim().length === 0;
 }
 
-function applyJobsFilter(jobs: readonly Job[], filter: JobsFilter): Job[] {
+function applyJobsFilter(jobs: readonly QueueJob[], filter: JobsFilter): QueueJob[] {
   return jobs.filter((job) => {
     if (!isBlank(filter.id) && !equals(job.id, filter.id!)) {
       return false;
@@ -106,13 +100,9 @@ function applyJobsFilter(jobs: readonly Job[], filter: JobsFilter): Job[] {
 class JobsService {
   constructor(private readonly source: JobsSource) {}
 
-  async getJobById(id: string): Promise<JobDetailsResult | null> {
+  async findSnapshotJobById(id: string): Promise<QueueJob | null> {
     const snapshot = await this.source.getOrLoad();
-    const job = snapshot.byId.get(id) ?? null;
-    if (job === null) {
-      return null;
-    }
-    return { job, updatedAt: snapshot.capturedAt };
+    return snapshot.byId.get(id) ?? null;
   }
 
   async listJobs(filter: JobsFilter, pagination: PaginationInput): Promise<JobsResult> {
@@ -135,4 +125,4 @@ class JobsService {
 }
 
 export { JobsService, applyJobsFilter };
-export type { JobDetailsResult, JobsFilter, JobsResult, JobsSource, Pagination, PaginationInput };
+export type { JobsFilter, JobsResult, JobsSource, Pagination, PaginationInput };

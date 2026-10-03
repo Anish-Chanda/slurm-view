@@ -1,6 +1,6 @@
-// sacctmgr association adapter for pending analysis: ID/ParentID hierarchy
-// plus TRES/job-count limits. Pipe-delimited output; no JSON. The Cluster
-// column is retained but unused.
+// Read association hierarchy and TRES or job-count limits for pending
+// analysis. sacctmgr emits pipe-delimited output without JSON. The Cluster
+// column is retained but not used.
 import { runCommand } from './command-runner.js';
 import type { SlurmContext, SlurmRunFn } from './context.js';
 import { UpstreamInvalidError } from './errors.js';
@@ -31,8 +31,8 @@ function isUnsetToken(text: string): boolean {
   return text === '' || text === '-1' || /^(N\/A|\(null\)|UNLIMITED|INFINITE|NONE)$/i.test(text);
 }
 
-// Malformed policy rows fail the snapshot; a skipped row could be the
-// limiting policy. Blank and header rows are ignored.
+// Malformed policy rows fail the snapshot because a skipped row could hold
+// the limiting policy. Blank and header rows are ignored.
 function strictCount(raw: string | undefined, label: string): number | null {
   const text = (raw ?? '').trim();
   if (isUnsetToken(text)) {
@@ -111,8 +111,8 @@ async function fetchAssocSnapshot(
   options: { signal?: AbortSignal } = {}
 ): Promise<AssocSnapshot> {
   const run: SlurmRunFn = context.run ?? runCommand;
-  // Rows are always scoped to the local cluster; a failed ClusterName
-  // lookup propagates instead of querying all clusters.
+  // Scope rows to the local cluster. If ClusterName lookup fails, do not
+  // broaden the query to every cluster.
   const cluster = await fetchLocalClusterName(context, { signal: options.signal });
   const { stdout } = await run(
     'sacctmgr',

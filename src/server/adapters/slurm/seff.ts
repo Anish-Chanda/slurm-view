@@ -96,8 +96,8 @@ function splitSeffLine(line: string): { key: string; value: string } | null {
   return { key: match[1]!.trim(), value: (match[2] ?? '').trim() };
 }
 
-// Throws UpstreamInvalidError when stdout carries no usable efficiency data,
-// including efficiency labels with nothing parseable behind them.
+// Throw UpstreamInvalidError when stdout has no usable efficiency data,
+// including labels with no parseable value.
 function parseSeffStdout(stdout: string): Efficiency {
   const efficiency: Efficiency = {
     cpu: { efficiencyPercent: null, utilizedSeconds: null, allocatedCoreSeconds: null },

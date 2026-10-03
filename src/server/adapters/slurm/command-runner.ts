@@ -14,7 +14,7 @@ export type CommandErrorKind =
   | 'spawn-failed'
   | 'aborted';
 
-// Log-only diagnostics; never expose stderr or paths through the API.
+// Diagnostics are for logs; the API does not expose stderr or file paths.
 class CommandError extends Error {
   public readonly kind: CommandErrorKind;
   public readonly executable: string;
@@ -44,6 +44,7 @@ interface RunCommandOptions {
   timeoutMs?: number;
   maxBufferBytes?: number;
   signal?: AbortSignal;
+  env?: NodeJS.ProcessEnv;
 }
 
 interface RunCommandResult {
@@ -51,8 +52,8 @@ interface RunCommandResult {
   stderr: string;
 }
 
-// Preserves output for non-zero exits. Only seff needs this: it can print
-// usable data and still exit non-zero.
+// This preserves output after a non-zero exit. seff can print usable data
+// and still exit non-zero.
 interface CapturedCommandResult {
   stdout: string;
   stderr: string;
@@ -111,8 +112,8 @@ function toCommandError(
     });
   }
 
-  // A child killed for exceeding maxBuffer also reports killed; the buffer
-  // check takes priority over the timeout check below.
+  // Exceeding maxBuffer also reports the child as killed, so check the buffer
+  // limit before checking for a timeout below.
   if (error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' || /maxbuffer/i.test(error.message)) {
     return new CommandError({
       kind: 'output-too-large',
@@ -123,7 +124,7 @@ function toCommandError(
     });
   }
 
-  // execFile kills the child when its timeout fires.
+  // execFile kills the child when the timeout expires.
   if (error.killed === true) {
     return new CommandError({
       kind: 'timeout',
@@ -154,8 +155,8 @@ function toCommandError(
   });
 }
 
-// Same safety as runCommand (argv via execFile, no shell, bounded timeout
-// and output, AbortSignal) but resolves non-zero exits instead of throwing.
+// This uses the same safeguards as runCommand (execFile argv, no shell,
+// bounded timeout and output, and AbortSignal), but resolves non-zero exits.
 async function runCommandCapture(
   executable: string,
   args: readonly string[],
@@ -185,7 +186,10 @@ async function runCommandCapture(
         signal: options.signal,
         shell: false,
         env: {
+          // Callers may add command-specific values. Slurm JSON commands use
+          // compact JSON by default.
           ...process.env,
+          ...options.env,
           SLURM_JSON: 'compact',
         },
       },
@@ -213,9 +217,9 @@ async function runCommandCapture(
   });
 }
 
-// Runs a binary with an explicit argv array via execFile (no shell, so
-// arguments pass through verbatim). Accepts any executable so tests can
-// drive process.execPath; Slurm adapters hard-code their own binaries.
+// Run a binary with an explicit argv array through execFile, so arguments
+// pass through without a shell. The executable is configurable for tests;
+// Slurm adapters use fixed binary names.
 async function runCommand(
   executable: string,
   args: readonly string[],

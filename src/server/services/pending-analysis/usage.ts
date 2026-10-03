@@ -1,7 +1,7 @@
-// Running-usage aggregation over the job snapshot. A null pick means the
-// allocation is unknown, not zero. Only allocated resources count;
-// requested resources are never substituted for unknown allocation.
-import type { Job } from '../../models/job.js';
+// Aggregate running usage from the job snapshot. A null resource value means
+// the allocation is unknown. Count allocated resources only; requests do not
+// replace missing allocation data.
+import type { QueueJob } from '../../models/queue-job.js';
 import type { AssociationEntry, AssociationStore } from '../../models/association.js';
 import { descendantAssociationIds, resolveAssociation } from '../../models/association.js';
 import type { QosStore } from '../../models/qos.js';
@@ -9,7 +9,7 @@ import type { QosStore } from '../../models/qos.js';
 export type RunMinuteResource = 'cpu' | 'mem';
 
 interface UsageOptions {
-  jobs: readonly Job[];
+  jobs: readonly QueueJob[];
   now?: Date;
 }
 
@@ -31,7 +31,7 @@ interface RunMinutesSum {
   topConsumers: Array<{ jobId: string; user: string | null; account: string | null; value: number }>;
 }
 
-function isRunning(job: Job): boolean {
+function isRunning(job: QueueJob): boolean {
   return job.state === 'RUNNING';
 }
 
@@ -43,10 +43,10 @@ function descendantAccounts(account: string, descendants: ReadonlySet<string> | 
 }
 
 function accumulate(
-  jobs: readonly Job[],
-  include: (job: Job) => boolean,
-  pick: (job: Job) => number | null,
-  unknownWhen?: (job: Job) => boolean
+  jobs: readonly QueueJob[],
+  include: (job: QueueJob) => boolean,
+  pick: (job: QueueJob) => number | null,
+  unknownWhen?: (job: QueueJob) => boolean
 ): ScopeUsage {
   let total = 0;
   let runningJobs = 0;
@@ -78,7 +78,7 @@ function calculateAssociationGroupUsage(
   account: string,
   descendants: ReadonlySet<string> | null,
   options: UsageOptions,
-  pick: (job: Job) => number | null
+  pick: (job: QueueJob) => number | null
 ): ScopeUsage {
   const matches = descendantAccounts(account, descendants);
   return accumulate(options.jobs, (job) => matches(job.account), pick);
@@ -89,17 +89,17 @@ function calculateAssociationUserUsage(
   user: string,
   descendants: ReadonlySet<string> | null,
   options: UsageOptions,
-  pick: (job: Job) => number | null
+  pick: (job: QueueJob) => number | null
 ): ScopeUsage {
   const matches = descendantAccounts(account, descendants);
   return accumulate(options.jobs, (job) => matches(job.account) && job.user === user, pick);
 }
 
-// QOS group: every RUNNING job with this QOS, regardless of account.
+// A QOS group includes every RUNNING job with that QOS, regardless of account.
 function calculateQosGroupUsage(
   qos: string,
   options: UsageOptions,
-  pick: (job: Job) => number | null
+  pick: (job: QueueJob) => number | null
 ): ScopeUsage {
   return accumulate(options.jobs, (job) => job.qos === qos, pick);
 }
@@ -108,19 +108,17 @@ function calculateQosUserUsage(
   qos: string,
   user: string,
   options: UsageOptions,
-  pick: (job: Job) => number | null
+  pick: (job: QueueJob) => number | null
 ): ScopeUsage {
   return accumulate(options.jobs, (job) => job.qos === qos && job.user === user, pick);
 }
 
-// Entry-scoped usage by association identity. Each contributing job resolves
-// to its own association; only IDs at or below the limiting entry count.
-// Same-named associations under other scopes never merge, and a job whose
-// association cannot be resolved makes usage unknown rather than falling
-// back to account-name membership.
+// Attribute each job to its resolved association and count entries in the
+// limiting scope. If resolution fails, usage is unknown; account names do
+// not provide a fallback.
 function resolveJobAssociationIds(
   store: AssociationStore,
-  jobs: readonly Job[]
+  jobs: readonly QueueJob[]
 ): Map<string, string | null> {
   const resolved = new Map<string, string | null>();
   for (const job of jobs) {
@@ -143,7 +141,7 @@ function calculateAssociationEntryGroupUsage(
   store: AssociationStore,
   resolved: Map<string, string | null>,
   options: UsageOptions,
-  pick: (job: Job) => number | null
+  pick: (job: QueueJob) => number | null
 ): ScopeUsage {
   const subtree = descendantAssociationIds(store, entry.id);
   const accounts = subtreeAccounts(store, subtree);
@@ -161,19 +159,19 @@ function calculateAssociationEntryUserUsage(
   user: string,
   resolved: Map<string, string | null>,
   options: UsageOptions,
-  pick: (job: Job) => number | null
+  pick: (job: QueueJob) => number | null
 ): ScopeUsage {
   const subtree = descendantAssociationIds(store, entry.id);
   const accounts = subtreeAccounts(store, subtree);
-  const include = (job: Job): boolean =>
+  const include = (job: QueueJob): boolean =>
     job.user === user && classifyEntryJob(resolved, subtree, accounts, job) === 'in';
-  const unknownWhen = (job: Job): boolean =>
+  const unknownWhen = (job: QueueJob): boolean =>
     job.user === user && classifyEntryJob(resolved, subtree, accounts, job) === 'unknown';
   return accumulate(options.jobs, include, pick, unknownWhen);
 }
 
-// Accounts covered by a subtree. Unresolvable jobs under a covered account
-// could belong; elsewhere they are provably out.
+// Find accounts covered by a subtree. An unresolvable job under a covered
+// account may belong to it; jobs elsewhere are outside the subtree.
 function subtreeAccounts(store: AssociationStore, subtree: Set<string> | null): Set<string> | null {
   if (subtree === null) {
     return null;
@@ -192,7 +190,7 @@ function classifyEntryJob(
   resolved: Map<string, string | null>,
   subtree: Set<string> | null,
   accounts: Set<string> | null,
-  job: Job
+  job: QueueJob
 ): 'in' | 'out' | 'unknown' {
   const id = resolved.get(job.id) ?? null;
   if (id !== null) {
@@ -209,9 +207,9 @@ function classifyEntryJob(
   return accounts.has(job.account) ? 'unknown' : 'out';
 }
 
-// Remaining committed runtime. Unknown start time means unknown remaining
-// commitment.
-function remainingSeconds(job: Job, now: Date): number | null {
+// Return the remaining committed runtime. Without a start time, the
+// remaining commitment is unknown.
+function remainingSeconds(job: QueueJob, now: Date): number | null {
   if (job.timeLimit === null || job.timeLimit.kind === 'infinite') {
     return null;
   }
@@ -229,10 +227,10 @@ function remainingSeconds(job: Job, now: Date): number | null {
   return Math.max(0, limitSeconds - elapsed);
 }
 
-// Per-job QOS UsageFactor, or null when unknown. A job with no Job QOS
-// uses the neutral factor 1. Only the job's own QOS counts, never the
-// partition QOS. A named QOS absent from the policy snapshot is unknown.
-function usageFactorFor(qosStore: QosStore | null | undefined, job: Job): number | null {
+// Return the job's QOS UsageFactor, or null when it is unknown. Jobs without
+// a Job QOS use the neutral factor 1. The partition QOS does not apply here;
+// a named QOS missing from the policy snapshot is unknown.
+function usageFactorFor(qosStore: QosStore | null | undefined, job: QueueJob): number | null {
   if (job.qos === null) {
     return 1;
   }
@@ -250,14 +248,14 @@ function usageFactorFor(qosStore: QosStore | null | undefined, job: Job): number
   return factor;
 }
 
-// Run minutes: amount x remaining time x per-job-QOS UsageFactor.
-// Unquantifiable contributors are counted, not folded into the total.
+// Run minutes equal amount times remaining time times the job's QOS
+// UsageFactor. Count contributors with unknown amounts separately.
 function sumRunMinutes(
-  jobs: readonly Job[],
+  jobs: readonly QueueJob[],
   now: Date,
   qosStore: QosStore | null | undefined,
-  include: (job: Job) => boolean,
-  amount: (job: Job) => number | null
+  include: (job: QueueJob) => boolean,
+  amount: (job: QueueJob) => number | null
 ): RunMinutesSum {
   let total = 0;
   let unknown = 0;
@@ -325,8 +323,8 @@ function calculateAssociationEntryGroupRunMinutes(
     (job) =>
       resource === 'cpu' ? allocatedCpus(job) : allocatedMemoryMiB(job)
   );
-  // Membership-unknown contributors are counted on top so the total is
-  // never presented as exact without them.
+  // Include contributors with unknown membership in the count so the total
+  // is not presented as exact.
   let membershipUnknown = 0;
   for (const job of options.jobs) {
     if (isRunning(job) && classifyEntryJob(resolved, subtree, accounts, job) === 'unknown') {
@@ -352,23 +350,23 @@ function calculateQosGroupRunMinutes(
   );
 }
 
-// Allocated-only picks for running usage. Null means unknown allocation.
-function allocatedCpus(job: Job): number | null {
+// These picks use allocated resources only. Null means the allocation is unknown.
+function allocatedCpus(job: QueueJob): number | null {
   const value = job.allocated.cpus;
   return value === null || !Number.isFinite(value) || value < 0 ? null : value;
 }
 
-function allocatedMemoryMiB(job: Job): number | null {
+function allocatedMemoryMiB(job: QueueJob): number | null {
   const value = job.allocated.memoryMiB;
   return value === null || !Number.isFinite(value) || value < 0 ? null : value;
 }
 
-function allocatedNodes(job: Job): number | null {
+function allocatedNodes(job: QueueJob): number | null {
   const value = job.allocated.nodes;
   return value === null || !Number.isFinite(value) || value < 0 ? null : value;
 }
 
-function allocatedGpuTotal(job: Job): number | null {
+function allocatedGpuTotal(job: QueueJob): number | null {
   if (!job.allocated.gpuPresent) {
     return null;
   }
@@ -376,7 +374,7 @@ function allocatedGpuTotal(job: Job): number | null {
   return Number.isFinite(value) && value >= 0 ? value : null;
 }
 
-function allocatedGpuType(type: string): (job: Job) => number | null {
+function allocatedGpuType(type: string): (job: QueueJob) => number | null {
   return (job) => {
     if (!job.allocated.gpuPresent) {
       return null;

@@ -16,9 +16,9 @@ interface SplitState<Base> {
   flags: string[];
 }
 
-// The base is the first token matching a known base state, wherever it
-// sits; every other token is kept as a flag. Unknown input falls back to
-// UNKNOWN with all tokens kept as flags.
+// Use the first recognized base-state token wherever it appears and keep
+// other tokens as flags. If none is recognized, use UNKNOWN and keep every
+// token as a flag.
 function splitJobState(raw: unknown): SplitState<JobBaseState> {
   const tokens = (Array.isArray(raw) ? raw : [raw])
     .filter((token): token is string => typeof token === 'string')

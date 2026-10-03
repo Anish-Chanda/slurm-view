@@ -102,8 +102,7 @@ function lifecycleSummary(job: JobDto, snapshotMs: number): { primary: string; s
       return { primary, secondary };
     }
     case 'UNKNOWN': {
-      // Uncertainty, not termination: neutral presentation, no runtime or
-      // finished arithmetic, no exit results.
+      // UNKNOWN does not establish termination; omit runtime and exit results.
       const submitted = job.submitTime !== null ? `Submitted ${formatDateTime(job.submitTime)}` : null;
       return { primary: 'Unknown state', secondary: submitted };
     }
@@ -118,8 +117,8 @@ function formatGpuSummary(total: number, byType: Record<string, number>): string
   return `${total} GPU${total === 1 ? '' : 's'} (${known.map(([type, count]) => `${type} × ${count}`).join(', ')})`;
 }
 
-// One-line allocation/request recap for the overview. Resources owns the
-// full comparison; this strip only orients. Missing is omitted, never zero.
+// Summarize resources here; the Resources section shows the full comparison.
+// Omit values that are unavailable.
 function allocationSummary(job: JobDto): string | null {
   const pending = job.state === 'PENDING';
   const source = pending ? job.requested : job.allocated;

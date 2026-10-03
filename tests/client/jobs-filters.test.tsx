@@ -64,7 +64,7 @@ describe('JobsFilters', () => {
 
     await user.keyboard('{ArrowDown}');
     await user.keyboard('{Enter}');
-    // Draft updated, nothing committed yet.
+    // The draft changed but has not been committed.
     await waitFor(() => expect(input.value).toBe('RUNNING'));
     expect(onFiltersChange).not.toHaveBeenCalled();
 

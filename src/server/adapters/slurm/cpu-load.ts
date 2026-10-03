@@ -1,6 +1,5 @@
 import { normalizeSlurmNumber } from './schemas/common.js';
 
-// Slurm reports node cpu_load in hundredths.
 const CPU_LOAD_HUNDREDTHS = 100;
 
 function normalizeCpuLoad(input: unknown): number | null {

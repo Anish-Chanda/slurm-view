@@ -1,6 +1,5 @@
-// sprio adapter for priority evidence. sprio has no JSON mode; parse
-// whitespace-delimited tables. Factor columns vary by cluster, so keep
-// whatever the header advertises.
+// Parse sprio's whitespace-delimited tables for priority evidence. It has no
+// JSON mode, and factor columns vary by cluster, so use the columns in its header.
 import { runCommand } from './command-runner.js';
 import type { SlurmContext, SlurmRunFn } from './context.js';
 
@@ -10,7 +9,8 @@ const SPRIO_COMMAND_MAX_BUFFER_BYTES = 4 * 1024 * 1024;
 interface SprioJobFactors {
   readonly jobId: string;
   readonly priority: number | null;
-  // Factor name (upper-cased header token) to value; null when unparseable.
+  // Maps upper-cased factor names from the header to values, or null when a
+  // value cannot be parsed.
   readonly factors: Readonly<Record<string, number | null>>;
 }
 
@@ -26,7 +26,7 @@ function parseNumericToken(token: string | undefined): number | null {
   if (trimmed.length === 0 || trimmed.toUpperCase() === 'N/A') {
     return null;
   }
-  // Priorities and weights are unsigned; negative or NaN means unknown.
+  // Priorities and weights are unsigned. Negative or NaN values are unknown.
   const parsed = Number(trimmed);
   if (!Number.isFinite(parsed) || parsed < 0) {
     return null;
@@ -82,8 +82,8 @@ function parseSprioWeights(stdout: string): Readonly<Record<string, number | nul
   if (lines.length === 0) {
     return weights;
   }
-  // `sprio -w` prints a header plus a Weights row; some clusters emit only
-  // the row.
+  // `sprio -w` usually prints a header and a Weights row, but some clusters
+  // print only the row.
   let header: string[] = [];
   let row: string[] = [];
   if (/^\s*weights?\b/i.test(lines[0] ?? '')) {
@@ -97,12 +97,12 @@ function parseSprioWeights(stdout: string): Readonly<Record<string, number | nul
     row = splitColumns(weightsLine);
   }
   if (header.length === 0) {
-    // No header means columns cannot be attributed.
+    // Without a header, the columns cannot be identified.
     return weights;
   }
   const start = /^\s*weights?\b/i.test(row[0] ?? '') ? 1 : 0;
-  // Header includes JOBID/PRIORITY placeholders; the weights row may omit
-  // them, so align from the right when lengths differ.
+  // The header includes JOBID/PRIORITY placeholders that the weights row may
+  // omit, so align columns from the right when the lengths differ.
   const offset = Math.max(0, header.length - row.length - (start === 0 ? 0 : 0));
   for (let i = start; i < row.length; i += 1) {
     const name = (header[i + offset] ?? '').toUpperCase();
@@ -127,7 +127,6 @@ async function fetchSprioJob(
     signal: options.signal,
   });
   const rows = parseSprioTable(stdout, options.normalized === true);
-  // Exact JOBID match only.
   return rows.find((row) => row.jobId === jobId) ?? null;
 }
 

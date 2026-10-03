@@ -8,10 +8,8 @@ function Timing({ job, snapshotMs }: { job: JobDto; snapshotMs: number }) {
   const isPending = job.state === 'PENDING';
   const isUnknown = job.state === 'UNKNOWN';
   const isTerminal = isTerminalState(job.state);
-  // Pending start/end times are backfill estimates, never actuals, so they
-  // must not feed queue-wait or runtime durations. UNKNOWN timestamps get
-  // no lifecycle reading at all: no Started, no queue-wait arithmetic, no
-  // Finished label, no Runtime — only neutral timestamp rows below.
+  // Pending start/end times are estimates. UNKNOWN timestamps appear only in
+  // neutral rows and do not affect lifecycle labels or durations.
   const queueWait = isPending || isUnknown ? null : queueWaitSeconds(job);
   const runtime = isPending || isUnknown
     ? null
@@ -71,8 +69,7 @@ function Timing({ job, snapshotMs }: { job: JobDto; snapshotMs: number }) {
 }
 
 function Scheduling({ job }: { job: JobDto }) {
-  // The pending lead owns the state reason for waiting jobs; other states
-  // keep the raw reason here as scheduler context.
+  // Pending jobs show their reason in the page lead; other states show it here.
   const showStateReason = job.state !== 'PENDING' && job.stateReason !== null;
   const hasScheduling =
     job.partition !== null ||

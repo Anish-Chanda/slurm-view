@@ -17,9 +17,8 @@ function createApp(v1Deps: V1RouterDeps = {}): Express {
 
   router.use('/api/v1', createV1Router(v1Deps));
 
-  // Server-reserved namespaces. These legacy surfaces have been removed and
-  // must return real 404s; they must never receive the React shell.
-  // /api/v1/* is handled by the v1 router above and never reaches here.
+  // These removed legacy namespaces return 404s instead of the React shell.
+  // The v1 router above handles /api/v1/* before requests reach this handler.
   const reservedNotFound = (_req: Request, res: Response): void => {
     res.sendStatus(404);
   };
@@ -27,9 +26,9 @@ function createApp(v1Deps: V1RouterDeps = {}): Express {
   app.use(`${basePath}partials`, reservedNotFound);
   app.use(`${basePath}react`, reservedNotFound);
 
-  // Canonicalize the slash-less OOD prefix (e.g. /pun/dev/slurm-view ->
-  // /pun/dev/slurm-view/). Express matches non-strictly, so this also sees
-  // the trailing-slash URL; only redirect the slash-less form.
+  // Add a trailing slash to slash-less OOD prefixes (for example,
+  // /pun/dev/slurm-view becomes /pun/dev/slurm-view/). Express matches both
+  // forms, so redirect only when the request has no trailing slash.
   if (passengerBaseUri) {
     app.get(passengerBaseUri, (req: Request, res: Response, next: NextFunction) => {
       if (req.path.endsWith('/')) return next();
@@ -37,13 +36,13 @@ function createApp(v1Deps: V1RouterDeps = {}): Express {
     });
   }
 
-  // React production build output.
+  // Serve the production React build.
   const reactDistPath = path.join(PROJECT_ROOT, 'dist', 'client');
   app.use(basePath, express.static(reactDistPath, { index: false }));
 
-  // The build uses relative asset URLs, so shell HTML carries a base tag
-  // pointing at the application root. Without it, ./assets/... below
-  // /jobs/123 would resolve to /jobs/assets.
+  // The build uses relative asset URLs, so the shell HTML sets a base tag to
+  // the application root. Without it, ./assets/... under /jobs/123 resolves
+  // to /jobs/assets.
   let cachedShell: string | null | undefined;
   function loadReactShell(): string | null {
     if (cachedShell === undefined) {
@@ -69,15 +68,14 @@ function createApp(v1Deps: V1RouterDeps = {}): Express {
     sendReactShell(res, next);
   });
 
-  // Explicit job deep-link route so refreshes render the job page.
-  // Malformed IDs still receive the shell so the client router can render
-  // GlobalNotFound.
+  // Serve the shell on job deep-link refreshes. Malformed IDs also receive
+  // the shell so the client router can render GlobalNotFound.
   app.get(`${basePath}jobs/:jobId`, (_req: Request, res: Response, next: NextFunction) => {
     sendReactShell(res, next);
   });
 
-  // Remaining browser-facing paths serve the shell so the client router can
-  // render GlobalNotFound. File-like segments still 404.
+  // Other browser paths serve the shell so the client router can render
+  // GlobalNotFound. File-like segments still return 404.
   app.get(`${basePath}*`, (req: Request, res: Response, next: NextFunction) => {
     const lastSegment = req.path.split('/').pop() ?? '';
     if (lastSegment.includes('.')) {

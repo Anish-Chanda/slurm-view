@@ -16,11 +16,8 @@ import {
 } from '../../src/client/features/stats/Sunburst';
 import type { ChartModel } from '../../src/client/features/stats/chart-data';
 
-// NOTE: these tests pin the label-fit decision algorithm and the two-line
-// center structure only. JSDOM has no font metrics or layout engine, so it
-// cannot prove visual non-overflow. A manual/browser pass with hostile
-// cases (long GPU names, tiny slices, zero-value groups, large center
-// totals) is required for visual confidence.
+// JSDOM cannot verify label overlap; confirm long names, small slices, and
+// large totals in a browser.
 
 function renderSunburst(model: ChartModel) {
   const client = new QueryClient();
@@ -48,8 +45,8 @@ describe('label sizes by depth', () => {
 });
 
 describe('resolveLabelFontSize', () => {
-  // Bounded shrink-to-fit on RADIUS=200 geometry: a two-ring chart has
-  // ~66.7-unit bands. Null means omit (tooltip covers the sector).
+  // At radius 200, two-ring bands are about 66.7 units. Null omits the label;
+  // the tooltip still identifies the sector.
   const BAND = 200 / 3;
   const primary = {
     desiredSize: PRIMARY_LABEL_DESIRED_SIZE,
@@ -83,7 +80,7 @@ describe('resolveLabelFontSize', () => {
       expect(size!).toBeGreaterThanOrEqual(PRIMARY_LABEL_MIN_SIZE);
       expect(size!).toBeLessThan(PRIMARY_LABEL_DESIRED_SIZE);
     }
-    // (66.67 - 6) / (9 * 0.6) = 11.23 -> 11.2 rendered.
+    // (66.67 - 6) / (9 * 0.6) = 11.23, rounded to 11.2.
     expect(
       resolveLabelFontSize('Allocated', {
         arcSpanRadians: Math.PI,
@@ -95,7 +92,7 @@ describe('resolveLabelFontSize', () => {
   });
 
   test('labels that would fall below the minimum are omitted', () => {
-    // 'Unavailable' (11 chars) shrinks to ~9.2, under the primary floor.
+    // "Unavailable" shrinks to about 9.2, below the primary-label minimum.
     expect(
       resolveLabelFontSize('Unavailable', {
         arcSpanRadians: Math.PI,
@@ -104,7 +101,7 @@ describe('resolveLabelFontSize', () => {
         ...primary,
       })
     ).toBeNull();
-    // ...but still renders where geometry permits, e.g. flat charts.
+    // Flat charts have enough room to render it.
     expect(
       resolveLabelFontSize('Unavailable', {
         arcSpanRadians: Math.PI,
@@ -177,7 +174,7 @@ describe('centerTotalFontSize', () => {
     const size = centerTotalFontSize('12345678', 60);
     expect(size).toBeLessThan(CENTER_TOTAL_BASE_FONT_SIZE);
     expect(size).toBeGreaterThanOrEqual(CENTER_TOTAL_MIN_FONT_SIZE);
-    // (60 / (8 * 20 * 0.6)) * 20 = 12.5 (rounded to one decimal).
+    // (60 / (8 * 20 * 0.6)) * 20 = 12.5.
     expect(size).toBe(12.5);
   });
 
@@ -206,7 +203,6 @@ describe('Sunburst center', () => {
     });
     expect(screen.getByText('GPU')).toBeTruthy();
     expect(screen.getByText('256 TiB')).toBeTruthy();
-    // The old single-string format must be gone.
     expect(screen.queryByText('GPU Total: 256 TiB')).toBeNull();
   });
 });
@@ -224,15 +220,12 @@ describe('Sunburst inline labels', () => {
         },
       ],
     });
-    // 'Allocated' shrinks modestly to fit its band and stays visible.
     const allocated = screen.getByText('Allocated');
     expect(allocated.getAttribute('font-size')).toBe('11.2');
-    // The narrow sector plus the over-long radial label omit.
     expect(screen.queryByText('Available')).toBeNull();
     expect(
       screen.queryByText('an-extremely-long-gpu-type-name-that-cannot-fit')
     ).toBeNull();
-    // Omitted sectors still exist with tooltips for hover/screen readers.
     const titles = Array.from(container.querySelectorAll('title')).map(
       (title) => title.textContent
     );

@@ -13,8 +13,8 @@ import type { ClusterNode } from '../../models/node.js';
 const NODES_COMMAND_TIMEOUT_MS = 25_000;
 const NODES_COMMAND_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 
-// Capacity and allocation without which stats would be silently wrong.
-// Explicit zero is valid; absent data rejects the payload.
+// CPU capacity and allocation are required for accurate stats. Zero is valid;
+// missing values invalidate the payload.
 function requiredSlurmNumber(
   input: unknown,
   field: string,

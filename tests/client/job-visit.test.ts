@@ -106,8 +106,7 @@ describe('prepareJobVisitSnapshot', () => {
     prepareJobVisitSnapshot(client, '101');
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 
-    // Time passes while the preload is still in flight; navigating now
-    // must attach to it rather than cancel and duplicate it.
+    // Navigating while the preload is in flight reuses the same request.
     jest.spyOn(Date, 'now').mockReturnValue(startedAt + JOB_DETAIL_STALE_TIME_MS + 1000);
     prepareJobVisitSnapshot(client, '101');
     expect(fetchMock).toHaveBeenCalledTimes(1);

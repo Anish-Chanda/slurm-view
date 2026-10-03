@@ -1,9 +1,5 @@
-// Resolved presentation policy for the React UI. This is a small,
-// read-only view of the server's runtime config: the frontend learns
-// *what to show* (e.g. whether a chart's secondary ring is enabled,
-// navbar title/color) without knowing about config.d files, YAML merging,
-// or backend calculation settings such as CPU-load thresholds.
-// Effectively immutable for the lifetime of the server process.
+// Read-only presentation settings from server runtime config. They are fixed
+// for the server process lifetime; the client does not load config or policy.
 export interface ChartViewPolicy {
   showSecondaryLayer: boolean;
 }

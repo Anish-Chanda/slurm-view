@@ -1,4 +1,4 @@
-import type { JobDto, TimeLimitDto } from '../../../shared/api/v1/jobs.ts';
+import type { JobSummaryDto, TimeLimitDto } from '../../../shared/api/v1/jobs.ts';
 
 const MISSING = '—';
 
@@ -22,9 +22,7 @@ function formatTimeLimit(limit: TimeLimitDto): string {
   return formatDuration(limit.seconds);
 }
 
-// Summary copy keeps exact detail rows untouched but shortens long spans:
-// seconds-scale stays precise, hours drop seconds, days drop minutes and
-// seconds, and month-old events collapse to whole days.
+// Summary copy shortens long spans; detail rows retain exact durations.
 function formatAdaptiveDuration(totalSeconds: number): string {
   const total = Math.max(0, Math.floor(totalSeconds));
   if (total < 60) {
@@ -48,7 +46,7 @@ function formatAdaptiveDuration(totalSeconds: number): string {
   return `${days}d`;
 }
 
-function formatTimeLeft(job: Pick<JobDto, 'state' | 'startTime' | 'endTime' | 'timeLimit'>, nowMs: number = Date.now()): string {
+function formatTimeLeft(job: Pick<JobSummaryDto, 'state' | 'startTime' | 'endTime' | 'timeLimit'>, nowMs: number = Date.now()): string {
   if (job.state === 'PENDING') return 'Not started';
   if (job.state !== 'RUNNING') return MISSING;
   let endMs: number | null = null;

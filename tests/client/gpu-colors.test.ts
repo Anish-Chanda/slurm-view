@@ -5,8 +5,7 @@ import {
   gpuColorFor,
 } from '../../src/client/features/stats/GpuChart';
 
-// A type keeps one stable index from the globally sorted type list; the
-// same relative shade is used inside every semantic parent family.
+// Each GPU type keeps the same sorted position and shade across state groups.
 function nodeAt(depth: number, name: string, parentName?: string): never {
   return {
     depth,

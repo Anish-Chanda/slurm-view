@@ -51,7 +51,7 @@ describe('PollingService', () => {
     await sleep(80);
     poller.stop();
     expect(poller.isActive()).toBe(false);
-    // One chain only: immediate + ~2 interval ticks, not doubled.
+    // A single chain produces the immediate call and about two interval calls.
     expect(calls).toBeLessThanOrEqual(4);
   });
 

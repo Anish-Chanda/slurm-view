@@ -184,7 +184,6 @@ describe('JobsSection', () => {
     await user.selectOptions(screen.getByLabelText('Filter field'), 'user');
     await user.type(screen.getByLabelText('Filter value'), 'bob');
 
-    // Typing only edits the draft: no request fires mid-query.
     expect(fetchMock).not.toHaveBeenCalled();
     await user.keyboard('{Enter}');
 
@@ -198,7 +197,6 @@ describe('JobsSection', () => {
         ).toBe(true),
       { timeout: 5000 }
     );
-    // Committed filters surface as removable chips.
     await waitFor(() => expect(screen.getByText('User: bob')).toBeTruthy());
   });
 
@@ -383,14 +381,12 @@ describe('JobsSection', () => {
     await waitFor(() => expect(screen.getByText('Partition list unavailable.')).toBeTruthy(), {
       timeout: 8000,
     });
-    // The single intelligent input stays usable without live partitions.
     expect(screen.getByLabelText('Filter value')).toBeTruthy();
     expect(screen.getByLabelText('Filter field')).toBeTruthy();
 
     partitionsFail = false;
     await user.click(screen.getByRole('button', { name: 'Retry' }));
     await waitFor(() => expect(screen.queryByText('Partition list unavailable.')).toBeNull());
-    // Live partitions feed autocomplete once reloaded.
     await user.type(screen.getByLabelText('Filter value'), 'partition:g');
     await waitFor(() => expect(screen.getByRole('listbox')).toBeTruthy());
     expect(screen.getByRole('option', { name: /gpu/ })).toBeTruthy();
@@ -407,14 +403,12 @@ describe('JobsSection', () => {
     expect(jobsCalls()).toBe(1);
     first.unmount();
 
-    // Past the list stale time: the explicitly live queue refetches as
-    // soon as it mounts again.
+    // Remounting after the stale time refreshes the live queue.
     jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 31_000);
     renderSection('/', { client });
     await waitFor(() => expect(screen.getByText('job-1')).toBeTruthy());
     expect(jobsCalls()).toBe(2);
 
-    // Focus and reconnect stay silent for the live queue.
     focusManager.setFocused(false);
     await act(async () => {
       focusManager.setFocused(true);

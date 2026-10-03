@@ -1,5 +1,5 @@
-// QOS policy fields for pending analysis (group/max limits, factors,
-// Relative handling, job vs partition QOS).
+// QOS policy fields used by pending analysis, including limits, factors,
+// relative-QOS handling, and job-versus-partition QOS resolution.
 import type { AssociationTres } from './association.js';
 import { emptyTres } from './association.js';
 import { UpstreamInvalidError } from '../adapters/slurm/errors.js';
@@ -19,10 +19,10 @@ interface QosEntry {
   readonly grpNodes: number | null;
   readonly maxTresPerUser: AssociationTres;
   readonly maxJobsPerUser: number | null;
-  // Scales applicable association [Grp|Max]TRES limits (not QOS-own limits).
+  // This scales applicable association [Grp|Max]TRES limits, not QOS limits.
   readonly limitFactor: number | null;
   // Scales TRESMins/TRESRunMins usage for jobs running under this QOS.
-  // Always known: unset means Slurm's default of 1, and the adapter
+  // This is always known: unset means Slurm's default of 1, and the adapter
   // rejects malformed values.
   readonly usageFactor: number;
   // Set only by the actual UsageFactorSafe QOS flag.

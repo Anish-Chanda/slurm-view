@@ -8,7 +8,8 @@ interface NodeSnapshot {
   capturedAt: Date;
 }
 
-// Lazy TTL with on-demand refresh; node JSON is the heaviest Slurm call.
+// Refresh on demand with a lazy TTL because fetching node JSON is Slurm's
+// heaviest call.
 const NODES_TTL_MS = 15_000;
 
 function createNodeSnapshot(nodes: ClusterNode[], capturedAt: Date = new Date()): NodeSnapshot {

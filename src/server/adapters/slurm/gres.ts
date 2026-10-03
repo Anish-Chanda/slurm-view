@@ -2,8 +2,8 @@ import { addGpu } from './tres.js';
 import type { GpuRequest } from '../../models/job.js';
 import type { GpuInventory } from '../../models/node.js';
 
-// Only `gpu` entries feed the inventory; shared GRES such as `shard`
-// is skipped. MIG instances arrive as typed `gpu:<type>` entries.
+// GPU entries feed the inventory; shared GRES such as `shard` is skipped.
+// MIG instances arrive as typed `gpu:<type>` entries.
 function emptyInventory(): GpuInventory {
   return { total: 0, allocated: 0, byType: {} };
 }

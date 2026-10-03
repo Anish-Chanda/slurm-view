@@ -2,8 +2,8 @@ import type { StatsResponse } from '../../shared/api/v1/stats.ts';
 import { apiUrl } from './base.ts';
 import { fetchJson } from './client.ts';
 
-// Null means cluster-wide: the partition parameter is omitted, since a
-// literal partition named "all" would be scoped by ?partition=all.
+// Null means cluster-wide; omitting the parameter avoids scoping to a
+// literal partition named "all".
 function fetchStats(partition: string | null, options: { signal?: AbortSignal } = {}): Promise<StatsResponse> {
   const params = new URLSearchParams();
   if (partition !== null) params.set('partition', partition);

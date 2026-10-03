@@ -284,8 +284,7 @@ function pendingAnalysisQueryOptions(id: string) {
   };
 }
 
-// Diagnostics are live evidence, unlike the job detail snapshot. Drop only a
-// settled result on each visit; a request already in progress remains shareable.
+// Refresh settled diagnostics on each visit while keeping in-flight requests shareable.
 function preparePendingAnalysisVisit(
   queryClient: QueryClient,
   id: string,

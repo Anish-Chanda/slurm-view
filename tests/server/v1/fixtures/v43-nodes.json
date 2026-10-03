@@ -1,5 +1,5 @@
 {
-  "_comment": "SYNTHETIC fixture shaped like scontrol --json=v0.0.43 show node output. Not captured from a live cluster.",
+  "_comment": "Synthetic fixture modeled on scontrol --json=v0.0.43 show node output; it was not captured from a cluster.",
   "meta": { "plugin": { "type": "v0.0.43", "name": "node_info" } },
   "errors": [],
   "warnings": [],

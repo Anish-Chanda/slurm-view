@@ -15,15 +15,8 @@ interface ChartLayerPolicy {
   showSecondaryLayer: boolean;
 }
 
-// Segment order is fixed so slices never move around the circle when
-// values change; D3 computes geometry from this already-ordered model.
-//
-// Child breakdowns always cover their parent completely: D3 sums leaf
-// values only, so an incomplete breakdown would silently shrink the parent.
-//
-// Naming note: the v1 DTO vocabulary (Allocated/Available/Unavailable,
-// Unallocated) replaces the legacy sinfo vocabulary (Allocated/Idle/Other,
-// Down). Colors follow the legacy semantic families regardless of names.
+// Sort segments for stable layout across refreshes. Children cover their
+// parent because D3 sums leaf values; DTO labels retain the legacy color groups.
 function buildCpuChartData(cpu: CpuStatsDto, policy: ChartLayerPolicy = { showSecondaryLayer: true }): ChartModel {
   if (!policy.showSecondaryLayer) {
     return {
@@ -35,8 +28,7 @@ function buildCpuChartData(cpu: CpuStatsDto, policy: ChartLayerPolicy = { showSe
       ],
     };
   }
-  // Load groups classify allocated CPUs; anything unexplained stays visible
-  // as unclassified rather than disappearing from the chart.
+  // Keep unexplained allocated CPUs visible as unclassified.
   const unclassified = Math.max(
     0,
     cpu.allocatedCpus - cpu.loadGroups.low - cpu.loadGroups.medium - cpu.loadGroups.high,
@@ -72,9 +64,8 @@ function buildMemoryChartData(
       { name: 'Unavailable', value: memory.unavailableMiB },
     ],
   };
-  // The Used/Unused split needs allocatedUsedMiB, which is null unless
-  // every counted non-down node reports OS free memory. Without it the
-  // chart stays flat rather than guessing.
+  // Split used and unused memory only when every counted non-down node
+  // reports OS free memory; otherwise the value is null and the chart stays flat.
   const usedTotal = memory.allocatedUsedMiB ?? null;
   if (!policy.showSecondaryLayer || usedTotal === null) {
     return flat;
@@ -113,9 +104,8 @@ function buildGpuChartData(
     };
   }
   const types = Object.keys(gpu.byType).sort();
-  // A type breakdown that does not cover its category gets a deterministic
-  // remainder slice; one that exceeds it is dropped so the geometry never
-  // contradicts the API total.
+  // Add a remainder when type totals are short; discard breakdowns that
+  // exceed the API total so the chart geometry stays consistent.
   const childrenFor = (
     total: number,
     pick: (type: string) => number,

@@ -41,7 +41,6 @@ async function initializeSlurm(): Promise<SupportedDataParser> {
 }
 
 async function startServer(): Promise<ServerRuntime> {
-  // Load runtime configuration on startup, fail if config is invalid or cannot be loaded
   try {
     initializeRuntimeConfig();
     console.log(`[Config] Runtime configuration loaded from ${SYSTEM_CONFIG_DIR_PATH} with optional user overrides from ${USER_CONFIG_DIR_PATH}`);
@@ -50,8 +49,8 @@ async function startServer(): Promise<ServerRuntime> {
     process.exit(1);
   }
 
-  // Startup exits non-zero below on permanent Slurm incompatibility.
-  // Later transient controller failures surface as 503s, never exits.
+  // Permanent Slurm incompatibility exits startup below. Later controller
+  // failures are transient and surface as 503 responses.
   const parser = await initializeSlurm().catch((error: unknown): SupportedDataParser => {
     const detail = error instanceof SlurmCompatibilityError
       ? error.message
@@ -61,6 +60,7 @@ async function startServer(): Promise<ServerRuntime> {
   });
 
   const jobsCache = new JobsCache({ parser });
+  const slurmContext = { parser } as const;
   const nodesCache = new NodesCache({ parser });
   const partitionsCache = new PartitionsCache({ parser });
   const assocCache = new AssocCache({ parser });
@@ -76,10 +76,11 @@ async function startServer(): Promise<ServerRuntime> {
 
   const app = createApp({
     jobsCache,
+    slurmContext,
     nodesCache,
     partitionsCache,
     pendingAnalysis: {
-      slurmContext: { parser },
+      slurmContext,
       jobsCache,
       nodesCache,
       assocCache,
@@ -92,19 +93,17 @@ async function startServer(): Promise<ServerRuntime> {
     console.log(`[Main Worker] App listening on port ${port}`);
   });
 
-  // Graceful shutdown
   function gracefulShutdown(): void {
     console.log('[Main Worker] Graceful shutdown initiated...');
 
     jobsPoller.stop();
 
-    // Then close the server
     server.close(() => {
       console.log('Express server closed.');
       process.exit(0);
     });
 
-    // If server hasn't closed in 10 seconds, force shutdown
+    // Bound the time spent waiting for open connections during shutdown.
     setTimeout(() => {
       console.error('Could not close connections in time, forcefully shutting down');
       process.exit(1);

@@ -1,5 +1,5 @@
-// Public v1 jobs contract: pure types, camelCase, explicit units, ISO timestamps.
-// JOB_STATES is the closed normalized state vocabulary shared by server and client.
+// Jobs API contract. Timestamps are ISO strings; resource units are explicit.
+// JOB_STATES is the normalized state vocabulary shared by server and client.
 export const JOB_STATES = [
   'BOOT_FAIL',
   'CANCELLED',
@@ -75,6 +75,22 @@ export interface JobDto {
   flags: string[];
 }
 
+// Queue responses stay small; the detail endpoint loads one full job at a time.
+export interface JobSummaryDto {
+  id: string;
+  partition: string | null;
+  name: string | null;
+  user: string | null;
+  account: string | null;
+  state: JobState;
+  timeLimit: TimeLimitDto;
+  submitTime: string | null;
+  startTime: string | null;
+  endTime: string | null;
+  nodeCount: number | null;
+  nodeExpression: string | null;
+}
+
 export interface JobsPaginationDto {
   page: number;
   pageSize: number;
@@ -83,19 +99,17 @@ export interface JobsPaginationDto {
 }
 
 export interface JobsResponse {
-  jobs: JobDto[];
+  jobs: JobSummaryDto[];
   pagination: JobsPaginationDto;
   updatedAt: string;
 }
 
-// Detail reuses JobDto so list and page share one normalization path.
 export interface JobDetailsResponse {
   job: JobDto;
   updatedAt: string;
 }
 
-// Canonical IDs the jobs API can emit: a job id, or an array task id.
-// Step suffixes (".batch", ".extern", ".0") are not part of this space.
+// Job IDs and array task IDs are valid; step suffixes are not.
 export const CANONICAL_JOB_ID_PATTERN = /^[0-9]+(_[0-9]+)?$/;
 
 export const JOBS_PAGE_DEFAULT = 1;

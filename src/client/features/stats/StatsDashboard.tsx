@@ -29,9 +29,8 @@ function StatsDashboard() {
     staleTime: 600_000,
   });
 
-  // View policy is effectively immutable for the server lifetime: fetch
-  // once and cache indefinitely. No admin defaults are encoded here; if
-  // the request fails the charts fall back to primary rings only (below).
+  // View settings are fixed for the server lifetime and cached indefinitely.
+  // On failure, render only the primary rings.
   const uiSettingsQuery = useQuery({
     queryKey: uiSettingsKeys.detail,
     queryFn: ({ signal }) => fetchUiSettings({ signal }),
@@ -39,15 +38,14 @@ function StatsDashboard() {
     gcTime: Infinity,
   });
 
-  // No placeholder data: a scope change must show the new scope loading,
-  // never the previous scope's charts under the new partition label.
-  // Same-key background refetches keep existing data naturally.
+  // On scope changes, load the new data instead of relabeling the previous
+  // scope's charts. Same-key refetches retain their data.
   const statsQuery = useQuery({
     queryKey: statsKeys.detail(partition),
     queryFn: ({ signal }) => fetchStats(partition, { signal }),
     staleTime: 15_000,
-    // Explicitly live: cluster stats poll and refresh on remount. Focus
-    // and reconnect refetching stay off via project defaults.
+    // Poll cluster stats and refresh on remount. Focus and reconnect refetches
+    // remain disabled by the query defaults.
     refetchInterval: 30_000,
     refetchOnMount: true,
   });
@@ -59,9 +57,8 @@ function StatsDashboard() {
 
   const showCpuSecondary = uiSettingsQuery.data?.charts.cpu.showSecondaryLayer ?? false;
   const showGpuSecondary = uiSettingsQuery.data?.charts.gpu.showSecondaryLayer ?? false;
-  // Memory's outer ring needs allocatedUsedMiB, which is null unless every
-  // counted node reports free memory. The description below follows this
-  // effective state so it never promises a ring that is not drawn.
+  // The memory outer ring requires allocatedUsedMiB. Keep its description
+  // aligned with whether that value is available.
   const showMemorySecondary =
     (uiSettingsQuery.data?.charts.memory.showSecondaryLayer ?? false) &&
     (statsQuery.data?.memory.allocatedUsedMiB ?? null) !== null;

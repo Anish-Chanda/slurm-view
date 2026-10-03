@@ -1,7 +1,6 @@
 import { JOB_STATES } from '../../shared/api/v1/jobs.js';
 
-// Single source of truth lives in the shared v1 contract so the
-// React client can depend on shared contracts only.
+// Client and server use the state vocabulary defined by the shared v1 contract.
 const JOB_BASE_STATES = JOB_STATES;
 
 type JobBaseState = (typeof JOB_BASE_STATES)[number];
@@ -44,13 +43,13 @@ interface JobResources {
 
 interface AllocatedJobResources extends JobResources {
   nodes: number | null;
-  // Whether Slurm reported GPU allocation data. Absent data means unknown
-  // GPU usage, not zero.
+  // Whether Slurm reported GPU allocation data. If it did not, GPU usage is
+  // unknown rather than zero.
   readonly gpuPresent: boolean;
 }
 
 interface Job {
-  // "<arrayJobId>_<arrayTaskId>" for array tasks, else the Slurm job id.
+  // Array tasks use "<arrayJobId>_<arrayTaskId>"; other jobs use the Slurm job id.
   readonly id: string;
   readonly jobId: string;
   readonly arrayJobId: string | null;

@@ -1,5 +1,5 @@
-// Association/QOS policy helpers: effective TRES limits with QOS
-// LimitFactor, job-vs-partition QOS resolution, Relative-QOS guard.
+// Helpers for effective association/QOS TRES limits, LimitFactor, QOS
+// precedence, and relative-QOS checks.
 import type { AssociationStore } from '../../models/association.js';
 import { ancestorChainById, applyLimitFactor, resolveAssociation } from '../../models/association.js';
 import type { EffectiveQos, QosStore } from '../../models/qos.js';
@@ -12,8 +12,8 @@ interface EffectiveTresEvaluation {
   readonly factored: boolean;
 }
 
-// LimitFactor scales association [Grp|Max]TRES counts. QOS-own limits,
-// job counts, wall time, and TRES-minutes pass through unscaled.
+// LimitFactor scales association [Grp|Max]TRES counts. QOS limits, job
+// counts, wall time, and TRES-minutes are not scaled.
 function effectiveAssocTresLimit(
   rawLimit: number | null,
   limitFactor: number | null

@@ -1,6 +1,6 @@
-// Priority analyzer: sprio multifactor evidence plus same-partition
-// competition from the shared snapshot. Slurm order is not strict numeric
-// priority under backfill, so no queue position is reported.
+// Combine sprio multifactor evidence with same-partition competitors from the
+// shared snapshot. Backfill means Slurm's order does not follow numeric
+// priority strictly, so this analyzer does not report a queue position.
 import { fetchSprioJob } from '../../../adapters/slurm/sprio.js';
 import type { AnalyzerContext } from '../types.js';
 import type { PriorityAnalysisDto } from '../../../../shared/api/v1/pending-analysis.js';
@@ -14,8 +14,8 @@ async function analyzePriority(ctx: AnalyzerContext): Promise<PriorityAnalysisDt
     return null;
   }
   const partition = job.partition;
-  // Snapshot priorities order competitors; the job's own priority falls
-  // back to the sprio total. An empty sprio table means no factors.
+  // Use snapshot priorities to order competitors and the sprio total as a
+  // fallback for the job's priority. An empty sprio table has no factors.
   const [weighted, normalized] = await Promise.all([
     fetchSprioJob(slurmContext, ctx.jobId, { signal: ctx.signal }),
     fetchSprioJob(slurmContext, ctx.jobId, { normalized: true, signal: ctx.signal }),

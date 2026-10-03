@@ -5,11 +5,17 @@ import { JobsCache, createJobSnapshot } from '../../../src/server/cache/jobs-cac
 import { NodesCache } from '../../../src/server/cache/nodes-cache.js';
 import { PollingService } from '../../../src/server/services/polling-service.js';
 import type { SlurmRunFn } from '../../../src/server/adapters/slurm/context.js';
+import { formattedSqueue } from './formatted-squeue-fixture.js';
 
 const FIXTURES = path.join(__dirname, 'fixtures');
 
 function fixtureStdout(name: string): string {
   return fs.readFileSync(path.join(FIXTURES, name), 'utf8');
+}
+
+function queueFixture(name: string): string {
+  const fixture = JSON.parse(fixtureStdout(name)) as { jobs: Array<Record<string, unknown>> };
+  return formattedSqueue(fixture.jobs);
 }
 
 function runFor(stdout: string): SlurmRunFn {
@@ -18,7 +24,7 @@ function runFor(stdout: string): SlurmRunFn {
 
 describe('JobsCache', () => {
   test('builds an atomic snapshot with an id index and timestamp', async () => {
-    const cache = new JobsCache({ parser: 'v0.0.45', run: runFor(fixtureStdout('v45-jobs.json')) });
+    const cache = new JobsCache({ parser: 'v0.0.45', run: runFor(queueFixture('v45-jobs.json')) });
     const snapshot = await cache.getOrLoad();
     expect(snapshot.jobs).toHaveLength(3);
     expect(snapshot.byId.get('101')?.name).toBe('train-model');
@@ -35,7 +41,7 @@ describe('JobsCache', () => {
   test('refresh failure propagates without inserting partial data', async () => {
     const run = jest
       .fn()
-      .mockResolvedValueOnce({ stdout: fixtureStdout('v45-jobs.json'), stderr: '' })
+      .mockResolvedValueOnce({ stdout: queueFixture('v45-jobs.json'), stderr: '' })
       .mockRejectedValueOnce(new Error('controller down'));
     const cache = new JobsCache({ parser: 'v0.0.45', run });
     const first = await cache.getOrLoad();

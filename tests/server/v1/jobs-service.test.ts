@@ -1,19 +1,20 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { parseJobsStdout } from '../../../src/server/adapters/slurm/jobs.js';
-import type { Job } from '../../../src/server/models/job.js';
+import type { QueueJob } from '../../../src/server/models/queue-job.js';
 import type { JobSnapshot } from '../../../src/server/cache/jobs-cache.js';
 import { JobsService } from '../../../src/server/services/jobs-service.js';
 import type { JobsSource } from '../../../src/server/services/jobs-service.js';
+import { formattedSqueue } from './formatted-squeue-fixture.js';
 
 const FIXTURES = path.join(__dirname, 'fixtures');
 
-function loadJobs(): Job[] {
-  const stdout = fs.readFileSync(path.join(FIXTURES, 'v45-jobs.json'), 'utf8');
-  return parseJobsStdout('v0.0.45', stdout);
+function loadJobs(): QueueJob[] {
+  const fixture = JSON.parse(fs.readFileSync(path.join(FIXTURES, 'v45-jobs.json'), 'utf8')) as { jobs: Array<Record<string, unknown>> };
+  return parseJobsStdout(formattedSqueue(fixture.jobs));
 }
 
-function serviceFor(jobs: Job[]): JobsService {
+function serviceFor(jobs: QueueJob[]): JobsService {
   const snapshot: JobSnapshot = {
     jobs,
     byId: new Map(jobs.map((job) => [job.id, job])),
@@ -84,7 +85,6 @@ describe('JobsService.listJobs', () => {
   });
 
   test('partition uses exact match, not substring', async () => {
-    // `comp` must not match `compute`.
     const result = await serviceFor(loadJobs()).listJobs({ partition: 'comp' }, PAGE);
     expect(result.jobs).toHaveLength(0);
   });
@@ -106,7 +106,6 @@ describe('JobsService.listJobs', () => {
   });
 
   test('null domain values never match', async () => {
-    // Job 103 has partition null; an unrelated partition finds nothing extra.
     const result = await serviceFor(loadJobs()).listJobs({ partition: 'debug' }, PAGE);
     expect(result.jobs.map((job) => job.id)).toEqual(['101']);
   });
@@ -137,22 +136,21 @@ describe('JobsService.listJobs', () => {
   });
 });
 
-describe('JobsService.getJobById', () => {
-  test('returns the job with the snapshot timestamp', async () => {
-    const result = await serviceFor(loadJobs()).getJobById('101');
-    expect(result?.job.id).toBe('101');
-    expect(result?.updatedAt).toEqual(new Date('2026-09-09T12:00:00.000Z'));
+describe('JobsService.findSnapshotJobById', () => {
+  test('returns the indexed queue job', async () => {
+    const result = await serviceFor(loadJobs()).findSnapshotJobById('101');
+    expect(result?.id).toBe('101');
   });
 
   test('resolves composite array task IDs exactly', async () => {
     const service = serviceFor(loadJobs());
-    await expect(service.getJobById('100_2').then((r) => r?.job.id)).resolves.toBe('100_2');
-    await expect(service.getJobById('100')).resolves.toBeNull();
-    await expect(service.getJobById('10')).resolves.toBeNull();
+    await expect(service.findSnapshotJobById('100_2').then((r) => r?.id)).resolves.toBe('100_2');
+    await expect(service.findSnapshotJobById('100')).resolves.toBeNull();
+    await expect(service.findSnapshotJobById('10')).resolves.toBeNull();
   });
 
   test('unknown IDs resolve to null for the handler 404', async () => {
-    await expect(serviceFor(loadJobs()).getJobById('99999')).resolves.toBeNull();
-    await expect(serviceFor([]).getJobById('101')).resolves.toBeNull();
+    await expect(serviceFor(loadJobs()).findSnapshotJobById('99999')).resolves.toBeNull();
+    await expect(serviceFor([]).findSnapshotJobById('101')).resolves.toBeNull();
   });
 });

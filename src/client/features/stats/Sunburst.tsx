@@ -4,30 +4,21 @@ import { useMemo } from 'react';
 import type { ChartDatum, ChartModel } from './chart-data.ts';
 
 const RADIUS = 200;
-// Ring-label sizes by hierarchy depth at the RADIUS=200 internal scale
-// (~1:1 with CSS pixels at typical card widths): primary/inner labels are
-// larger for scannability, secondary/outer labels smaller but readable.
+// Inner labels use a larger size than outer labels at the 200-unit chart scale.
 const PRIMARY_LABEL_DESIRED_SIZE = 13;
 const PRIMARY_LABEL_MIN_SIZE = 10;
 const SECONDARY_LABEL_DESIRED_SIZE = 11;
 const SECONDARY_LABEL_MIN_SIZE = 9;
-// Average glyph width for the sans-serif label font, as a fraction of the
-// font size. A conservative estimate: real rendering varies by browser and
-// characters, so unit tests pin the decision algorithm (not pixels) and a
-// manual/browser pass with hostile cases (long GPU names, tiny slices,
-// large totals) is required for visual confidence. JSDOM cannot prove
-// non-overflow.
+// Approximate average glyph width as a fraction of font size.
 const GLYPH_WIDTH_RATIO = 0.6;
-// Breathing room subtracted from the radial band before fitting text, so
-// labels never touch the ring edges (~6px visual at 1:1 display scale).
+// Leave space between labels and ring edges when fitting text.
 const LABEL_RADIAL_PADDING = 6;
 
 const CENTER_TITLE_FONT_SIZE = 14;
 const CENTER_TOTAL_BASE_FONT_SIZE = 20;
 const CENTER_TOTAL_MIN_FONT_SIZE = 12;
 
-// Label text color: near-black for legibility against the translucent
-// semantic slice fills. Slice colors themselves are untouched.
+// Near-black labels remain legible against translucent slice fills.
 const CHART_TEXT_FILL = '#111827';
 
 function labelDesiredSizeForDepth(depth: number): number {
@@ -40,8 +31,7 @@ function labelMinSizeForDepth(depth: number): number {
 
 type SunburstNode = HierarchyRectangularNode<ChartDatum>;
 
-// Only leaves contribute values: internal nodes carry a display total that
-// their children already cover, and summing both would double-count.
+// Internal totals are display values already represented by their leaves.
 function layoutSunburst(model: ChartModel): SunburstNode {
   const root = hierarchy<ChartDatum>(model, (datum) => datum.children).sum((datum) =>
     datum.children !== undefined && datum.children.length > 0 ? 0 : datum.value ?? 0,
@@ -53,18 +43,12 @@ interface LabelFit {
   arcSpanRadians: number;
   midRadius: number;
   radialThickness: number;
-  // Bounded shrink-to-fit budget for this node's depth: start at the
-  // desired size, shrink only as far as the minimum.
+  // Shrink from the desired size without crossing the minimum for this depth.
   desiredSize: number;
   minimumSize: number;
 }
 
-// Resolve the render size for an inline arc label, or null when it should
-// be omitted (the sector keeps its <title> tooltip). Labels are rendered
-// radially, so the radial band thickness bounds the text width while the
-// angular space bounds the text height. Short labels keep the full desired
-// size; longer ones shrink modestly but never below the readable minimum
-// and never overflowing just to stay visible.
+// Return a font size that fits the arc, or null when the label is too large.
 function resolveLabelFontSize(name: string, fit: LabelFit): number | null {
   if (name.length === 0) return null;
   const maxRadialFontSize =
@@ -76,10 +60,8 @@ function resolveLabelFontSize(name: string, fit: LabelFit): number | null {
   return Math.floor(candidate * 10) / 10;
 }
 
-// Deterministic shrink-to-fit for the center total line: scales the font
-// down from the base size when the estimated text width exceeds the
-// available center-hole width, never below the minimum. Pure estimate, no
-// browser font metrics or layout involved.
+// Estimate a center-total font size from available width without browser
+// font metrics.
 function centerTotalFontSize(total: string, holeWidth: number): number {
   if (total.length === 0 || holeWidth <= 0) return CENTER_TOTAL_BASE_FONT_SIZE;
   const estimated = total.length * CENTER_TOTAL_BASE_FONT_SIZE * GLYPH_WIDTH_RATIO;
@@ -123,7 +105,7 @@ interface SunburstProps {
   colorFor: (node: SunburstNode) => string;
 }
 
-// React owns the SVG; D3 only computes hierarchy, layout, and arc paths.
+// React renders the SVG; D3 computes the hierarchy, layout, and arc paths.
 function Sunburst({ model, center, ariaLabel, colorFor }: SunburstProps) {
   const { segments, labels, totalFontSize } = useMemo(() => {
     const laidOut = layoutSunburst(model);
@@ -140,9 +122,7 @@ function Sunburst({ model, center, ariaLabel, colorFor }: SunburstProps) {
     let holeWidth = 2 * RADIUS;
     for (const node of laidOut.descendants()) {
       if (node.depth === 0) continue;
-      // Zero-value groups subtend no angle; d3 emits a degenerate line
-      // path for them, so skip the segment entirely rather than drawing
-      // an invisible path.
+      // Skip zero-value groups; D3 gives them degenerate paths.
       if ((node.value ?? 0) <= 0) continue;
       if (node.depth === 1) {
         holeWidth = Math.min(holeWidth, 2 * node.y0 * RADIUS);

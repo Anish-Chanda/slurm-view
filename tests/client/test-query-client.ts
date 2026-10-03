@@ -6,10 +6,8 @@ interface TestQueryOverrides {
   retryDelay?: number;
 }
 
-// Test clients keep the production query policy (no implicit mount, focus,
-// or reconnect refetching) and layer test-only overrides on top.
-// QueryClient.setDefaultOptions replaces defaults wholesale, so merge
-// explicitly here instead of duplicating the policy in every suite.
+// Keep production query defaults while applying test-only overrides.
+// setDefaultOptions replaces defaults wholesale, so merge them here once.
 function createTestQueryClient(overrides: TestQueryOverrides = {}): QueryClient {
   const client = createQueryClient();
   const current = client.getDefaultOptions().queries ?? {};

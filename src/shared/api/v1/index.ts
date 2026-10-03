@@ -7,6 +7,7 @@ export type {
   GpuBreakdownDto,
   JobDetailsResponse,
   JobDto,
+  JobSummaryDto,
   JobState,
   JobsPaginationDto,
   JobsResponse,

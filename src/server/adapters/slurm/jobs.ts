@@ -1,257 +1,252 @@
-import { normalizeSlurmNumber, describeNotice } from './schemas/common.js';
-import type { RawJob } from './schemas/jobs.js';
-import { jobResponseSchemaFor } from './schemas/jobs.js';
-import type { SupportedDataParser } from './parser-version.js';
-import { runCommand } from './command-runner.js';
-import { SlurmUpstreamError, UpstreamInvalidError, summarizeZodIssues } from './errors.js';
-import { splitJobState } from './states.js';
-import { normalizeEpochSeconds, normalizeTimeLimitMinutes } from './time.js';
-import { parseGresDetailEntries, parseTresString } from './tres.js';
-import { mergeGpuRequest } from './gres.js';
+import { JOB_BASE_STATES } from '../../models/job.js';
+import type { JobBaseState, AllocatedJobResources } from '../../models/job.js';
+import type { QueueJob } from '../../models/queue-job.js';
 import type { SlurmContext, SlurmRunFn } from './context.js';
-import type { GpuRequest } from '../../models/job.js';
-import type { Job } from '../../models/job.js';
+import { runCommand } from './command-runner.js';
+import { UpstreamInvalidError } from './errors.js';
+import { parseTresString } from './tres.js';
 
 const JOBS_COMMAND_TIMEOUT_MS = 20_000;
 const JOBS_COMMAND_MAX_BUFFER_BYTES = 32 * 1024 * 1024;
+const FIELD_SEPARATOR = '\x1f';
+const RECORD_SEPARATOR = '\x1e';
+const RECORD_TERMINATOR = `${RECORD_SEPARATOR}\n`;
 
-function cleanString(input: unknown): string | null {
-  if (typeof input !== 'string') {
-    return null;
-  }
-  const trimmed = input.trim();
-  return trimmed.length > 0 && trimmed !== '(null)' ? trimmed : null;
+const JOB_FIELDS = [
+  { name: 'JobID', key: 'jobId' },
+  { name: 'JobArrayID', key: 'arrayJobId' },
+  { name: 'ArrayTaskID', key: 'arrayTaskId' },
+  { name: 'Partition', key: 'partition' },
+  { name: 'Name', key: 'name' },
+  { name: 'UserName', key: 'user' },
+  { name: 'Account', key: 'account' },
+  { name: 'QOS', key: 'qos' },
+  { name: 'State', key: 'state' },
+  { name: 'Reason', key: 'reason' },
+  { name: 'TimeLimit', key: 'timeLimit' },
+  { name: 'SubmitTime', key: 'submitTime' },
+  { name: 'StartTime', key: 'startTime' },
+  { name: 'EndTime', key: 'endTime' },
+  { name: 'PriorityLong', key: 'priority' },
+  { name: 'NumNodes', key: 'nodeCount' },
+  { name: 'NodeList', key: 'nodeExpression' },
+  { name: 'tres-alloc', key: 'allocatedTres' },
+  { name: 'exit_code', key: 'exitCode' },
+] as const;
+
+// Width 0 prevents truncation. Control separators keep spaces and ordinary
+// punctuation unambiguous in field values.
+const SQUEUE_FORMAT = JOB_FIELDS
+  .map((field, index) => `${field.name}:0${index === JOB_FIELDS.length - 1 ? RECORD_SEPARATOR : FIELD_SEPARATOR}`)
+  .join(',');
+
+const JOB_BASE_STATE_SET: ReadonlySet<string> = new Set(JOB_BASE_STATES);
+type JobFieldKey = (typeof JOB_FIELDS)[number]['key'];
+const JOB_ID_PATTERN = /^[1-9]\d*(?:_[0-9]+)?$/;
+const ARRAY_ID_PATTERN = /^[1-9]\d*$/;
+const INTEGER_PATTERN = /^\d+$/;
+const EMPTY_FIELD = [''] as const;
+const IDENTIFIER_UNSET = ['', 'N/A', '(NULL)'] as const;
+const SLURM_UNSET = ['', 'N/A', '(NULL)', 'NONE'] as const;
+
+function invalid(message: string): never {
+  throw new UpstreamInvalidError(`squeue formatted output ${message}`);
 }
 
-// Array identifiers arrive as Slurm numeric wrappers. Absent or unset
-// values mean "not an array job"; present-but-unusable values reject the
-// payload instead of becoming a fabricated identifier. A numeric 0 for the
-// array job id is Slurm's "no array" sentinel (real job ids start at 1),
-// observed on live clusters as `{"number": 0, "set": true}`.
-function normalizeArrayId(input: unknown, field: string, jobId: string): string | null {
-  if (input === null || input === undefined) {
-    return null;
+function parseField(
+  value: string,
+  name: string,
+  sentinels: readonly string[] = EMPTY_FIELD
+): string | null {
+  if (value.includes('\n') || value.includes('\r')) invalid(`contains a line break in ${name}`);
+  if (sentinels.includes(value.toUpperCase())) return null;
+  return value;
+}
+
+function parseInteger(value: string, field: string, nullable = true): number | null {
+  const cleaned = parseField(value, field, SLURM_UNSET);
+  if (cleaned === null) {
+    if (nullable) return null;
+    return invalid(`has an unset ${field}`);
   }
-  if (typeof input === 'object' && (input as { set?: unknown }).set === false) {
-    return null;
+  if (!INTEGER_PATTERN.test(cleaned)) invalid(`has an invalid ${field}`);
+  const number = Number(cleaned);
+  if (!Number.isSafeInteger(number)) invalid(`has an out-of-range ${field}`);
+  return number;
+}
+
+function parseEpoch(value: string, field: string): Date | null {
+  const seconds = parseInteger(value, field);
+  if (seconds === null || seconds === 0) return null;
+  const date = new Date(seconds * 1000);
+  if (!Number.isFinite(date.getTime())) invalid(`has an out-of-range ${field}`);
+  return date;
+}
+
+function parseTimeLimit(value: string): QueueJob['timeLimit'] {
+  const cleaned = parseField(value, 'TimeLimit', SLURM_UNSET);
+  if (cleaned === null || cleaned === 'NOT_SET') return null;
+  if (cleaned === 'UNLIMITED') return { kind: 'infinite' };
+
+  const dayMatch = cleaned.match(/^(\d+)-(\d{1,2}):([0-5]\d):([0-5]\d)$/);
+  if (dayMatch) {
+    const days = Number(dayMatch[1]);
+    const hours = Number(dayMatch[2]);
+    if (!Number.isSafeInteger(days) || hours > 23) invalid('has an invalid TimeLimit');
+    const seconds = days * 86_400 + hours * 3_600 + Number(dayMatch[3]) * 60 + Number(dayMatch[4]);
+    if (!Number.isSafeInteger(seconds)) invalid('has an out-of-range TimeLimit');
+    return { kind: 'finite', seconds };
   }
-  const { value, infinite } = normalizeSlurmNumber(input);
-  if (!infinite && value !== null && Number.isInteger(value) && value >= 0) {
-    if (value === 0 && field === 'array_job_id') {
-      return null;
+
+  const hourMatch = cleaned.match(/^(\d+):([0-5]\d):([0-5]\d)$/);
+  if (hourMatch) {
+    const hours = Number(hourMatch[1]);
+    if (!Number.isSafeInteger(hours) || hours > 23) invalid('has an invalid TimeLimit');
+    const seconds = hours * 3_600 + Number(hourMatch[2]) * 60 + Number(hourMatch[3]);
+    if (!Number.isSafeInteger(seconds)) invalid('has an out-of-range TimeLimit');
+    return { kind: 'finite', seconds };
+  }
+
+  const minuteMatch = cleaned.match(/^(\d+):([0-5]\d)$/);
+  if (minuteMatch) {
+    const minutes = Number(minuteMatch[1]);
+    if (!Number.isSafeInteger(minutes)) invalid('has an invalid TimeLimit');
+    const seconds = minutes * 60 + Number(minuteMatch[2]);
+    if (!Number.isSafeInteger(seconds)) invalid('has an out-of-range TimeLimit');
+    return { kind: 'finite', seconds };
+  }
+  return invalid('has an invalid TimeLimit');
+}
+
+function parseState(value: string): { state: JobBaseState; stateFlags: string[] } {
+  if (['', 'N/A', '(NULL)', 'NONE'].includes(value.toUpperCase())) {
+    return invalid('has an unset State');
+  }
+  const state = value.toUpperCase();
+  if (JOB_BASE_STATE_SET.has(state)) return { state: state as JobBaseState, stateFlags: [] };
+  const cleaned = parseField(value, 'State', []);
+  if (cleaned === null || cleaned.trim().length === 0) return invalid('has an empty State');
+  return { state: 'UNKNOWN', stateFlags: [cleaned] };
+}
+
+function parseExitCode(value: string): string | null {
+  const cleaned = parseField(value, 'exit_code', SLURM_UNSET);
+  if (cleaned === null) return null;
+  const match = cleaned.match(/^(\d+):\d+$/);
+  if (!match) return invalid('has an invalid exit_code');
+  const code = Number(match[1]);
+  if (!Number.isSafeInteger(code)) return invalid('has an out-of-range exit_code');
+  return String(code);
+}
+
+function parseJobRecord(fields: string[], recordIndex: number): QueueJob {
+  if (fields.length !== JOB_FIELDS.length) {
+    return invalid(`record ${recordIndex} has ${fields.length} fields; expected ${JOB_FIELDS.length}`);
+  }
+  const row = Object.fromEntries(
+    JOB_FIELDS.map((field, index) => [field.key, fields[index]])
+  ) as Record<JobFieldKey, string>;
+
+  const jobId = parseField(row.jobId, 'JobID', []);
+  if (jobId === null || !JOB_ID_PATTERN.test(jobId)) invalid(`record ${recordIndex} has an unsupported JobID`);
+  const arrayIdField = parseField(row.arrayJobId, 'JobArrayID', SLURM_UNSET);
+  const taskIdText = parseField(row.arrayTaskId, 'ArrayTaskID', SLURM_UNSET);
+  const arrayTaskId = taskIdText === null ? null : String(parseInteger(taskIdText, 'ArrayTaskID', false));
+  const arrayJobId = arrayIdField === null ? null : arrayIdField;
+  let id = jobId;
+  // Slurm may repeat JobID in JobArrayID for ordinary jobs. ArrayTaskID
+  // identifies array elements.
+  if (arrayTaskId !== null) {
+    if (arrayJobId === null || !ARRAY_ID_PATTERN.test(arrayJobId)) {
+      invalid(`record ${recordIndex} has an invalid JobArrayID`);
     }
-    return String(value);
-  }
-  throw new UpstreamInvalidError(
-    `squeue job "${jobId}" has malformed field: ${field}`
-  );
-}
-
-// Unset numeric wrappers mean "unknown", never zero.
-function normalizeCount(input: unknown): number | null {
-  const { value } = normalizeSlurmNumber(input);
-  if (value === null || !Number.isFinite(value) || value < 0) {
-    return null;
-  }
-  return Math.floor(value);
-}
-
-// Only the numeric return code is consumed; signal/status ride along
-// unvalidated. An unusable return code means "no exit code", not zero.
-function normalizeExitCode(input: RawJob['exit_code']): string | null {
-  if (input === null || input === undefined) {
-    return null;
-  }
-  const { value } = normalizeSlurmNumber(input.return_code ?? null);
-  return value === null ? null : String(Math.trunc(value));
-}
-
-// Adopts gres_detail type info when TRES knows the total but not the
-// types. The total never changes, so this cannot double-count.
-function enrichGpuTypes(tres: GpuRequest, detail: GpuRequest): void {
-  const tresTypes = Object.keys(tres.byType);
-  const detailTypes = Object.keys(detail.byType).filter((type) => type !== 'unknown');
-  if (detailTypes.length === 0) {
-    return;
-  }
-  if (tresTypes.length > 0 && tresTypes.some((type) => type !== 'unknown')) {
-    return;
-  }
-  tres.byType = { ...detail.byType };
-}
-
-function normalizeNodeExpression(input: RawJob['nodes']): string | null {  if (typeof input === 'string') {
-    return cleanString(input);
-  }
-  if (Array.isArray(input)) {
-    const parts = input
-      .map((entry) => String(entry).trim())
-      .filter((entry) => entry.length > 0);
-    return parts.length > 0 ? parts.join(',') : null;
-  }
-  return null;
-}
-
-// Slurm omits zero counts in TRES alloc records, but names core resources
-// (cpu/mem/node/billing) when the allocation is known.
-function mentionsCompleteTresRecord(input: unknown): boolean {
-  if (typeof input !== 'string') {
-    return false;
-  }
-  return /(^|,)cpu=|(^|,)mem=|(^|,)node=|(^|,)billing=/i.test(input.trim());
-}
-
-function normalizeJob(raw: RawJob): Job {
-  const jobId = String(raw.job_id).trim();
-  const arrayJobId = normalizeArrayId(raw.array_job_id ?? null, 'array_job_id', jobId);
-  const arrayTaskId = normalizeArrayId(raw.array_task_id ?? null, 'array_task_id', jobId);
-  // Array tasks are addressed as "<arrayJobId>_<arrayTaskId>".
-  const id =
-    arrayJobId !== null && arrayTaskId !== null && !jobId.includes('_')
-      ? `${arrayJobId}_${arrayTaskId}`
-      : jobId;
-
-  const { base, flags } = splitJobState(raw.job_state);
-  const requested = parseTresString(raw.tres_req_str ?? null);
-  const allocated = parseTresString(raw.tres_alloc_str ?? null);
-  const hasGresDetail = Array.isArray(raw.gres_detail) && raw.gres_detail.length > 0;
-  if (Array.isArray(raw.gres_detail)) {
-    const detail = parseGresDetailEntries(raw.gres_detail);
-    if (allocated.gpus.total === 0) {
-      mergeGpuRequest(allocated.gpus, detail);
-    } else {
-      enrichGpuTypes(allocated.gpus, detail);
-    }
+    const expectedId = `${arrayJobId}_${arrayTaskId}`;
+    if (jobId !== expectedId) invalid(`record ${recordIndex} has inconsistent array identity`);
+    id = expectedId;
+  } else if (!ARRAY_ID_PATTERN.test(jobId)) {
+    invalid(`record ${recordIndex} has an unsupported non-array JobID`);
   }
 
-  const nodeCountValue = normalizeSlurmNumber(raw.node_count ?? null).value;
+  const { state, stateFlags } = parseState(row.state);
+  const rawTres = row.allocatedTres;
+  // For jobs without an allocation, tres-alloc may contain requested TRES.
+  const parsedTres = state === 'RUNNING'
+    ? parseTresString(parseField(rawTres, 'tres-alloc', SLURM_UNSET))
+    : null;
+  const allocated: AllocatedJobResources = {
+    cpus: parsedTres?.cpus ?? null,
+    memoryMiB: parsedTres?.memoryMiB ?? null,
+    nodes: parsedTres?.nodes ?? null,
+    gpus: parsedTres?.gpus ?? { total: 0, byType: {} },
+  // Core allocation fields establish a complete record even without a GPU
+  // entry. Without an allocation record, GPU usage is unknown.
+    gpuPresent: parsedTres !== null && /(^|,)(?:cpu=|mem=|node=|billing=|gres\/gpu(?:[^=,]*)=)/i.test(rawTres),
+  };
+  const priority = parseInteger(row.priority, 'PriorityLong');
+  const nodeCount = parseInteger(row.nodeCount, 'NumNodes');
+  const reason = parseField(row.reason, 'Reason', SLURM_UNSET);
 
   return {
     id,
     jobId,
-    arrayJobId,
+    arrayJobId: arrayTaskId === null ? null : arrayJobId,
     arrayTaskId,
-    partition: cleanString(raw.partition),
-    name: cleanString(raw.name),
-    user: cleanString(raw.user_name),
-    account: cleanString(raw.account),
-    qos: cleanString(raw.qos),
-    state: base,
-    stateFlags: flags,
-    stateReason: normalizeStateReason(raw.state_reason),
-    timeLimit: normalizeTimeLimitMinutes(raw.time_limit ?? null),
-    submitTime: normalizeEpochSeconds(raw.submit_time ?? null),
-    eligibleTime: normalizeEpochSeconds(raw.eligible_time ?? null),
-    startTime: normalizeEpochSeconds(raw.start_time ?? null),
-    endTime: normalizeEpochSeconds(raw.end_time ?? null),
-    priority: normalizeCount(raw.priority ?? null),
-    taskCount: normalizeCount(raw.tasks ?? null),
-    cpusPerTask: normalizeCount(raw.cpus_per_task ?? null),
-    constraints: cleanString(raw.features ?? null),
-    reservation: normalizeReservation(raw.resv_name ?? null),
-    nodeCount:
-      nodeCountValue === null ? null : Math.max(0, Math.floor(nodeCountValue)),
-    nodeExpression: normalizeNodeExpression(raw.nodes ?? null),
-    requested: {
-      cpus: requested.cpus,
-      memoryMiB: requested.memoryMiB,
-      nodes: requested.nodes,
-      gpus: requested.gpus,
-    },
-    allocated: {
-      cpus: allocated.cpus,
-      memoryMiB: allocated.memoryMiB,
-      nodes: allocated.nodes,
-      gpus: allocated.gpus,
-      gpuPresent: hasGresDetail || mentionsCompleteTresRecord(raw.tres_alloc_str ?? null),
-    },
-    workdir: cleanString(raw.current_working_directory),
-    command: cleanString(raw.command),
-    stdoutPath: cleanString(raw.standard_output),
-    stderrPath: cleanString(raw.standard_error ?? null),
-    dependency: cleanString(raw.dependency),
-    exitCode: normalizeExitCode(raw.exit_code ?? null),
-    derivedExitCode: normalizeExitCode(raw.derived_exit_code ?? null),
-    wckey: cleanString(raw.wckey ?? null),
-    batchHost: cleanString(raw.batch_host ?? null),
-    flags: Array.isArray(raw.flags)
-      ? raw.flags.filter((flag) => flag.trim().length > 0)
-      : typeof raw.flags === 'string' && raw.flags.trim().length > 0
-        ? [raw.flags.trim()]
-        : [],
+    partition: parseField(row.partition, 'Partition', IDENTIFIER_UNSET),
+    name: parseField(row.name, 'Name'),
+    user: parseField(row.user, 'UserName', IDENTIFIER_UNSET),
+    account: parseField(row.account, 'Account', IDENTIFIER_UNSET),
+    qos: parseField(row.qos, 'QOS', IDENTIFIER_UNSET),
+    state,
+    stateFlags,
+    stateReason: reason?.toUpperCase() === 'NONE' ? null : reason,
+    timeLimit: parseTimeLimit(row.timeLimit),
+    submitTime: parseEpoch(row.submitTime, 'SubmitTime'),
+    startTime: parseEpoch(row.startTime, 'StartTime'),
+    endTime: parseEpoch(row.endTime, 'EndTime'),
+    priority,
+    nodeCount,
+    nodeExpression: parseField(row.nodeExpression, 'NodeList', SLURM_UNSET),
+    allocated,
+    exitCode: parseExitCode(row.exitCode),
   };
 }
 
-// Slurm reports "None" when the job has no reservation.
-function normalizeReservation(input: unknown): string | null {
-  const cleaned = cleanString(input);
-  if (cleaned === null || cleaned.toUpperCase() === 'NONE') {
-    return null;
-  }
-  return cleaned;
-}
-
-// Slurm reports "None" when there is no state reason.
-function normalizeStateReason(input: unknown): string | null {
-  const cleaned = cleanString(input);
-  if (cleaned === null || cleaned.toUpperCase() === 'NONE') {
-    return null;
-  }
-  return cleaned;
-}
-
-// Throws on invalid JSON, schema mismatch, or a non-empty Slurm errors[].
-function parseJobsStdout(parser: SupportedDataParser, stdout: string): Job[] {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(stdout);
-  } catch (error) {
-    throw new UpstreamInvalidError(
-      `squeue returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`
-    );
-  }
-
-  const result = jobResponseSchemaFor(parser).safeParse(parsed);
-  if (!result.success) {
-    throw new UpstreamInvalidError(
-      `squeue response failed validation: ${summarizeZodIssues(result.error.issues)}`
-    );
-  }
-
-  if (result.data.errors && result.data.errors.length > 0) {
-    throw new SlurmUpstreamError(result.data.errors.map(describeNotice));
-  }
-  if (result.data.warnings && result.data.warnings.length > 0) {
-    console.warn(
-      `[Slurm] squeue warnings: ${result.data.warnings.map(describeNotice).join('; ')}`
-    );
-  }
-
-  return result.data.jobs.map(normalizeJob);
+function parseJobsStdout(stdout: string): QueueJob[] {
+  if (stdout.length === 0) return [];
+  if (!stdout.endsWith(RECORD_TERMINATOR)) invalid('is missing a final record terminator');
+  const records = stdout.slice(0, -RECORD_TERMINATOR.length).split(RECORD_TERMINATOR);
+  return records.map((record, index) => {
+    const fields = record.split(FIELD_SEPARATOR);
+    return parseJobRecord(fields, index + 1);
+  });
 }
 
 async function fetchJobs(
   context: SlurmContext,
   options: { signal?: AbortSignal } = {}
-): Promise<Job[]> {
+): Promise<QueueJob[]> {
   const run: SlurmRunFn = context.run ?? runCommand;
-  const { stdout } = await run(
+  const { stdout, stderr } = await run(
     'squeue',
-    [`--json=${context.parser}`, '--states=R,PD,CD'],
+    ['--noheader', '--array', '--states=R,PD,CD', `--Format=${SQUEUE_FORMAT}`],
     {
       timeoutMs: JOBS_COMMAND_TIMEOUT_MS,
       maxBufferBytes: JOBS_COMMAND_MAX_BUFFER_BYTES,
       signal: options.signal,
+      env: { SLURM_TIME_FORMAT: '%s' },
     }
   );
-  return parseJobsStdout(context.parser, stdout);
+  if (stderr.trim().length > 0) {
+    console.warn(`[Slurm] squeue stderr: ${stderr.trim().slice(0, 500)}`);
+  }
+  return parseJobsStdout(stdout);
 }
 
 export {
   JOBS_COMMAND_MAX_BUFFER_BYTES,
   JOBS_COMMAND_TIMEOUT_MS,
+  JOB_FIELDS,
+  SQUEUE_FORMAT,
   fetchJobs,
-  normalizeJob,
-  normalizeStateReason,
   parseJobsStdout,
 };

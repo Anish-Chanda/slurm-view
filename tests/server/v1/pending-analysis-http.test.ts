@@ -8,6 +8,7 @@ import { SprioWeightsCache } from '../../../src/server/cache/sprio-weights-cache
 import type { SlurmRunFn } from '../../../src/server/adapters/slurm/context.js';
 import { CommandError } from '../../../src/server/adapters/slurm/command-runner.js';
 import { clearContradictionCooldownForTests } from '../../../src/server/services/pending-analysis/contradiction-cooldown.js';
+import { formattedSqueue } from './formatted-squeue-fixture.js';
 
 const PARSER = 'v0.0.45' as const;
 
@@ -28,7 +29,7 @@ function squeueJob(partial: Record<string, unknown>): Record<string, unknown> {
 }
 
 function jobsEnvelope(jobs: Array<Record<string, unknown>>): string {
-  return JSON.stringify({ errors: [], warnings: [], jobs });
+  return formattedSqueue(jobs);
 }
 
 function targetedEnvelope(job: Record<string, unknown>): string {

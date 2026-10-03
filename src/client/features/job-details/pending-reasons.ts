@@ -1,10 +1,5 @@
-// Human-readable labels for Slurm pending reason codes. Every label stays
-// close to the scheduler's documented meaning (squeue JOB REASON CODES /
-// job_reason_codes) and never adds causal analysis, predictions, or advice.
-// The raw code always travels alongside the label, and unknown codes fall
-// back to the raw value alone. Slurm reports only the reason encountered by
-// the scheduling attempt, so the UI must never present one reason as the
-// definitive root cause.
+// Summarize documented Slurm pending reasons without inferring a root cause.
+// Retain the raw code and display unknown codes unchanged.
 
 const PENDING_REASON_LABELS: Record<string, string> = {
   Resources: 'Waiting for resources',
@@ -43,14 +38,8 @@ const PENDING_REASON_LABELS: Record<string, string> = {
   QOSMaxSubmitJobPerUserLimit: 'Per-user QOS submission limit reached',
 };
 
-// Starred families from the Slurm docs (AssocGrp*, AssocMax*, QOSGrp*,
-// QOSMax*, Max*PerAccount) arrive with concrete suffixes, so match the
-// documented family by prefix instead of enumerating every code. Family
-// wording stays at the level the docs support for the whole family:
-// aggregate language for Grp* limits, "the request exceeds a maximum"
-// language for Max* limits (count-based variants are mapped exactly
-// above instead, since they describe association/QOS counts, not the
-// request itself).
+// Slurm appends specific limit names to these prefixes. Keep labels general;
+// count-based reasons have dedicated labels above.
 function familyLabel(reason: string): string | null {
   if (reason.startsWith('AssocGrp')) {
     return 'An association aggregate limit has been reached';
@@ -67,14 +56,13 @@ function familyLabel(reason: string): string | null {
   if (reason.startsWith('Max') && reason.includes('PerAccount')) {
     return 'The request exceeds a per-account limit';
   }
-  // Anything else (QOSNotAllowed, QOSMin*, other Association*/Partition*
-  // variants) has no single documented family meaning: callers fall back
-  // to the raw code rather than risk a misleading friendly sentence.
+  // Other variants have no single documented meaning, so callers retain the
+  // raw code instead of showing a potentially misleading description.
   return null;
 }
 
-// Documented, neutral phrasing for a reason code, or null when Slurm
-// documents nothing we can safely restate. Callers show the raw code.
+// Return a neutral description when documented, or null so callers show the
+// raw code.
 function describePendingReason(reason: string): string | null {
   return PENDING_REASON_LABELS[reason] ?? familyLabel(reason);
 }

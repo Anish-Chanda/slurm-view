@@ -2,8 +2,7 @@ import { JOB_STATES } from '../../../shared/api/v1/jobs.ts';
 import type { JobState } from '../../../shared/api/v1/jobs.ts';
 import type { JobsFilterValues } from './JobsFilters.tsx';
 
-// Canonical committed filter keys. The wire/URL layer uses `id`; the
-// human-facing alias `jobid` (old UI) is accepted while typing.
+// `id` is canonical; accept the legacy `jobid` spelling while typing.
 const CANONICAL_KEYS = [
   'id',
   'partition',
@@ -27,7 +26,7 @@ const KEY_ALIASES: Record<string, CanonicalKey> = {
   statereason: 'stateReason',
 };
 
-// Static suggestion source for state reasons.
+// Common state-reason suggestions.
 const STATE_REASON_SUGGESTIONS = [
   'AssocGrp*',
   'AssocMax*',
@@ -40,9 +39,7 @@ const STATE_REASON_SUGGESTIONS = [
   'Resources',
 ];
 
-// Human-facing key completions shown for bare words. `jobid:` /
-// `statereason:` spellings match the old UI; both parse to `id` /
-// `stateReason`.
+// Bare-word completions retain the legacy `jobid:` and `statereason:` aliases.
 const KEY_SUGGESTIONS = [
   'jobid:',
   'partition:',
@@ -70,7 +67,7 @@ function stripSurroundingQuotes(value: string): string {
   return value;
 }
 
-// Quote-aware split on spaces so `name:"my job" user:alice` stays two tokens.
+// Split on spaces outside quotes, preserving values such as `name:"my job"`.
 function splitFilterTokens(filterString: string): string[] {
   const pairs: string[] = [];
   let current = '';
@@ -95,10 +92,8 @@ function splitFilterTokens(filterString: string): string[] {
   return pairs;
 }
 
-// Case-insensitive match against the shared v1 state vocabulary.
-// Returns the canonical uppercase form, or null when the value is not a
-// known state. Callers must treat null as "hint, commit nothing" — never
-// cast arbitrary input into JobState, or the strict v1 API answers 400.
+// Match the shared state vocabulary case-insensitively. Return its uppercase
+// form, or null so callers do not submit an invalid state to the API.
 function parseStateValue(value: string): JobState | null {
   const upper = value.toUpperCase();
   if ((JOB_STATES as readonly string[]).includes(upper)) {
@@ -160,8 +155,7 @@ function getWordAtCursor(text: string, cursorPos: number): WordContext {
 interface FilterSuggestion {
   id: string;
   name: string;
-  // Text prepended to the value when inserted (`partition:` or `` for
-  // bare selector-mode values).
+  // Prefix added when inserting this value, if any.
   prefix: string;
   kind: 'key' | 'value';
 }
@@ -170,13 +164,12 @@ function toValueSuggestion(id: string, prefix: string): FilterSuggestion {
   return { id, name: id, prefix, kind: 'value' };
 }
 
-// Suggestion sources: live partitions, shared JOB_STATES vocabulary, and the
-// static state-reason list. Free-text keys (id/name/user/account) offer no
-// value suggestions.
+// Value suggestions come from live partitions, JOB_STATES, or common state
+// reasons. Free-text fields have no value suggestions.
 function getSuggestionsForPrefixedWord(word: string): FilterSuggestion[] | null {
   const lower = word.toLowerCase();
   if (lower.startsWith('partition:')) {
-    return null; // needs live partitions; resolved by caller
+    return null; // Resolved from live partitions by getSuggestions.
   }
   if (lower.startsWith('state:')) {
     const needle = word.substring(6).toLowerCase();
@@ -200,7 +193,7 @@ interface SuggestionContext {
 }
 
 function getSuggestions({ word, selectedField, partitions }: SuggestionContext): FilterSuggestion[] {
-  // Live partitions resolve here; other prefixed states resolve below.
+  // Resolve partition suggestions from the live partition list.
   if (word.toLowerCase().startsWith('partition:')) {
     const needle = word.substring('partition:'.length).toLowerCase();
     return partitions
@@ -221,10 +214,8 @@ function getSuggestions({ word, selectedField, partitions }: SuggestionContext):
     key.toLowerCase().startsWith(needle)
   ).map((key) => ({ id: key, name: key, prefix: '', kind: 'key' as const }));
 
-  // Novice mode: when no `key:` prefix is typed, also suggest values for
-  // the selected field (old fallback on `select#filter-field`). Values rank
-  // first so the selected field's useful completions are not crowded out by
-  // the generic key suggestions; keys still follow for compound syntax.
+  // Without a `key:` prefix, suggest selected-field values before generic
+  // keys so useful completions stay near the top.
   let values: FilterSuggestion[] = [];
   if (selectedField === 'partition') {
     values = partitions
@@ -242,8 +233,8 @@ function getSuggestions({ word, selectedField, partitions }: SuggestionContext):
   return [...values, ...keys].slice(0, 10);
 }
 
-// Pure insertion: replaces the word under the cursor with the suggestion.
-// Only the draft changes; nothing is committed until Enter/Apply.
+// Replace the word under the cursor. This edits the draft; Enter or Apply
+// commits it.
 function insertSuggestion(
   draftText: string,
   wordStart: number,

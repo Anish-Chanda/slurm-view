@@ -1,4 +1,4 @@
-// RFC 9457 Problem Details for HTTP APIs.
+// RFC 9457 problem detail response.
 export const ProblemCode = {
   BadRequest: 'BAD_REQUEST',
   JobNotPending: 'JOB_NOT_PENDING',
@@ -47,7 +47,7 @@ export type ProblemDefinition = (typeof ProblemDefinitions)[ProblemCode];
 
 export type ProblemType = ProblemDefinition['type'];
 
-// RFC 9457 Problem Details for HTTP APIs.
+// RFC 9457 problem detail response.
 export type ProblemDetailsFor<C extends ProblemCode> = {
   code: C;
   type: (typeof ProblemDefinitions)[C]['type'];

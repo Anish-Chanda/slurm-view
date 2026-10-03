@@ -1,5 +1,3 @@
-// HTTP handler for GET /api/v1/jobs/:id/pending-analysis. Validates,
-// delegates to PendingAnalysisService, serializes.
 import { asyncHandler } from '../middleware/async-handler.js';
 import { HttpError } from '../middleware/error-handler.js';
 import { ProblemCode } from '../../shared/api/v1/common.js';

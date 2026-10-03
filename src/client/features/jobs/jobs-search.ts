@@ -5,8 +5,8 @@ import { PAGE_SIZE_OPTIONS } from './JobsPagination.tsx';
 
 const PARTITION_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
-// Flat canonical dashboard search: numeric page/pageSize, non-empty
-// filters only. Parsing is idempotent, so revalidation never loops.
+// Canonical dashboard search uses numeric page values and non-empty filters.
+// Idempotent parsing prevents route revalidation loops.
 interface DashboardSearch {
   page: number;
   pageSize: number;

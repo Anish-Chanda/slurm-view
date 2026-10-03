@@ -3,8 +3,8 @@ import { apiUrl } from './base.ts';
 import { fetchJson } from './client.ts';
 import { efficiencyKeys } from './query-keys.ts';
 
-// Completed-job efficiency settles slowly: cache for minutes without
-// polling, and let inactive queries be garbage-collected.
+// Completed-job efficiency changes slowly, so cache it for minutes without
+// polling and garbage-collect inactive queries.
 const EFFICIENCY_STALE_TIME_MS = 10 * 60 * 1000;
 const EFFICIENCY_GC_TIME_MS = 30 * 60 * 1000;
 

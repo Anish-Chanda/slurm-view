@@ -1,21 +1,21 @@
 import { fetchJobs } from '../adapters/slurm/jobs.js';
 import type { SlurmContext } from '../adapters/slurm/context.js';
-import type { Job } from '../models/job.js';
+import type { QueueJob } from '../models/queue-job.js';
 import { TtlDataCache } from './ttl-data-cache.js';
 
-// Replaced as one value; filtering and pagination run in memory over it.
+// Replace the snapshot as one value, then filter and paginate it in memory.
 interface JobSnapshot {
-  jobs: readonly Job[];
-  byId: ReadonlyMap<string, Job>;
+  jobs: readonly QueueJob[];
+  byId: ReadonlyMap<string, QueueJob>;
   capturedAt: Date;
 }
 
-// TTL margin over the poll cadence absorbs scheduling jitter.
+// The TTL exceeds the poll interval slightly to absorb scheduling jitter.
 const JOBS_TTL_MS = 60_000;
 const JOBS_POLL_INTERVAL_MS = 30_000;
 
-function createJobSnapshot(jobs: Job[], capturedAt: Date = new Date()): JobSnapshot {
-  const byId = new Map<string, Job>();
+function createJobSnapshot(jobs: QueueJob[], capturedAt: Date = new Date()): JobSnapshot {
+  const byId = new Map<string, QueueJob>();
   for (const job of jobs) {
     byId.set(job.id, job);
   }

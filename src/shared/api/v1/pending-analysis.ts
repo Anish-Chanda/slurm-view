@@ -1,4 +1,4 @@
-// Public v1 pending-analysis contract.
+// Pending-analysis API contract.
 import type { JobState } from './jobs.js';
 
 export interface PendingAnalysisResponse {
