@@ -65,7 +65,58 @@ jobs:
             docker-buildx-plugin \
             docker-compose-plugin
 
-          sudo systemctl start docker
+          echo "=== virtualization ==="
+          systemd-detect-virt || true
+
+          echo "=== kernel ==="
+          uname -a
+
+          echo "=== cgroups ==="
+          mount | grep cgroup || true
+          stat -fc %T /sys/fs/cgroup || true
+
+          echo "=== containerd ==="
+          sudo systemctl status containerd \
+            --no-pager \
+            --full || true
+
+          echo "=== starting Docker ==="
+
+          if ! sudo systemctl start docker; then
+            echo
+            echo "=== docker.service status ==="
+            sudo systemctl status docker \
+              --no-pager \
+              --full || true
+
+            echo
+            echo "=== docker.service journal ==="
+            sudo journalctl \
+              -u docker.service \
+              -b \
+              --no-pager \
+              -n 200 || true
+
+            echo
+            echo "=== containerd.service journal ==="
+            sudo journalctl \
+              -u containerd.service \
+              -b \
+              --no-pager \
+              -n 100 || true
+
+            echo
+            echo "=== kernel modules ==="
+            lsmod | grep -E 'overlay|br_netfilter|nf_tables' || true
+
+            echo
+            echo "=== network / iptables ==="
+            sudo iptables --version || true
+            sudo nft list ruleset || true
+
+            exit 1
+          fi
+
 
       - name: Verify Docker
         shell: bash
