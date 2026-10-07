@@ -127,9 +127,6 @@ command -v squeue >/dev/null 2>&1 || die "squeue was not installed"
 command -v seff >/dev/null 2>&1 || die "seff was not installed"
 command -v perl >/dev/null 2>&1 || die "Perl was not installed"
 
-perl -c "$(command -v seff)" >/dev/null 2>&1 || \
-  die "seff Perl dependencies are not available"
-
 if [[ ! -s "${MUNGE_KEY_SOURCE}" ]]; then
   if [[ -s "${MUNGE_KEY_HOST}" ]]; then
     log "adopting existing host MUNGE key as the demo key"
