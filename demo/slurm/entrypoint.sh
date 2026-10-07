@@ -11,6 +11,7 @@ MUNGE_TARGET=/etc/munge/munge.key
 
 install -o munge -g munge -m 0400 "${MUNGE_SOURCE}" "${MUNGE_TARGET}"
 install -d -o munge -g munge -m 0755 /run/munge /var/lib/munge /var/log/munge
+chown -R munge:munge /run/munge /var/lib/munge /var/log/munge
 
 munged --force
 

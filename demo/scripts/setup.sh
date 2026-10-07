@@ -99,8 +99,8 @@ STORAGE_PASSWORD="$(tr -d '\n' < "${SECRETS_DIR}/slurmdbd-storage-password")"
 sed "s/@STORAGE_PASSWORD@/${STORAGE_PASSWORD}/g" \
   "${DEMO_DIR}/slurm/slurmdbd.conf.template" \
   > "${CONFIG_DIR}/slurmdbd.conf.tmp"
-chown root:64030 "${CONFIG_DIR}/slurmdbd.conf.tmp"
-chmod 0640 "${CONFIG_DIR}/slurmdbd.conf.tmp"
+chown 64030:64030 "${CONFIG_DIR}/slurmdbd.conf.tmp"
+chmod 0600 "${CONFIG_DIR}/slurmdbd.conf.tmp"
 mv -f "${CONFIG_DIR}/slurmdbd.conf.tmp" "${CONFIG_DIR}/slurmdbd.conf"
 
 compose() {
