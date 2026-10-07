@@ -53,70 +53,36 @@ jobs:
         run: |
           set -euo pipefail
 
-          sudo dnf install -y dnf-plugins-core
+          RUNNING_KERNEL="$(uname -r)"
+
+          echo "Running kernel: ${RUNNING_KERNEL}"
+
+          sudo dnf install -y \
+            dnf-plugins-core \
+            kmod \
+            "kernel-modules-core-${RUNNING_KERNEL}" \
+            "kernel-modules-${RUNNING_KERNEL}"
+
+          sudo modprobe overlay
+          sudo modprobe br_netfilter
+          sudo modprobe nf_nat
+          sudo modprobe xt_addrtype
+
+          echo "Loaded Docker networking modules:"
+          lsmod | grep -E 'overlay|br_netfilter|nf_nat|xt_addrtype'
 
           sudo dnf config-manager --add-repo \
             https://download.docker.com/linux/rhel/docker-ce.repo
 
           sudo dnf install -y \
+            --setopt=install_weak_deps=False \
             docker-ce \
             docker-ce-cli \
             containerd.io \
             docker-buildx-plugin \
             docker-compose-plugin
 
-          echo "=== virtualization ==="
-          systemd-detect-virt || true
-
-          echo "=== kernel ==="
-          uname -a
-
-          echo "=== cgroups ==="
-          mount | grep cgroup || true
-          stat -fc %T /sys/fs/cgroup || true
-
-          echo "=== containerd ==="
-          sudo systemctl status containerd \
-            --no-pager \
-            --full || true
-
-          echo "=== starting Docker ==="
-
-          if ! sudo systemctl start docker; then
-            echo
-            echo "=== docker.service status ==="
-            sudo systemctl status docker \
-              --no-pager \
-              --full || true
-
-            echo
-            echo "=== docker.service journal ==="
-            sudo journalctl \
-              -u docker.service \
-              -b \
-              --no-pager \
-              -n 200 || true
-
-            echo
-            echo "=== containerd.service journal ==="
-            sudo journalctl \
-              -u containerd.service \
-              -b \
-              --no-pager \
-              -n 100 || true
-
-            echo
-            echo "=== kernel modules ==="
-            lsmod | grep -E 'overlay|br_netfilter|nf_tables' || true
-
-            echo
-            echo "=== network / iptables ==="
-            sudo iptables --version || true
-            sudo nft list ruleset || true
-
-            exit 1
-          fi
-
+          sudo systemctl start docker
 
       - name: Verify Docker
         shell: bash
