@@ -1,0 +1,117 @@
+name: Demo CI
+
+on:
+  pull_request:
+    paths:
+      - 'demo/**'
+      - '.github/workflows/demo-ci.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'demo/**'
+      - '.github/workflows/demo-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-bootstrap:
+    name: Rocky 10 host bootstrap
+    runs-on: chickadee-small-rocky-102
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Verify runner
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          source /etc/os-release
+
+          test "$ID" = "rocky"
+          test "${VERSION_ID%%.*}" = "10"
+          test "$(uname -m)" = "x86_64"
+
+          sudo -n true
+          sudo docker version
+          sudo docker compose version
+
+      - name: Validate bootstrap files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -x demo/scripts/bootstrap-host.sh
+          bash -n demo/versions.env
+          bash -n demo/scripts/bootstrap-host.sh
+
+          source demo/versions.env
+          : "${ROCKY_MAJOR:?}"
+          : "${OPENHPC_MAJOR:?}"
+          : "${SLURM_SERIES:?}"
+
+      - name: Bootstrap host
+        run: sudo ./demo/scripts/bootstrap-host.sh
+
+      - name: Verify host bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          source demo/versions.env
+          source /srv/slurm-view-demo/state/versions.env
+
+          case "$SLURM_VERSION" in
+            "${SLURM_SERIES}."*) ;;
+            *)
+              echo "Expected Slurm ${SLURM_SERIES}.x, got ${SLURM_VERSION}"
+              exit 1
+              ;;
+          esac
+
+          test "$(squeue --version)" = "slurm ${SLURM_VERSION}"
+          test "$(command -v seff)" = "/usr/bin/seff"
+          test "$(rpm -q --qf '%{VERSION}-%{RELEASE}' slurm-ohpc)" = \
+            "${SLURM_VERSION}-${SLURM_RELEASE}"
+          test "$(rpm -q --qf '%{VERSION}-%{RELEASE}' slurm-contribs-ohpc)" = \
+            "${SLURM_VERSION}-${SLURM_RELEASE}"
+
+          systemctl is-active --quiet munge
+          munge -n | unmunge >/dev/null
+
+          sudo test -s /srv/slurm-view-demo/secrets/munge.key
+          sudo cmp \
+            /srv/slurm-view-demo/secrets/munge.key \
+            /etc/munge/munge.key
+
+          echo "MUNGE_KEY_SHA=$(sudo sha256sum /srv/slurm-view-demo/secrets/munge.key | awk '{print $1}')" >> "$GITHUB_ENV"
+          echo "RESOLVED_VERSIONS_SHA=$(sha256sum /srv/slurm-view-demo/state/versions.env | awk '{print $1}')" >> "$GITHUB_ENV"
+
+      - name: Run bootstrap again
+        run: sudo ./demo/scripts/bootstrap-host.sh
+
+      - name: Verify repeatability
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          source demo/versions.env
+          source /srv/slurm-view-demo/state/versions.env
+
+          test "$(squeue --version)" = "slurm ${SLURM_VERSION}"
+          systemctl is-active --quiet munge
+          munge -n | unmunge >/dev/null
+
+          test "$(sudo sha256sum /srv/slurm-view-demo/secrets/munge.key | awk '{print $1}')" = \
+            "$MUNGE_KEY_SHA"
+          test "$(sha256sum /srv/slurm-view-demo/state/versions.env | awk '{print $1}')" = \
+            "$RESOLVED_VERSIONS_SHA"
