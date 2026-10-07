@@ -61,7 +61,8 @@ jobs:
             dnf-plugins-core \
             kmod \
             "kernel-modules-core-${RUNNING_KERNEL}" \
-            "kernel-modules-${RUNNING_KERNEL}"
+            "kernel-modules-${RUNNING_KERNEL}" \
+            "kernel-modules-extra-${RUNNING_KERNEL}"
 
           sudo modprobe overlay
           sudo modprobe br_netfilter
