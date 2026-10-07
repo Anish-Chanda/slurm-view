@@ -26,7 +26,7 @@ jobs:
   host-bootstrap:
     name: Rocky 10 host bootstrap
     runs-on: chickadee-small-rocky-102
-    timeout-minutes: 20
+    timeout-minutes: 35
 
     steps:
       - name: Checkout repository
@@ -234,3 +234,153 @@ jobs:
           sudo cmp \
             /srv/slurm-view-demo/secrets/munge.key \
             /etc/munge/munge.key
+      - name: Validate demo cluster files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -x demo/scripts/setup.sh
+          test -x demo/scripts/init-accounting.sh
+          test -x demo/scripts/check.sh
+          test -x demo/slurm/entrypoint.sh
+
+          bash -n demo/scripts/setup.sh
+          bash -n demo/scripts/init-accounting.sh
+          bash -n demo/scripts/check.sh
+          bash -n demo/slurm/entrypoint.sh
+
+          source demo/versions.env
+          source /srv/slurm-view-demo/state/versions.env
+
+          export \
+            ROCKY_MAJOR \
+            OPENHPC_MAJOR \
+            SLURM_VERSION \
+            SLURM_RELEASE \
+            SLURM_VIEW_DEMO_STATE_DIR=/srv/slurm-view-demo
+
+          docker compose \
+            -f demo/compose.yaml \
+            config --quiet
+
+      - name: Start minimal demo cluster
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo ./demo/scripts/setup.sh
+
+      - name: Verify minimal demo cluster
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          scontrol ping | grep -q 'UP'
+
+          NODE_STATE="$(
+            sinfo -h -N -n cpu01 -o '%T' | head -n 1
+          )"
+
+          case "$NODE_STATE" in
+            idle*)
+              ;;
+            *)
+              echo "Expected cpu01 to be idle, got ${NODE_STATE}"
+              exit 1
+              ;;
+          esac
+
+          sacctmgr -nP \
+            show cluster slurm-view-demo \
+            format=Cluster \
+            | grep -qx 'slurm-view-demo'
+
+          sacctmgr -nP \
+            show account research \
+            format=Account \
+            | grep -qx 'research'
+
+          sacctmgr -nP \
+            show user demo01 withassoc \
+            format=User,Account,Cluster \
+            | grep -qx 'demo01|research|slurm-view-demo'
+
+          sudo ./demo/scripts/check.sh
+
+      - name: Show demo cluster diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+
+          echo "=== Docker containers ==="
+          sudo docker ps -a
+
+          if [[ -s /srv/slurm-view-demo/state/versions.env ]]; then
+            source demo/versions.env
+            source /srv/slurm-view-demo/state/versions.env
+
+            echo
+            echo "=== Compose status ==="
+            sudo env \
+              ROCKY_MAJOR="$ROCKY_MAJOR" \
+              OPENHPC_MAJOR="$OPENHPC_MAJOR" \
+              SLURM_VERSION="$SLURM_VERSION" \
+              SLURM_RELEASE="$SLURM_RELEASE" \
+              SLURM_VIEW_DEMO_STATE_DIR=/srv/slurm-view-demo \
+              docker compose \
+                -f demo/compose.yaml \
+                ps -a
+
+            echo
+            echo "=== Compose logs ==="
+            sudo env \
+              ROCKY_MAJOR="$ROCKY_MAJOR" \
+              OPENHPC_MAJOR="$OPENHPC_MAJOR" \
+              SLURM_VERSION="$SLURM_VERSION" \
+              SLURM_RELEASE="$SLURM_RELEASE" \
+              SLURM_VIEW_DEMO_STATE_DIR=/srv/slurm-view-demo \
+              docker compose \
+                -f demo/compose.yaml \
+                logs \
+                --no-color
+          fi
+
+          echo
+          echo "=== Slurm controller ==="
+          scontrol ping || true
+
+          echo
+          echo "=== Slurm nodes ==="
+          sinfo -N -l || true
+
+          echo
+          echo "=== Recent accounting ==="
+          sacct \
+            --starttime now-30minutes \
+            --format=JobID,JobName,User,Account,State,Elapsed,AllocCPUS,MaxRSS \
+            || true
+
+      - name: Stop demo cluster
+        if: always()
+        shell: bash
+        run: |
+          set +e
+
+          if [[ ! -s /srv/slurm-view-demo/state/versions.env ]]; then
+            exit 0
+          fi
+
+          source demo/versions.env
+          source /srv/slurm-view-demo/state/versions.env
+
+          sudo env \
+            ROCKY_MAJOR="$ROCKY_MAJOR" \
+            OPENHPC_MAJOR="$OPENHPC_MAJOR" \
+            SLURM_VERSION="$SLURM_VERSION" \
+            SLURM_RELEASE="$SLURM_RELEASE" \
+            SLURM_VIEW_DEMO_STATE_DIR=/srv/slurm-view-demo \
+            docker compose \
+              -f demo/compose.yaml \
+              down \
+              --remove-orphans
