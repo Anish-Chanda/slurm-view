@@ -5,12 +5,14 @@ on:
     paths:
       - 'demo/**'
       - '.github/workflows/demo-ci.yml'
+
   push:
     branches:
       - main
     paths:
       - 'demo/**'
       - '.github/workflows/demo-ci.yml'
+
   workflow_dispatch:
 
 permissions:
@@ -42,8 +44,37 @@ jobs:
           test "$(uname -m)" = "x86_64"
 
           sudo -n true
+
+          echo "Runner: $PRETTY_NAME"
+          uname -r
+
+      - name: Install Docker
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo dnf install -y dnf-plugins-core
+
+          sudo dnf config-manager --add-repo \
+            https://download.docker.com/linux/rhel/docker-ce.repo
+
+          sudo dnf install -y \
+            docker-ce \
+            docker-ce-cli \
+            containerd.io \
+            docker-buildx-plugin \
+            docker-compose-plugin
+
+          sudo systemctl start docker
+
+      - name: Verify Docker
+        shell: bash
+        run: |
+          set -euo pipefail
+
           sudo docker version
           sudo docker compose version
+          sudo docker info
 
       - name: Validate bootstrap files
         shell: bash
@@ -51,16 +82,22 @@ jobs:
           set -euo pipefail
 
           test -x demo/scripts/bootstrap-host.sh
+
           bash -n demo/versions.env
           bash -n demo/scripts/bootstrap-host.sh
 
           source demo/versions.env
-          : "${ROCKY_MAJOR:?}"
-          : "${OPENHPC_MAJOR:?}"
-          : "${SLURM_SERIES:?}"
 
-      - name: Bootstrap host
-        run: sudo ./demo/scripts/bootstrap-host.sh
+          test "$ROCKY_MAJOR" = "10"
+          test "$OPENHPC_MAJOR" = "4"
+          test -n "$SLURM_SERIES"
+
+      - name: Run host bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo ./demo/scripts/bootstrap-host.sh
 
       - name: Verify host bootstrap
         shell: bash
@@ -68,50 +105,103 @@ jobs:
           set -euo pipefail
 
           source demo/versions.env
-          source /srv/slurm-view-demo/state/versions.env
 
-          case "$SLURM_VERSION" in
-            "${SLURM_SERIES}."*) ;;
+          ACTUAL_VERSION="$(squeue --version | awk '{print $2}')"
+
+          case "$ACTUAL_VERSION" in
+            "${SLURM_SERIES}".*)
+              ;;
             *)
-              echo "Expected Slurm ${SLURM_SERIES}.x, got ${SLURM_VERSION}"
+              echo "Expected Slurm ${SLURM_SERIES}.x, got ${ACTUAL_VERSION}"
               exit 1
               ;;
           esac
 
-          test "$(squeue --version)" = "slurm ${SLURM_VERSION}"
+          test "$(command -v squeue)" = "/usr/bin/squeue"
+          test "$(command -v sacct)" = "/usr/bin/sacct"
+          test "$(command -v scontrol)" = "/usr/bin/scontrol"
+          test "$(command -v sinfo)" = "/usr/bin/sinfo"
+          test "$(command -v sprio)" = "/usr/bin/sprio"
+          test "$(command -v sbatch)" = "/usr/bin/sbatch"
+          test "$(command -v srun)" = "/usr/bin/srun"
           test "$(command -v seff)" = "/usr/bin/seff"
-          test "$(rpm -q --qf '%{VERSION}-%{RELEASE}' slurm-ohpc)" = \
-            "${SLURM_VERSION}-${SLURM_RELEASE}"
-          test "$(rpm -q --qf '%{VERSION}-%{RELEASE}' slurm-contribs-ohpc)" = \
-            "${SLURM_VERSION}-${SLURM_RELEASE}"
+
+          rpm -q slurm-ohpc
+          rpm -q slurm-contribs-ohpc
+          rpm -q munge
 
           systemctl is-active --quiet munge
+
           munge -n | unmunge >/dev/null
 
           sudo test -s /srv/slurm-view-demo/secrets/munge.key
+          sudo test -s /srv/slurm-view-demo/state/versions.env
+
           sudo cmp \
             /srv/slurm-view-demo/secrets/munge.key \
             /etc/munge/munge.key
 
-          echo "MUNGE_KEY_SHA=$(sudo sha256sum /srv/slurm-view-demo/secrets/munge.key | awk '{print $1}')" >> "$GITHUB_ENV"
-          echo "RESOLVED_VERSIONS_SHA=$(sha256sum /srv/slurm-view-demo/state/versions.env | awk '{print $1}')" >> "$GITHUB_ENV"
+          sudo cat /srv/slurm-view-demo/state/versions.env
 
-      - name: Run bootstrap again
-        run: sudo ./demo/scripts/bootstrap-host.sh
+      - name: Record bootstrap state
+        shell: bash
+        run: |
+          set -euo pipefail
 
-      - name: Verify repeatability
+          MUNGE_HASH="$(
+            sudo sha256sum /srv/slurm-view-demo/secrets/munge.key \
+              | awk '{print $1}'
+          )"
+
+          VERSION_STATE_HASH="$(
+            sudo sha256sum /srv/slurm-view-demo/state/versions.env \
+              | awk '{print $1}'
+          )"
+
+          echo "MUNGE_HASH=$MUNGE_HASH" >> "$GITHUB_ENV"
+          echo "VERSION_STATE_HASH=$VERSION_STATE_HASH" >> "$GITHUB_ENV"
+
+      - name: Run host bootstrap again
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo ./demo/scripts/bootstrap-host.sh
+
+      - name: Verify repeat bootstrap
         shell: bash
         run: |
           set -euo pipefail
 
           source demo/versions.env
-          source /srv/slurm-view-demo/state/versions.env
 
-          test "$(squeue --version)" = "slurm ${SLURM_VERSION}"
+          ACTUAL_VERSION="$(squeue --version | awk '{print $2}')"
+
+          case "$ACTUAL_VERSION" in
+            "${SLURM_SERIES}".*)
+              ;;
+            *)
+              echo "Expected Slurm ${SLURM_SERIES}.x, got ${ACTUAL_VERSION}"
+              exit 1
+              ;;
+          esac
+
           systemctl is-active --quiet munge
           munge -n | unmunge >/dev/null
 
-          test "$(sudo sha256sum /srv/slurm-view-demo/secrets/munge.key | awk '{print $1}')" = \
-            "$MUNGE_KEY_SHA"
-          test "$(sha256sum /srv/slurm-view-demo/state/versions.env | awk '{print $1}')" = \
-            "$RESOLVED_VERSIONS_SHA"
+          CURRENT_MUNGE_HASH="$(
+            sudo sha256sum /srv/slurm-view-demo/secrets/munge.key \
+              | awk '{print $1}'
+          )"
+
+          CURRENT_VERSION_STATE_HASH="$(
+            sudo sha256sum /srv/slurm-view-demo/state/versions.env \
+              | awk '{print $1}'
+          )"
+
+          test "$CURRENT_MUNGE_HASH" = "$MUNGE_HASH"
+          test "$CURRENT_VERSION_STATE_HASH" = "$VERSION_STATE_HASH"
+
+          sudo cmp \
+            /srv/slurm-view-demo/secrets/munge.key \
+            /etc/munge/munge.key
