@@ -52,6 +52,8 @@ services:
         OPENHPC_MAJOR: ${OPENHPC_MAJOR:?OPENHPC_MAJOR must be exported}
         SLURM_VERSION: ${SLURM_VERSION:?SLURM_VERSION must be exported}
         SLURM_RELEASE: ${SLURM_RELEASE:?SLURM_RELEASE must be exported}
+        SLURM_UID: ${SLURM_UID:?SLURM_UID must be exported}
+        SLURM_GID: ${SLURM_GID:?SLURM_GID must be exported}
     hostname: slurmctld
     restart: unless-stopped
     environment:

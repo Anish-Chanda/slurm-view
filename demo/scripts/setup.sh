@@ -36,7 +36,17 @@ source "${RESOLVED_VERSIONS_FILE}"
 : "${SLURM_VERSION:?SLURM_VERSION is required}"
 : "${SLURM_RELEASE:?SLURM_RELEASE is required}"
 
-export ROCKY_MAJOR OPENHPC_MAJOR SLURM_VERSION SLURM_RELEASE
+id slurm >/dev/null 2>&1 || die "host Slurm service user is missing"
+
+SLURM_UID="$(id -u slurm)"
+SLURM_GID="$(id -g slurm)"
+
+[[ "${SLURM_UID}" != "0" ]] || die "Slurm service user must not be root"
+[[ "${SLURM_GID}" != "0" ]] || die "Slurm service group must not be root"
+
+export   ROCKY_MAJOR   OPENHPC_MAJOR   SLURM_VERSION   SLURM_RELEASE   SLURM_UID   SLURM_GID
+
+log "using host Slurm service identity ${SLURM_UID}:${SLURM_GID}"
 
 command -v docker >/dev/null 2>&1 || die "Docker is required"
 docker info >/dev/null 2>&1 || die "Docker daemon is not available"
@@ -47,7 +57,9 @@ command -v runuser >/dev/null 2>&1 || die "runuser is required"
 log "creating runtime directories"
 install -d -o root -g root -m 0755 "${CONFIG_DIR}" "${DEMO_STATE_ROOT}/slurmctld" "${DEMO_STATE_ROOT}/slurmdbd" "${SHARED_HOME_DIR}"
 install -d -o root -g root -m 0700 "${SECRETS_DIR}"
-install -d -o 64030 -g 64030 -m 0755 "${DEMO_STATE_ROOT}/slurmctld" "${DEMO_STATE_ROOT}/slurmdbd"
+install -d -o "${SLURM_UID}" -g "${SLURM_GID}" -m 0755   "${DEMO_STATE_ROOT}/slurmctld"   "${DEMO_STATE_ROOT}/slurmdbd"
+
+chown -R "${SLURM_UID}:${SLURM_GID}"   "${DEMO_STATE_ROOT}/slurmctld"   "${DEMO_STATE_ROOT}/slurmdbd"
 install -d -o 20001 -g 20001 -m 0755 "${SHARED_HOME_DIR}/demo01"
 
 if getent group demo01 >/dev/null 2>&1; then
@@ -99,7 +111,7 @@ STORAGE_PASSWORD="$(tr -d '\n' < "${SECRETS_DIR}/slurmdbd-storage-password")"
 sed "s/@STORAGE_PASSWORD@/${STORAGE_PASSWORD}/g" \
   "${DEMO_DIR}/slurm/slurmdbd.conf.template" \
   > "${CONFIG_DIR}/slurmdbd.conf.tmp"
-chown 64030:64030 "${CONFIG_DIR}/slurmdbd.conf.tmp"
+chown "${SLURM_UID}:${SLURM_GID}" "${CONFIG_DIR}/slurmdbd.conf.tmp"
 chmod 0600 "${CONFIG_DIR}/slurmdbd.conf.tmp"
 mv -f "${CONFIG_DIR}/slurmdbd.conf.tmp" "${CONFIG_DIR}/slurmdbd.conf"
 

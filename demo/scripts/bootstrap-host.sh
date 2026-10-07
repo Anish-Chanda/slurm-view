@@ -114,7 +114,9 @@ log "installing Slurm ${SLURM_VERSION}-${SLURM_RELEASE} client packages and MUNG
 dnf install -y \
   "slurm-ohpc-${SLURM_NEVRA}" \
   "slurm-contribs-ohpc-${SLURM_NEVRA}" \
-  munge
+  "slurm-perlapi-ohpc-${SLURM_NEVRA}" \
+  munge \
+  perl-Sys-Hostname
 
 INSTALLED_SLURM="$(rpm -q --qf '%{VERSION}-%{RELEASE}' slurm-ohpc)"
 EXPECTED_SLURM="${SLURM_VERSION}-${SLURM_RELEASE}"
@@ -123,6 +125,10 @@ EXPECTED_SLURM="${SLURM_VERSION}-${SLURM_RELEASE}"
 
 command -v squeue >/dev/null 2>&1 || die "squeue was not installed"
 command -v seff >/dev/null 2>&1 || die "seff was not installed"
+command -v perl >/dev/null 2>&1 || die "Perl was not installed"
+
+perl -c "$(command -v seff)" >/dev/null 2>&1 || \
+  die "seff Perl dependencies are not available"
 
 if [[ ! -s "${MUNGE_KEY_SOURCE}" ]]; then
   if [[ -s "${MUNGE_KEY_HOST}" ]]; then

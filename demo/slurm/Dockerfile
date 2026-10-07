@@ -5,11 +5,13 @@ ARG ROCKY_MAJOR
 ARG OPENHPC_MAJOR
 ARG SLURM_VERSION
 ARG SLURM_RELEASE
+ARG SLURM_UID
+ARG SLURM_GID
 
 RUN set -eux; \
     dnf install -y shadow-utils; \
-    groupadd --gid 64030 slurm; \
-    useradd --uid 64030 --gid 64030 --no-create-home --home-dir /var/lib/slurm --shell /usr/sbin/nologin slurm; \
+    groupadd --gid "${SLURM_GID}" slurm; \
+    useradd --uid "${SLURM_UID}" --gid "${SLURM_GID}" --no-create-home --home-dir /var/lib/slurm --shell /usr/sbin/nologin slurm; \
     groupadd --gid 20001 demo01; \
     useradd --uid 20001 --gid 20001 --no-create-home --home-dir /srv/slurm-view-demo/shared-home/demo01 --shell /usr/sbin/nologin demo01; \
     dnf install -y \

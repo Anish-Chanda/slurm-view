@@ -155,7 +155,11 @@ jobs:
 
           rpm -q slurm-ohpc
           rpm -q slurm-contribs-ohpc
+          rpm -q slurm-perlapi-ohpc
+          rpm -q perl-Sys-Hostname
           rpm -q munge
+
+          perl -c "$(command -v seff)"
 
           systemctl is-active --quiet munge
           munge -n | unmunge >/dev/null
