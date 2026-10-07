@@ -46,7 +46,7 @@ jobs:
           sudo -n true
 
           echo "Runner: $PRETTY_NAME"
-          uname -r
+          echo "Kernel: $(uname -r)"
 
       - name: Install Docker
         shell: bash
@@ -55,7 +55,7 @@ jobs:
 
           RUNNING_KERNEL="$(uname -r)"
 
-          echo "Running kernel: ${RUNNING_KERNEL}"
+          echo "Installing modules for running kernel: ${RUNNING_KERNEL}"
 
           sudo dnf install -y \
             dnf-plugins-core \
@@ -69,9 +69,6 @@ jobs:
           sudo modprobe nf_nat
           sudo modprobe xt_addrtype
 
-          echo "Loaded Docker networking modules:"
-          lsmod | grep -E 'overlay|br_netfilter|nf_nat|xt_addrtype'
-
           sudo dnf config-manager --add-repo \
             https://download.docker.com/linux/rhel/docker-ce.repo
 
@@ -83,7 +80,12 @@ jobs:
             docker-buildx-plugin \
             docker-compose-plugin
 
-          sudo systemctl start docker
+          if ! sudo systemctl start docker; then
+            echo "Docker failed to start:"
+            sudo systemctl status docker --no-pager --full || true
+            sudo journalctl -u docker.service -b --no-pager -n 100 || true
+            exit 1
+          fi
 
       - name: Verify Docker
         shell: bash
@@ -92,7 +94,12 @@ jobs:
 
           sudo docker version
           sudo docker compose version
-          sudo docker info
+
+          test "$(
+            sudo docker info --format '{{.CgroupVersion}}'
+          )" = "2"
+
+          sudo docker run --rm hello-world
 
       - name: Validate bootstrap files
         shell: bash
@@ -124,7 +131,9 @@ jobs:
 
           source demo/versions.env
 
-          ACTUAL_VERSION="$(squeue --version | awk '{print $2}')"
+          ACTUAL_VERSION="$(
+            rpm -q --qf '%{VERSION}' slurm-ohpc
+          )"
 
           case "$ACTUAL_VERSION" in
             "${SLURM_SERIES}".*)
@@ -149,7 +158,6 @@ jobs:
           rpm -q munge
 
           systemctl is-active --quiet munge
-
           munge -n | unmunge >/dev/null
 
           sudo test -s /srv/slurm-view-demo/secrets/munge.key
@@ -159,6 +167,7 @@ jobs:
             /srv/slurm-view-demo/secrets/munge.key \
             /etc/munge/munge.key
 
+          echo "Resolved demo versions:"
           sudo cat /srv/slurm-view-demo/state/versions.env
 
       - name: Record bootstrap state
@@ -193,7 +202,9 @@ jobs:
 
           source demo/versions.env
 
-          ACTUAL_VERSION="$(squeue --version | awk '{print $2}')"
+          ACTUAL_VERSION="$(
+            rpm -q --qf '%{VERSION}' slurm-ohpc
+          )"
 
           case "$ACTUAL_VERSION" in
             "${SLURM_SERIES}".*)

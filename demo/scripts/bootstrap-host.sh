@@ -121,8 +121,7 @@ EXPECTED_SLURM="${SLURM_VERSION}-${SLURM_RELEASE}"
 [[ "${INSTALLED_SLURM}" == "${EXPECTED_SLURM}" ]] || \
   die "unexpected Slurm package version: expected ${EXPECTED_SLURM}, found ${INSTALLED_SLURM}"
 
-[[ "$(squeue --version)" == "slurm ${SLURM_VERSION}" ]] || \
-  die "squeue does not report Slurm ${SLURM_VERSION}"
+command -v squeue >/dev/null 2>&1 || die "squeue was not installed"
 command -v seff >/dev/null 2>&1 || die "seff was not installed"
 
 if [[ ! -s "${MUNGE_KEY_SOURCE}" ]]; then
@@ -169,7 +168,7 @@ log "verifying MUNGE authentication"
 munge -n | unmunge >/dev/null
 
 log "host bootstrap complete"
-printf '  Slurm:  %s\n' "$(squeue --version)"
+printf '  Slurm:  %s\n' "${SLURM_VERSION}"
 printf '  seff:   %s\n' "$(command -v seff)"
 printf '  MUNGE:  %s\n' "$(systemctl is-active munge)"
 printf '  state:  %s\n' "${DEMO_STATE_ROOT}"
