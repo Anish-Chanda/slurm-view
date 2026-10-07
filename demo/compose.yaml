@@ -1,0 +1,94 @@
+name: slurm-view-demo
+
+services:
+  mariadb:
+    image: mariadb:11.8
+    hostname: mariadb
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: slurm_acct_db
+      MARIADB_USER: slurm
+      MARIADB_ROOT_PASSWORD_FILE: /run/secrets/mariadb-root-password
+      MARIADB_PASSWORD_FILE: /run/secrets/slurmdbd-storage-password
+    volumes:
+      - ${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/mariadb:/var/lib/mysql:Z
+      - ${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/secrets/mariadb-root-password:/run/secrets/mariadb-root-password:ro,Z
+      - ${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/secrets/slurmdbd-storage-password:/run/secrets/slurmdbd-storage-password:ro,Z
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    networks:
+      demo:
+        ipv4_address: 172.30.50.10
+
+  slurmdbd:
+    image: slurm-view-demo/slurm:${SLURM_VERSION:?SLURM_VERSION must be exported}
+    hostname: slurmdbd
+    restart: unless-stopped
+    environment:
+      SLURM_ROLE: slurmdbd
+    volumes:
+      - ${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/config/slurm.conf:/etc/slurm/slurm.conf:ro,Z
+      - ${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/config/slurmdbd.conf:/etc/slurm/slurmdbd.conf:ro,Z
+      - ${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/secrets/munge.key:/run/demo-secrets/munge.key:ro,Z
+      - ${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/slurmdbd:/var/spool/slurmdbd:Z
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    networks:
+      demo:
+        ipv4_address: 172.30.50.11
+
+  slurmctld:
+    image: slurm-view-demo/slurm:${SLURM_VERSION:?SLURM_VERSION must be exported}
+    build:
+      context: .
+      dockerfile: slurm/Dockerfile
+      args:
+        ROCKY_MAJOR: ${ROCKY_MAJOR:?ROCKY_MAJOR must be exported}
+        OPENHPC_MAJOR: ${OPENHPC_MAJOR:?OPENHPC_MAJOR must be exported}
+        SLURM_VERSION: ${SLURM_VERSION:?SLURM_VERSION must be exported}
+        SLURM_RELEASE: ${SLURM_RELEASE:?SLURM_RELEASE must be exported}
+    hostname: slurmctld
+    restart: unless-stopped
+    environment:
+      SLURM_ROLE: slurmctld
+    volumes:
+      - ${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/config/slurm.conf:/etc/slurm/slurm.conf:ro,Z
+      - ${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/secrets/munge.key:/run/demo-secrets/munge.key:ro,Z
+      - ${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/slurmctld:/var/spool/slurmctld:Z
+    depends_on:
+      - slurmdbd
+    networks:
+      demo:
+        ipv4_address: 172.30.50.12
+
+  cpu01:
+    image: slurm-view-demo/slurm:${SLURM_VERSION:?SLURM_VERSION must be exported}
+    hostname: cpu01
+    restart: unless-stopped
+    privileged: true
+    cgroup: private
+    environment:
+      SLURM_ROLE: slurmd
+      SLURM_NODE_NAME: cpu01
+    volumes:
+      - ${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/config/slurm.conf:/etc/slurm/slurm.conf:ro,Z
+      - ${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/config/cgroup.conf:/etc/slurm/cgroup.conf:ro,Z
+      - ${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/secrets/munge.key:/run/demo-secrets/munge.key:ro,Z
+      - ${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/shared-home:${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/shared-home:Z
+    depends_on:
+      - slurmctld
+    networks:
+      demo:
+        ipv4_address: 172.30.50.21
+
+networks:
+  demo:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.50.0/24
