@@ -245,11 +245,14 @@ jobs:
           test -x demo/scripts/setup.sh
           test -x demo/scripts/init-accounting.sh
           test -x demo/scripts/check.sh
+          test -x demo/scripts/check-topology.sh
           test -x demo/slurm/entrypoint.sh
+          test -f demo/slurm/gres.conf
 
           bash -n demo/scripts/setup.sh
           bash -n demo/scripts/init-accounting.sh
           bash -n demo/scripts/check.sh
+          bash -n demo/scripts/check-topology.sh
           bash -n demo/slurm/entrypoint.sh
 
           source demo/versions.env
@@ -271,14 +274,14 @@ jobs:
             -f demo/compose.yaml \
             config --quiet
 
-      - name: Start minimal demo cluster
+      - name: Start demo cluster
         shell: bash
         run: |
           set -euo pipefail
 
           sudo ./demo/scripts/setup.sh
 
-      - name: Verify minimal demo cluster
+      - name: Verify demo cluster
         shell: bash
         run: |
           set -euo pipefail
@@ -329,7 +332,70 @@ jobs:
             format=User,Account,Cluster \
             | grep -qx 'demo01|research|slurm-view-demo'
 
+          test "$(
+            sinfo -h -N -o '%N' | sort -u | wc -l
+          )" -eq 12
+
+          scontrol show node gpu01 -o | grep -q 'Gres=gpu:a100:2'
+          scontrol show node gpu02 -o | grep -q 'Gres=gpu:a100:2'
+
+          CPU08_STATE="$(
+            sinfo -h -N -n cpu08 -o '%T' | head -n 1
+          )"
+          case "$CPU08_STATE" in
+            drained*|draining*)
+              ;;
+            *)
+              echo "Expected cpu08 to be drained, got ${CPU08_STATE}"
+              exit 1
+              ;;
+          esac
+
           sudo ./demo/scripts/check.sh
+          sudo ./demo/scripts/check-topology.sh
+
+      - name: Verify demo setup rerun and config refresh
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Change a bind-mounted source between setup runs. This catches
+          # regressions where Docker containers retain an obsolete inode.
+          printf '\n# ci-runtime-refresh\n' >> demo/slurm/gres.conf
+
+          sudo ./demo/scripts/setup.sh
+
+          grep -qx '# ci-runtime-refresh' \
+            /srv/slurm-view-demo/config/gres.conf
+
+          sudo docker exec slurm-view-demo-gpu01-1 \
+            grep -qx '# ci-runtime-refresh' /etc/slurm/gres.conf
+
+          sudo docker exec slurm-view-demo-gpu02-1 \
+            grep -qx '# ci-runtime-refresh' /etc/slurm/gres.conf
+
+          test "$(
+            sinfo -h -N -o '%N' | sort -u | wc -l
+          )" -eq 12
+
+          scontrol show node gpu01 -o \
+            | grep -q 'Gres=gpu:a100:2'
+
+          scontrol show node gpu02 -o \
+            | grep -q 'Gres=gpu:a100:2'
+
+          CPU08_STATE="$(
+            sinfo -h -N -n cpu08 -o '%T' | head -n 1
+          )"
+
+          case "$CPU08_STATE" in
+            drained*|draining*)
+              ;;
+            *)
+              echo "Expected cpu08 to be drained, got ${CPU08_STATE}"
+              exit 1
+              ;;
+          esac
 
       - name: Show demo cluster diagnostics
         if: failure()

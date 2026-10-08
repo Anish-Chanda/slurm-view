@@ -12,6 +12,14 @@ CONFIG_DIR="${DEMO_STATE_ROOT}/config"
 SECRETS_DIR="${DEMO_STATE_ROOT}/secrets"
 SHARED_HOME_DIR="${DEMO_STATE_ROOT}/shared-home"
 
+DEMO_USERS=(demo01 demo02 demo03 demo04)
+DEMO_UIDS=(20001 20002 20003 20004)
+NODE_SERVICES=(
+  cpu01 cpu02 cpu03 cpu04 cpu05 cpu06 cpu07 cpu08
+  highmem01 highmem02
+  gpu01 gpu02
+)
+
 export SLURM_VIEW_DEMO_STATE_DIR="${DEMO_STATE_ROOT}"
 
 log() {
@@ -44,7 +52,13 @@ SLURM_GID="$(id -g slurm)"
 [[ "${SLURM_UID}" != "0" ]] || die "Slurm service user must not be root"
 [[ "${SLURM_GID}" != "0" ]] || die "Slurm service group must not be root"
 
-export   ROCKY_MAJOR   OPENHPC_MAJOR   SLURM_VERSION   SLURM_RELEASE   SLURM_UID   SLURM_GID
+export \
+  ROCKY_MAJOR \
+  OPENHPC_MAJOR \
+  SLURM_VERSION \
+  SLURM_RELEASE \
+  SLURM_UID \
+  SLURM_GID
 
 log "using host Slurm service identity ${SLURM_UID}:${SLURM_GID}"
 
@@ -55,32 +69,52 @@ command -v sacctmgr >/dev/null 2>&1 || die "sacctmgr is required; run bootstrap-
 command -v runuser >/dev/null 2>&1 || die "runuser is required"
 
 log "creating runtime directories"
-install -d -o root -g root -m 0755 "${CONFIG_DIR}" "${DEMO_STATE_ROOT}/slurmctld" "${DEMO_STATE_ROOT}/slurmdbd" "${SHARED_HOME_DIR}"
+install -d -o root -g root -m 0755 \
+  "${CONFIG_DIR}" \
+  "${DEMO_STATE_ROOT}/slurmctld" \
+  "${DEMO_STATE_ROOT}/slurmdbd" \
+  "${SHARED_HOME_DIR}"
 install -d -o root -g root -m 0700 "${SECRETS_DIR}"
-install -d -o "${SLURM_UID}" -g "${SLURM_GID}" -m 0755   "${DEMO_STATE_ROOT}/slurmctld"   "${DEMO_STATE_ROOT}/slurmdbd"
+install -d -o "${SLURM_UID}" -g "${SLURM_GID}" -m 0755 \
+  "${DEMO_STATE_ROOT}/slurmctld" \
+  "${DEMO_STATE_ROOT}/slurmdbd"
 
-chown -R "${SLURM_UID}:${SLURM_GID}"   "${DEMO_STATE_ROOT}/slurmctld"   "${DEMO_STATE_ROOT}/slurmdbd"
-install -d -o 20001 -g 20001 -m 0755 "${SHARED_HOME_DIR}/demo01"
+chown -R "${SLURM_UID}:${SLURM_GID}" \
+  "${DEMO_STATE_ROOT}/slurmctld" \
+  "${DEMO_STATE_ROOT}/slurmdbd"
 
-if getent group demo01 >/dev/null 2>&1; then
-  [[ "$(getent group demo01 | cut -d: -f3)" == "20001" ]] || die "existing demo01 group does not use GID 20001"
-else
-  groupadd --gid 20001 demo01
-fi
+ensure_demo_user() {
+  local user=$1
+  local uid=$2
 
-if id demo01 >/dev/null 2>&1; then
-  [[ "$(id -u demo01)" == "20001" ]] || die "existing demo01 user does not use UID 20001"
-  [[ "$(id -g demo01)" == "20001" ]] || die "existing demo01 user does not use GID 20001"
-else
-  useradd \
-    --uid 20001 \
-    --gid 20001 \
-    --no-create-home \
-    --home-dir "${SHARED_HOME_DIR}/demo01" \
-    --shell /usr/sbin/nologin \
-    demo01
-fi
-chown 20001:20001 "${SHARED_HOME_DIR}/demo01"
+  if getent group "${user}" >/dev/null 2>&1; then
+    [[ "$(getent group "${user}" | cut -d: -f3)" == "${uid}" ]] || \
+      die "existing ${user} group does not use GID ${uid}"
+  else
+    groupadd --gid "${uid}" "${user}"
+  fi
+
+  if id "${user}" >/dev/null 2>&1; then
+    [[ "$(id -u "${user}")" == "${uid}" ]] || \
+      die "existing ${user} user does not use UID ${uid}"
+    [[ "$(id -g "${user}")" == "${uid}" ]] || \
+      die "existing ${user} user does not use GID ${uid}"
+  else
+    useradd \
+      --uid "${uid}" \
+      --gid "${uid}" \
+      --no-create-home \
+      --home-dir "${SHARED_HOME_DIR}/${user}" \
+      --shell /usr/sbin/nologin \
+      "${user}"
+  fi
+
+  install -d -o "${uid}" -g "${uid}" -m 0755 "${SHARED_HOME_DIR}/${user}"
+}
+
+for index in "${!DEMO_USERS[@]}"; do
+  ensure_demo_user "${DEMO_USERS[$index]}" "${DEMO_UIDS[$index]}"
+done
 
 create_secret() {
   local path=$1
@@ -98,22 +132,61 @@ log "ensuring database credentials exist"
 create_secret "${SECRETS_DIR}/mariadb-root-password"
 create_secret "${SECRETS_DIR}/slurmdbd-storage-password"
 
+write_runtime_config() {
+  local source=$1
+  local target=$2
+  local owner=$3
+  local group=$4
+  local mode=$5
+
+  if [[ -e "${target}" ]]; then
+    cat "${source}" > "${target}"
+  else
+    install \
+      -o "${owner}" \
+      -g "${group}" \
+      -m "${mode}" \
+      "${source}" \
+      "${target}"
+  fi
+
+  chown "${owner}:${group}" "${target}"
+  chmod "${mode}" "${target}"
+}
+
 log "installing Slurm configuration"
-install -o root -g root -m 0644 "${DEMO_DIR}/slurm/slurm.conf" "${CONFIG_DIR}/slurm.conf"
-install -o root -g root -m 0644 "${DEMO_DIR}/slurm/cgroup.conf" "${CONFIG_DIR}/cgroup.conf"
+for config in slurm.conf cgroup.conf gres.conf; do
+  write_runtime_config \
+    "${DEMO_DIR}/slurm/${config}" \
+    "${CONFIG_DIR}/${config}" \
+    root root 0644
+done
+
 install -d -o root -g root -m 0755 /etc/slurm
-install -o root -g root -m 0644 "${DEMO_DIR}/slurm/slurm.conf" /etc/slurm/slurm.conf
-install -o root -g root -m 0644 "${DEMO_DIR}/slurm/cgroup.conf" /etc/slurm/cgroup.conf
+for config in slurm.conf cgroup.conf gres.conf; do
+  install -o root -g root -m 0644 \
+    "${DEMO_DIR}/slurm/${config}" \
+    "/etc/slurm/${config}"
+done
 
 STORAGE_PASSWORD="$(tr -d '\n' < "${SECRETS_DIR}/slurmdbd-storage-password")"
 [[ "${STORAGE_PASSWORD}" != *'#'* ]] || die "generated database password contains unsupported # character"
 
-sed "s/@STORAGE_PASSWORD@/${STORAGE_PASSWORD}/g" \
-  "${DEMO_DIR}/slurm/slurmdbd.conf.template" \
-  > "${CONFIG_DIR}/slurmdbd.conf.tmp"
-chown "${SLURM_UID}:${SLURM_GID}" "${CONFIG_DIR}/slurmdbd.conf.tmp"
-chmod 0600 "${CONFIG_DIR}/slurmdbd.conf.tmp"
-mv -f "${CONFIG_DIR}/slurmdbd.conf.tmp" "${CONFIG_DIR}/slurmdbd.conf"
+if [[ -e "${CONFIG_DIR}/slurmdbd.conf" ]]; then
+  sed "s/@STORAGE_PASSWORD@/${STORAGE_PASSWORD}/g" \
+    "${DEMO_DIR}/slurm/slurmdbd.conf.template" \
+    > "${CONFIG_DIR}/slurmdbd.conf"
+else
+  (
+    umask 077
+    sed "s/@STORAGE_PASSWORD@/${STORAGE_PASSWORD}/g" \
+      "${DEMO_DIR}/slurm/slurmdbd.conf.template" \
+      > "${CONFIG_DIR}/slurmdbd.conf"
+  )
+fi
+
+chown "${SLURM_UID}:${SLURM_GID}" "${CONFIG_DIR}/slurmdbd.conf"
+chmod 0600 "${CONFIG_DIR}/slurmdbd.conf"
 
 compose() {
   docker compose -f "${DEMO_DIR}/compose.yaml" "$@"
@@ -141,7 +214,7 @@ done
 }
 
 log "starting slurmdbd"
-compose up -d slurmdbd
+compose up -d --force-recreate slurmdbd
 
 for _ in $(seq 1 60); do
   if sacctmgr -nP show cluster format=Cluster >/dev/null 2>&1; then
@@ -157,8 +230,8 @@ fi
 
 "${SCRIPT_DIR}/init-accounting.sh"
 
-log "starting controller and cpu01"
-compose up -d slurmctld cpu01
+log "starting controller and 12 demo nodes"
+compose up -d --force-recreate slurmctld "${NODE_SERVICES[@]}"
 
 for _ in $(seq 1 60); do
   if scontrol ping 2>/dev/null | grep -q 'UP'; then
@@ -172,20 +245,58 @@ scontrol ping 2>/dev/null | grep -q 'UP' || {
   die "slurmctld did not become reachable"
 }
 
-for _ in $(seq 1 60); do
-  NODE_STATE="$(sinfo -h -N -n cpu01 -o '%T' 2>/dev/null | head -n 1 || true)"
-  if [[ "${NODE_STATE}" == idle* ]]; then
-    break
-  fi
+node_ready() {
+  local node=$1
+  local state
+
+  state="$(sinfo -h -N -n "${node}" -o '%T' 2>/dev/null | head -n 1 || true)"
+
+  case "${state}" in
+    idle*|allocated*|mixed*|completing*|drained*|draining*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+for _ in $(seq 1 90); do
+  all_ready=1
+
+  for node in "${NODE_SERVICES[@]}"; do
+    if ! node_ready "${node}"; then
+      all_ready=0
+      break
+    fi
+  done
+
+  [[ ${all_ready} -eq 1 ]] && break
   sleep 2
 done
 
-NODE_STATE="$(sinfo -h -N -n cpu01 -o '%T' 2>/dev/null | head -n 1 || true)"
-[[ "${NODE_STATE}" == idle* ]] || {
-  compose logs cpu01 >&2 || true
-  scontrol show node cpu01 >&2 || true
-  die "cpu01 did not reach IDLE state (state: ${NODE_STATE:-unknown})"
-}
+for node in "${NODE_SERVICES[@]}"; do
+  if ! node_ready "${node}"; then
+    compose logs "${node}" >&2 || true
+    scontrol show node "${node}" >&2 || true
+    die "${node} did not register in a usable state"
+  fi
+done
 
-log "minimal cluster is ready"
+log "clearing stale drain state on demo nodes"
+for node in "${NODE_SERVICES[@]}"; do
+  state="$(sinfo -h -N -n "${node}" -o '%T' 2>/dev/null | head -n 1 || true)"
+
+  case "${state}" in
+    drained*|draining*)
+      scontrol update NodeName="${node}" State=UNDRAIN
+      ;;
+  esac
+done
+
+log "marking cpu08 as planned maintenance"
+scontrol update NodeName=cpu08 State=DRAIN Reason="Demo maintenance"
+
+log "demo topology is ready"
 "${SCRIPT_DIR}/check.sh"
+"${SCRIPT_DIR}/check-topology.sh"

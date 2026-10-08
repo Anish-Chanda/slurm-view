@@ -13,7 +13,13 @@ RUN set -eux; \
     groupadd --gid "${SLURM_GID}" slurm; \
     useradd --uid "${SLURM_UID}" --gid "${SLURM_GID}" --no-create-home --home-dir /var/lib/slurm --shell /usr/sbin/nologin slurm; \
     groupadd --gid 20001 demo01; \
+    groupadd --gid 20002 demo02; \
+    groupadd --gid 20003 demo03; \
+    groupadd --gid 20004 demo04; \
     useradd --uid 20001 --gid 20001 --no-create-home --home-dir /srv/slurm-view-demo/shared-home/demo01 --shell /usr/sbin/nologin demo01; \
+    useradd --uid 20002 --gid 20002 --no-create-home --home-dir /srv/slurm-view-demo/shared-home/demo02 --shell /usr/sbin/nologin demo02; \
+    useradd --uid 20003 --gid 20003 --no-create-home --home-dir /srv/slurm-view-demo/shared-home/demo03 --shell /usr/sbin/nologin demo03; \
+    useradd --uid 20004 --gid 20004 --no-create-home --home-dir /srv/slurm-view-demo/shared-home/demo04 --shell /usr/sbin/nologin demo04; \
     dnf install -y \
       "https://repos.openhpc.community/OpenHPC/${OPENHPC_MAJOR}/EL_${ROCKY_MAJOR}/x86_64/ohpc-release-${OPENHPC_MAJOR}-1.el${ROCKY_MAJOR}.x86_64.rpm"; \
     dnf install -y \
