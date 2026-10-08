@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
+WORKLOAD_DIR="${REPO_ROOT}/demo/workload"
 
 die() {
   printf '[demo source check] error: %s\n' "$*" >&2
@@ -16,11 +17,17 @@ for script in \
   "${SCRIPT_DIR}/init-accounting.sh" \
   "${SCRIPT_DIR}/setup.sh" \
   "${SCRIPT_DIR}/check.sh" \
-  "${SCRIPT_DIR}/check-topology.sh"; do
+  "${SCRIPT_DIR}/check-topology.sh" \
+  "${SCRIPT_DIR}/seed-workload.sh" \
+  "${SCRIPT_DIR}/check-workload.sh" \
+  "${WORKLOAD_DIR}/workload-spec.sh" \
+  "${WORKLOAD_DIR}/steady-job.sh" \
+  "${WORKLOAD_DIR}/array-task.sh"; do
   bash -n "${script}" || die "syntax validation failed for ${script}"
 done
 
 source "${SCRIPT_DIR}/demo-identities.sh"
+source "${WORKLOAD_DIR}/workload-spec.sh"
 
 [[ ${#DEMO_USERS[@]} -gt 0 ]] || \
   die "demo identity list is empty"
@@ -30,6 +37,19 @@ source "${SCRIPT_DIR}/demo-identities.sh"
 
 [[ ${#DEMO_USERS[@]} -eq ${#DEMO_UIDS[@]} ]] || \
   die "DEMO_USERS and DEMO_UIDS have different lengths"
+
+[[ ${#DEMO_PENDING_SLOTS[@]} -eq ${#DEMO_PENDING_REASONS[@]} ]] || \
+  die "DEMO_PENDING_SLOTS and DEMO_PENDING_REASONS have different lengths"
+
+declare -A seen_slots=()
+for slot in \
+  "${DEMO_RUNNING_SLOTS[@]}" \
+  "${DEMO_PENDING_SLOTS[@]}" \
+  "${DEMO_ARRAY_SLOT}"; do
+  [[ -n "${slot}" ]] || die "workload contains an empty slot"
+  [[ -z "${seen_slots[$slot]:-}" ]] || die "duplicate workload slot ${slot}"
+  seen_slots["${slot}"]=1
+done
 
 declare -A seen_users=()
 declare -A seen_uids=()
@@ -60,7 +80,9 @@ for script in \
   "${SCRIPT_DIR}/setup.sh" \
   "${SCRIPT_DIR}/init-accounting.sh" \
   "${SCRIPT_DIR}/check.sh" \
-  "${SCRIPT_DIR}/check-topology.sh"; do
+  "${SCRIPT_DIR}/check-topology.sh" \
+  "${SCRIPT_DIR}/seed-workload.sh" \
+  "${SCRIPT_DIR}/check-workload.sh"; do
   grep -Fq 'source "${SCRIPT_DIR}/demo-identities.sh"' "${script}" || \
     die "${script} does not source demo-identities.sh"
 
@@ -76,9 +98,19 @@ done
 if grep -nE \
     -- '--account="?([a-z][a-z0-9_-]*)"?' \
     "${SCRIPT_DIR}/check.sh" \
-    "${SCRIPT_DIR}/check-topology.sh"; then
+    "${SCRIPT_DIR}/check-topology.sh" \
+    "${SCRIPT_DIR}/seed-workload.sh" \
+    "${SCRIPT_DIR}/check-workload.sh"; then
   die "job checks contain a hard-coded --account value"
 fi
+
+
+for script in \
+  "${SCRIPT_DIR}/seed-workload.sh" \
+  "${SCRIPT_DIR}/check-workload.sh"; do
+  grep -Fq 'source "${WORKLOAD_DIR}/workload-spec.sh"' "${script}" || \
+    die "${script} does not source workload-spec.sh"
+done
 
 grep -Fq 'source demo/scripts/demo-identities.sh' \
   "${REPO_ROOT}/.github/workflows/demo-ci.yml" || \

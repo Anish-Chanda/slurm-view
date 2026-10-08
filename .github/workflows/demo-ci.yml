@@ -273,6 +273,11 @@ jobs:
           test -x demo/scripts/init-accounting.sh
           test -x demo/scripts/check.sh
           test -x demo/scripts/check-topology.sh
+          test -x demo/scripts/seed-workload.sh
+          test -x demo/scripts/check-workload.sh
+          test -r demo/workload/workload-spec.sh
+          test -x demo/workload/steady-job.sh
+          test -x demo/workload/array-task.sh
           test -x demo/slurm/entrypoint.sh
           test -f demo/slurm/gres.conf
 
@@ -282,6 +287,11 @@ jobs:
           bash -n demo/scripts/init-accounting.sh
           bash -n demo/scripts/check.sh
           bash -n demo/scripts/check-topology.sh
+          bash -n demo/scripts/seed-workload.sh
+          bash -n demo/scripts/check-workload.sh
+          bash -n demo/workload/workload-spec.sh
+          bash -n demo/workload/steady-job.sh
+          bash -n demo/workload/array-task.sh
           bash -n demo/slurm/entrypoint.sh
 
           source demo/versions.env
@@ -455,6 +465,45 @@ jobs:
               ;;
           esac
 
+      - name: Seed and verify demo workload
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo ./demo/scripts/seed-workload.sh
+          sudo ./demo/scripts/check-workload.sh
+
+          source demo/workload/workload-spec.sh
+
+          owned_job_ids() {
+            squeue -a -h -o '%F|%k' \
+              | awk -F'|' \
+                  -v prefix="${DEMO_WORKLOAD_OWNER}:" \
+                  'index($2, prefix) == 1 { print $1 }' \
+              | sort -u
+          }
+
+          BEFORE="$(owned_job_ids)"
+          EXPECTED_COUNT=$((
+            ${#DEMO_RUNNING_SLOTS[@]} +
+            ${#DEMO_PENDING_SLOTS[@]} +
+            1
+          ))
+          ACTUAL_COUNT="$(
+            printf '%s\n' "${BEFORE}" \
+              | awk 'NF { count++ } END { print count + 0 }'
+          )"
+
+          test "${ACTUAL_COUNT}" -eq "${EXPECTED_COUNT}"
+
+          # Reconciliation must be idempotent. Running it again should retain
+          # the same active workload generation and reservation-backed job.
+          sudo ./demo/scripts/seed-workload.sh
+          AFTER="$(owned_job_ids)"
+
+          test "${AFTER}" = "${BEFORE}"
+          sudo ./demo/scripts/check-workload.sh
+
       - name: Show demo cluster diagnostics
         if: failure()
         shell: bash
@@ -505,6 +554,13 @@ jobs:
           echo
           echo "=== Slurm nodes ==="
           sinfo -N -l || true
+
+          echo
+          echo "=== Seeded workload ==="
+          squeue -a \
+            -o '%.18i %.24j %.10u %.12a %.10q %.10T %.32R %.32k' \
+            || true
+          scontrol show reservation demo-calibration || true
 
           echo
           echo "=== Recent accounting ==="

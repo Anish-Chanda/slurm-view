@@ -8,18 +8,27 @@ ARG SLURM_RELEASE
 ARG SLURM_UID
 ARG SLURM_GID
 
+COPY scripts/demo-identities.sh /tmp/demo-identities.sh
+
 RUN set -eux; \
     dnf install -y shadow-utils; \
     groupadd --gid "${SLURM_GID}" slurm; \
     useradd --uid "${SLURM_UID}" --gid "${SLURM_GID}" --no-create-home --home-dir /var/lib/slurm --shell /usr/sbin/nologin slurm; \
-    groupadd --gid 20001 demo01; \
-    groupadd --gid 20002 demo02; \
-    groupadd --gid 20003 demo03; \
-    groupadd --gid 20004 demo04; \
-    useradd --uid 20001 --gid 20001 --no-create-home --home-dir /srv/slurm-view-demo/shared-home/demo01 --shell /usr/sbin/nologin demo01; \
-    useradd --uid 20002 --gid 20002 --no-create-home --home-dir /srv/slurm-view-demo/shared-home/demo02 --shell /usr/sbin/nologin demo02; \
-    useradd --uid 20003 --gid 20003 --no-create-home --home-dir /srv/slurm-view-demo/shared-home/demo03 --shell /usr/sbin/nologin demo03; \
-    useradd --uid 20004 --gid 20004 --no-create-home --home-dir /srv/slurm-view-demo/shared-home/demo04 --shell /usr/sbin/nologin demo04; \
+    bash -c 'set -euo pipefail; \
+      source /tmp/demo-identities.sh; \
+      for index in "${!DEMO_USERS[@]}"; do \
+        user="${DEMO_USERS[$index]}"; \
+        uid="${DEMO_UIDS[$index]}"; \
+        groupadd --gid "${uid}" "${user}"; \
+        useradd \
+          --uid "${uid}" \
+          --gid "${uid}" \
+          --no-create-home \
+          --home-dir "/srv/slurm-view-demo/shared-home/${user}" \
+          --shell /usr/sbin/nologin \
+          "${user}"; \
+      done'; \
+    rm -f /tmp/demo-identities.sh; \
     dnf install -y \
       "https://repos.openhpc.community/OpenHPC/${OPENHPC_MAJOR}/EL_${ROCKY_MAJOR}/x86_64/ohpc-release-${OPENHPC_MAJOR}-1.el${ROCKY_MAJOR}.x86_64.rpm"; \
     dnf install -y \
