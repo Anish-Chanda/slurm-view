@@ -16,8 +16,8 @@ DEMO_USERS=(demo01 demo02 demo03 demo04)
 DEMO_UIDS=(20001 20002 20003 20004)
 NODE_SERVICES=(
   cpu01 cpu02 cpu03 cpu04 cpu05 cpu06 cpu07 cpu08
-  highmem01 highmem02
-  gpu01 gpu02
+  highmem01 highmem02 highmem03
+  gpu01 gpu02 gpu03 gpu04 gpu05
 )
 
 export SLURM_VIEW_DEMO_STATE_DIR="${DEMO_STATE_ROOT}"
@@ -230,7 +230,7 @@ fi
 
 "${SCRIPT_DIR}/init-accounting.sh"
 
-log "starting controller and 12 demo nodes"
+log "starting controller and 16 demo nodes"
 compose up -d --force-recreate slurmctld "${NODE_SERVICES[@]}"
 
 for _ in $(seq 1 60); do

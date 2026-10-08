@@ -3,8 +3,8 @@ set -euo pipefail
 
 EXPECTED_NODES=(
   cpu01 cpu02 cpu03 cpu04 cpu05 cpu06 cpu07 cpu08
-  highmem01 highmem02
-  gpu01 gpu02
+  highmem01 highmem02 highmem03
+  gpu01 gpu02 gpu03 gpu04 gpu05
 )
 
 log() {
@@ -67,12 +67,12 @@ wait_running() {
   die "job ${job_id} did not reach RUNNING state (state: ${state:-unknown})"
 }
 
-log "checking 12-node topology"
+log "checking 16-node topology"
 mapfile -t ACTUAL_NODES < <(sinfo -h -N -o '%N' | sort -u)
 
-[[ ${#ACTUAL_NODES[@]} -eq 12 ]] || {
+[[ ${#ACTUAL_NODES[@]} -eq ${#EXPECTED_NODES[@]} ]] || {
   printf 'registered nodes:\n%s\n' "${ACTUAL_NODES[*]}" >&2
-  die "expected 12 registered nodes, found ${#ACTUAL_NODES[@]}"
+  die "expected ${#EXPECTED_NODES[@]} registered nodes, found ${#ACTUAL_NODES[@]}"
 }
 
 for node in "${EXPECTED_NODES[@]}"; do
@@ -89,7 +89,7 @@ CPU08_STATE="$(sinfo -h -N -n cpu08 -o '%T' | head -n 1)"
 [[ "${CPU08_STATE}" == drained* || "${CPU08_STATE}" == draining* ]] || \
   die "cpu08 should be drained for demo maintenance (state: ${CPU08_STATE})"
 
-for node in cpu01 cpu02 cpu03 cpu04 cpu05 cpu06 cpu07 highmem01 highmem02 gpu01 gpu02; do
+for node in cpu01 cpu02 cpu03 cpu04 cpu05 cpu06 cpu07 highmem01 highmem02 highmem03 gpu01 gpu02 gpu03 gpu04 gpu05; do
   state="$(sinfo -h -N -n "${node}" -o '%T' | head -n 1)"
 
   case "${state}" in
@@ -99,10 +99,47 @@ for node in cpu01 cpu02 cpu03 cpu04 cpu05 cpu06 cpu07 highmem01 highmem02 gpu01 
   esac
 done
 
-scontrol show node gpu01 -o | grep -q 'Gres=gpu:a100:2' || \
-  die "gpu01 does not advertise two fake A100 GPUs"
-scontrol show node gpu02 -o | grep -q 'Gres=gpu:a100:2' || \
-  die "gpu02 does not advertise two fake A100 GPUs"
+for pair in \
+  'gpu01|v100' \
+  'gpu02|a100' \
+  'gpu03|h100' \
+  'gpu04|l40s' \
+  'gpu05|mi250'; do
+  node="${pair%%|*}"
+  gpu_type="${pair##*|}"
+
+  scontrol show node "${node}" -o \
+    | grep -F "Gres=gpu:${gpu_type}:2" >/dev/null || \
+    die "${node} does not advertise two fake ${gpu_type} GPUs"
+done
+
+read -r TOTAL_CPUS TOTAL_MEMORY_MIB < <(
+  scontrol show nodes -o | awk '
+    {
+      for (i = 1; i <= NF; i++) {
+        if ($i ~ /^CPUTot=/) {
+          split($i, value, "=")
+          total_cpus += value[2]
+        }
+
+        if ($i ~ /^RealMemory=/) {
+          split($i, value, "=")
+          total_memory += value[2]
+        }
+      }
+    }
+
+    END {
+      print total_cpus, total_memory
+    }
+  '
+)
+
+[[ "${TOTAL_CPUS}" -eq 256 ]] || \
+  die "expected 256 configured CPUs, found ${TOTAL_CPUS}"
+
+[[ "${TOTAL_MEMORY_MIB}" -eq 1048576 ]] || \
+  die "expected 1 TiB configured memory, found ${TOTAL_MEMORY_MIB} MiB"
 
 log "checking accounts, users, and qos"
 for qos in normal short limited; do
@@ -150,20 +187,24 @@ HIGHMEM_JOB="$(
 )"
 wait_terminal "${HIGHMEM_JOB}" COMPLETED
 
-log "running fake GPU smoke job"
-GPU_JOB="$(
-  submit_as demo02 \
-    --account=research \
-    --qos=short \
-    --partition=gpu \
-    --job-name=topology-gpu \
-    --cpus-per-task=1 \
-    --mem=512M \
-    --gres=gpu:a100:1 \
-    --time=00:01:00 \
-    --wrap='sleep 2'
-)"
-wait_terminal "${GPU_JOB}" COMPLETED
+for gpu_type in v100 a100 h100 l40s mi250; do
+  log "running fake ${gpu_type} GPU smoke job"
+
+  GPU_JOB="$(
+    submit_as demo02 \
+      --account=research \
+      --qos=short \
+      --partition=gpu \
+      --job-name="topology-gpu-${gpu_type}" \
+      --cpus-per-task=1 \
+      --mem=512M \
+      --gres="gpu:${gpu_type}:1" \
+      --time=00:01:00 \
+      --wrap='sleep 2'
+  )"
+
+  wait_terminal "${GPU_JOB}" COMPLETED
+done
 
 log "running array smoke job"
 ARRAY_JOB="$(

@@ -154,6 +154,30 @@ services:
     environment: { SLURM_ROLE: slurmd, SLURM_NODE_NAME: gpu02 }
     networks: { demo: { ipv4_address: 172.30.50.32 } }
 
+  highmem03:
+    <<: *slurmd-service
+    hostname: highmem03
+    environment: { SLURM_ROLE: slurmd, SLURM_NODE_NAME: highmem03 }
+    networks: { demo: { ipv4_address: 172.30.50.33 } }
+
+  gpu03:
+    <<: *slurmd-service
+    hostname: gpu03
+    environment: { SLURM_ROLE: slurmd, SLURM_NODE_NAME: gpu03 }
+    networks: { demo: { ipv4_address: 172.30.50.34 } }
+
+  gpu04:
+    <<: *slurmd-service
+    hostname: gpu04
+    environment: { SLURM_ROLE: slurmd, SLURM_NODE_NAME: gpu04 }
+    networks: { demo: { ipv4_address: 172.30.50.35 } }
+
+  gpu05:
+    <<: *slurmd-service
+    hostname: gpu05
+    environment: { SLURM_ROLE: slurmd, SLURM_NODE_NAME: gpu05 }
+    networks: { demo: { ipv4_address: 172.30.50.36 } }
+
 networks:
   demo:
     driver: bridge

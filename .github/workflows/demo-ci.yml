@@ -355,10 +355,20 @@ jobs:
 
           test "$(
             sinfo -h -N -o '%N' | sort -u | wc -l
-          )" -eq 12
+          )" -eq 16
 
-          scontrol show node gpu01 -o | grep -q 'Gres=gpu:a100:2'
-          scontrol show node gpu02 -o | grep -q 'Gres=gpu:a100:2'
+          for pair in \
+            'gpu01|v100' \
+            'gpu02|a100' \
+            'gpu03|h100' \
+            'gpu04|l40s' \
+            'gpu05|mi250'; do
+            node="${pair%%|*}"
+            gpu_type="${pair##*|}"
+
+            scontrol show node "$node" -o \
+              | grep -F "Gres=gpu:${gpu_type}:2" >/dev/null
+          done
 
           CPU08_STATE="$(
             sinfo -h -N -n cpu08 -o '%T' | head -n 1
@@ -389,21 +399,27 @@ jobs:
           grep -qx '# ci-runtime-refresh' \
             /srv/slurm-view-demo/config/gres.conf
 
-          sudo docker exec slurm-view-demo-gpu01-1 \
-            grep -qx '# ci-runtime-refresh' /etc/slurm/gres.conf
-
-          sudo docker exec slurm-view-demo-gpu02-1 \
-            grep -qx '# ci-runtime-refresh' /etc/slurm/gres.conf
+          for node in gpu01 gpu02 gpu03 gpu04 gpu05; do
+            sudo docker exec "slurm-view-demo-${node}-1" \
+              grep -qx '# ci-runtime-refresh' /etc/slurm/gres.conf
+          done
 
           test "$(
             sinfo -h -N -o '%N' | sort -u | wc -l
-          )" -eq 12
+          )" -eq 16
 
-          scontrol show node gpu01 -o \
-            | grep -q 'Gres=gpu:a100:2'
+          for pair in \
+            'gpu01|v100' \
+            'gpu02|a100' \
+            'gpu03|h100' \
+            'gpu04|l40s' \
+            'gpu05|mi250'; do
+            node="${pair%%|*}"
+            gpu_type="${pair##*|}"
 
-          scontrol show node gpu02 -o \
-            | grep -q 'Gres=gpu:a100:2'
+            scontrol show node "$node" -o \
+              | grep -F "Gres=gpu:${gpu_type}:2" >/dev/null
+          done
 
           CPU08_STATE="$(
             sinfo -h -N -n cpu08 -o '%T' | head -n 1
