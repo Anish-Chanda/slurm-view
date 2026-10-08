@@ -26,7 +26,7 @@ jobs:
   host-bootstrap:
     name: Rocky 10 host bootstrap
     runs-on: chickadee-small-rocky-102
-    timeout-minutes: 35
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repository
@@ -107,9 +107,11 @@ jobs:
           set -euo pipefail
 
           test -x demo/scripts/bootstrap-host.sh
+          test -x demo/scripts/ensure-json-serializer.sh
 
           bash -n demo/versions.env
           bash -n demo/scripts/bootstrap-host.sh
+          bash -n demo/scripts/ensure-json-serializer.sh
 
           source demo/versions.env
 
@@ -159,6 +161,10 @@ jobs:
           rpm -q perl-Sys-Hostname
           rpm -q munge
 
+          sudo test -f /usr/lib64/slurm/serializer_json.so
+
+          JSON_PARSERS="$(sudo scontrol --json=list 2>&1)"
+          grep -q 'v0.0.43' <<< "$JSON_PARSERS"
 
           systemctl is-active --quiet munge
           munge -n | unmunge >/dev/null
@@ -188,8 +194,14 @@ jobs:
               | awk '{print $1}'
           )"
 
+          JSON_SERIALIZER_HASH="$(
+            sudo sha256sum /usr/lib64/slurm/serializer_json.so \
+              | awk '{print $1}'
+          )"
+
           echo "MUNGE_HASH=$MUNGE_HASH" >> "$GITHUB_ENV"
           echo "VERSION_STATE_HASH=$VERSION_STATE_HASH" >> "$GITHUB_ENV"
+          echo "JSON_SERIALIZER_HASH=$JSON_SERIALIZER_HASH" >> "$GITHUB_ENV"
 
       - name: Run host bootstrap again
         shell: bash
@@ -231,8 +243,17 @@ jobs:
               | awk '{print $1}'
           )"
 
+          CURRENT_JSON_SERIALIZER_HASH="$(
+            sudo sha256sum /usr/lib64/slurm/serializer_json.so \
+              | awk '{print $1}'
+          )"
+
           test "$CURRENT_MUNGE_HASH" = "$MUNGE_HASH"
           test "$CURRENT_VERSION_STATE_HASH" = "$VERSION_STATE_HASH"
+          test "$CURRENT_JSON_SERIALIZER_HASH" = "$JSON_SERIALIZER_HASH"
+
+          JSON_PARSERS="$(sudo scontrol --json=list 2>&1)"
+          grep -q 'v0.0.43' <<< "$JSON_PARSERS"
 
           sudo cmp \
             /srv/slurm-view-demo/secrets/munge.key \
@@ -287,6 +308,9 @@ jobs:
           set -euo pipefail
 
           scontrol ping | grep -q 'UP'
+
+          scontrol --json=v0.0.43 show node >/dev/null
+          scontrol --json=v0.0.43 show partition >/dev/null
 
           test "$(
             sudo docker exec slurm-view-demo-slurmctld-1 id -u slurm

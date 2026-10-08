@@ -127,6 +127,12 @@ command -v squeue >/dev/null 2>&1 || die "squeue was not installed"
 command -v seff >/dev/null 2>&1 || die "seff was not installed"
 command -v perl >/dev/null 2>&1 || die "Perl was not installed"
 
+log "ensuring Slurm JSON serializer is available"
+SLURM_VIEW_DEMO_STATE_DIR="${DEMO_STATE_ROOT}" \
+  "${SCRIPT_DIR}/ensure-json-serializer.sh" \
+    "${SLURM_VERSION}" \
+    "${SLURM_RELEASE}"
+
 if [[ ! -s "${MUNGE_KEY_SOURCE}" ]]; then
   if [[ -s "${MUNGE_KEY_HOST}" ]]; then
     log "adopting existing host MUNGE key as the demo key"
