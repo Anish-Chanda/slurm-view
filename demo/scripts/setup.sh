@@ -12,8 +12,8 @@ CONFIG_DIR="${DEMO_STATE_ROOT}/config"
 SECRETS_DIR="${DEMO_STATE_ROOT}/secrets"
 SHARED_HOME_DIR="${DEMO_STATE_ROOT}/shared-home"
 
-DEMO_USERS=(demo01 demo02 demo03 demo04)
-DEMO_UIDS=(20001 20002 20003 20004)
+DEMO_USERS=(demo01 demo02 demo03 demo04 demo05 demo06)
+DEMO_UIDS=(20001 20002 20003 20004 20005 20006)
 NODE_SERVICES=(
   cpu01 cpu02 cpu03 cpu04 cpu05 cpu06 cpu07 cpu08
   highmem01 highmem02 highmem03

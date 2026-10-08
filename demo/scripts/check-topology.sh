@@ -142,16 +142,18 @@ read -r TOTAL_CPUS TOTAL_MEMORY_MIB < <(
   die "expected 1 TiB configured memory, found ${TOTAL_MEMORY_MIB} MiB"
 
 log "checking accounts, users, and qos"
-for qos in normal short limited; do
+for qos in normal short limited shared memcap sweep; do
   sacctmgr -nP show qos "${qos}" format=Name | grep -qx "${qos}" || \
     die "missing ${qos} qos"
 done
 
 for pair in \
-  'demo01|research' \
-  'demo02|research' \
-  'demo03|teaching' \
-  'demo04|teaching'; do
+  'demo01|proteins' \
+  'demo02|chemistry' \
+  'demo03|climate' \
+  'demo04|cfd101' \
+  'demo05|ai' \
+  'demo06|ml101'; do
   user="${pair%%|*}"
   account="${pair##*|}"
 
@@ -160,10 +162,52 @@ for pair in \
     die "missing ${user}/${account} association"
 done
 
+account_parent() {
+  local account=$1
+
+  sacctmgr -nP show assoc \
+    cluster=slurm-view-demo \
+    account="${account}" \
+    format=Account,User,ParentName \
+    | awk -F'|' -v account="${account}" \
+        '$1 == account && $2 == "" { print $3; exit }'
+}
+
+[[ "$(account_parent research)" == "root" ]] || \
+  die "research should be a child of root"
+
+[[ "$(account_parent molecular)" == "research" ]] || \
+  die "molecular should be a child of research"
+
+[[ "$(account_parent proteins)" == "molecular" ]] || \
+  die "proteins should be a child of molecular"
+
+[[ "$(account_parent chemistry)" == "molecular" ]] || \
+  die "chemistry should be a child of molecular"
+
+[[ "$(account_parent climate)" == "research" ]] || \
+  die "climate should be a child of research"
+
+[[ "$(account_parent ai)" == "research" ]] || \
+  die "ai should be a child of research"
+
+[[ "$(account_parent teaching)" == "root" ]] || \
+  die "teaching should be a child of root"
+
+[[ "$(account_parent cfd101)" == "teaching" ]] || \
+  die "cfd101 should be a child of teaching"
+
+[[ "$(account_parent ml101)" == "teaching" ]] || \
+  die "ml101 should be a child of teaching"
+
+for user in demo01 demo02 demo03 demo04 demo05 demo06; do
+  id "${user}" >/dev/null 2>&1 || die "missing local demo user ${user}"
+done
+
 log "running compute smoke job"
 CPU_JOB="$(
   submit_as demo01 \
-    --account=research \
+    --account=proteins \
     --qos=normal \
     --partition=compute \
     --job-name=topology-cpu \
@@ -177,7 +221,7 @@ seff "${CPU_JOB}" >/dev/null
 log "running high-memory partition smoke job"
 HIGHMEM_JOB="$(
   submit_as demo03 \
-    --account=teaching \
+    --account=climate \
     --qos=normal \
     --partition=highmem \
     --job-name=topology-highmem \
@@ -192,7 +236,7 @@ for gpu_type in v100 a100 h100 l40s mi250; do
 
   GPU_JOB="$(
     submit_as demo02 \
-      --account=research \
+      --account=chemistry \
       --qos=short \
       --partition=gpu \
       --job-name="topology-gpu-${gpu_type}" \
@@ -209,7 +253,7 @@ done
 log "running array smoke job"
 ARRAY_JOB="$(
   submit_as demo01 \
-    --account=research \
+    --account=proteins \
     --qos=short \
     --partition=compute \
     --job-name=topology-array \
@@ -255,7 +299,7 @@ log "checking dependency pending reason"
 PARENT_JOB="$(
   submit_as demo03 \
     --hold \
-    --account=teaching \
+    --account=climate \
     --qos=normal \
     --partition=compute \
     --job-name=dependency-parent \
@@ -263,7 +307,7 @@ PARENT_JOB="$(
 )"
 CHILD_JOB="$(
   submit_as demo03 \
-    --account=teaching \
+    --account=climate \
     --qos=normal \
     --partition=compute \
     --job-name=dependency-child \
@@ -296,7 +340,7 @@ wait_terminal "${CHILD_JOB}" COMPLETED
 log "checking qos job-count enforcement"
 LIMITED_ONE="$(
   submit_as demo04 \
-    --account=teaching \
+    --account=cfd101 \
     --qos=limited \
     --partition=compute \
     --job-name=limited-running \
@@ -306,7 +350,7 @@ wait_running "${LIMITED_ONE}"
 
 LIMITED_TWO="$(
   submit_as demo04 \
-    --account=teaching \
+    --account=cfd101 \
     --qos=limited \
     --partition=compute \
     --job-name=limited-waiting \
@@ -331,7 +375,7 @@ wait_terminal "${LIMITED_TWO}" COMPLETED
 log "checking intentional failure accounting"
 FAIL_JOB="$(
   submit_as demo03 \
-    --account=teaching \
+    --account=climate \
     --qos=short \
     --partition=compute \
     --job-name=expected-failure \

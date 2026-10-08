@@ -348,10 +348,21 @@ jobs:
             format=Account \
             | grep -qx 'research'
 
-          sacctmgr -nP \
-            show user demo01 withassoc \
-            format=User,Account,Cluster \
-            | grep -qx 'demo01|research|slurm-view-demo'
+          for pair in \
+            'demo01|proteins' \
+            'demo02|chemistry' \
+            'demo03|climate' \
+            'demo04|cfd101' \
+            'demo05|ai' \
+            'demo06|ml101'; do
+            user="${pair%%|*}"
+            account="${pair##*|}"
+
+            sacctmgr -nP \
+              show user "$user" withassoc \
+              format=User,Account,Cluster \
+              | grep -qx "${user}|${account}|slurm-view-demo"
+          done
 
           test "$(
             sinfo -h -N -o '%N' | sort -u | wc -l
