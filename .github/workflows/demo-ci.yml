@@ -563,6 +563,12 @@ jobs:
           scontrol show reservation demo-calibration || true
 
           echo
+          echo "=== GPU node details ==="
+          for node in gpu01 gpu02 gpu03 gpu04 gpu05; do
+            scontrol -d -o show node "$node" || true
+          done
+
+          echo
           echo "=== Recent accounting ==="
           sacct \
             --starttime now-30minutes \

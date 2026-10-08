@@ -142,18 +142,63 @@ if (( ARRAY_PENDING > DEMO_ARRAY_THROTTLE )); then
 fi
 
 log "checking GPU chart anchors"
-for pair in \
-  'gpu01|v100' \
-  'gpu02|a100' \
-  'gpu03|h100' \
-  'gpu04|l40s' \
-  'gpu05|mi250'; do
-  node="${pair%%|*}"
-  gpu_type="${pair##*|}"
-  node_row="$(scontrol -o show node "${node}")"
+for triple in \
+  'legacy-cuda-forecast|gpu01|v100' \
+  'protein-folding|gpu02|a100' \
+  'vision-pretrain|gpu03|h100' \
+  'render-batch|gpu04|l40s' \
+  'ocean-rocm|gpu05|mi250'; do
+  slot="${triple%%|*}"
+  remainder="${triple#*|}"
+  node="${remainder%%|*}"
+  gpu_type="${remainder##*|}"
 
-  [[ "${node_row}" == *"GresUsed=gpu:${gpu_type}:1"* ]] || \
-    die "${node} should have one allocated ${gpu_type} GPU"
+  job_id="$(slot_id "${slot}")"
+  job_row="$(scontrol -o show job "${job_id}")"
+  node_row="$(scontrol -d -o show node "${node}")"
+
+  job_node="$(
+    awk '{
+      for (i = 1; i <= NF; i++) {
+        if ($i ~ /^NodeList=/) {
+          sub(/^NodeList=/, "", $i)
+          print $i
+          exit
+        }
+      }
+    }' <<< "${job_row}"
+  )"
+
+  [[ "${job_node}" == "${node}" ]] || \
+    die "${slot} should run on ${node}, got ${job_node:-unknown}"
+
+  # A running job pinned to this homogeneous GPU node must retain its typed
+  # GPU request in the live job record.
+  [[ "${job_row}" == *"gres/gpu:${gpu_type}"* ]] || \
+    die "${slot} does not show a ${gpu_type} GPU request"
+
+  # GRES usage is part of the detailed node view. Slurm may append device
+  # indexes, for example gpu:v100:1(IDX:0), so do not compare the field as an
+  # exact literal.
+  gres_used="$(
+    awk '{
+      for (i = 1; i <= NF; i++) {
+        if ($i ~ /^GresUsed=/) {
+          sub(/^GresUsed=/, "", $i)
+          print $i
+          exit
+        }
+      }
+    }' <<< "${node_row}"
+  )"
+
+  if ! grep -Eq \
+      "(^|,)gpu:${gpu_type}:1(\\([^)]*\\))?(,|$)" \
+      <<< "${gres_used}"; then
+    printf 'GPU anchor job: %s\n' "${job_row}" >&2
+    printf 'GPU node detail: %s\n' "${node_row}" >&2
+    die "${node} should have one allocated ${gpu_type} GPU (GresUsed=${gres_used:-missing})"
+  fi
 done
 
 log "checking future reservation"
