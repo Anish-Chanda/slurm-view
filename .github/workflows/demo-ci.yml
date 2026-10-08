@@ -407,6 +407,8 @@ jobs:
             OPENHPC_MAJOR="$OPENHPC_MAJOR" \
             SLURM_VERSION="$SLURM_VERSION" \
             SLURM_RELEASE="$SLURM_RELEASE" \
+            SLURM_UID="$(id -u slurm)" \
+            SLURM_GID="$(id -g slurm)" \
             SLURM_VIEW_DEMO_STATE_DIR=/srv/slurm-view-demo \
             docker compose \
               -f demo/compose.yaml \
