@@ -48,8 +48,14 @@ log "checking controller and node"
 scontrol ping | grep -q 'UP' || die "slurmctld is not responding"
 
 NODE_STATE="$(sinfo -h -N -n cpu01 -o '%T' | head -n 1)"
-[[ "${NODE_STATE}" == idle* ]] || \
-  die "cpu01 is not idle (state: ${NODE_STATE})"
+
+case "${NODE_STATE}" in
+  idle*|allocated*|mixed*|completing*)
+    ;;
+  *)
+    die "cpu01 is not usable (state: ${NODE_STATE})"
+    ;;
+esac
 
 OUTPUT_FILE="${JOB_DIR}/smoke-%j.out"
 

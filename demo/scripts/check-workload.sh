@@ -144,7 +144,7 @@ fi
 log "checking GPU chart anchors"
 for triple in \
   'legacy-cuda-forecast|gpu01|v100' \
-  'protein-folding|gpu02|a100' \
+  'ml-lab-session|gpu02|a100' \
   'vision-pretrain|gpu03|h100' \
   'render-batch|gpu04|l40s' \
   'ocean-rocm|gpu05|mi250'; do
