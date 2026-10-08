@@ -275,6 +275,9 @@ jobs:
           test -x demo/scripts/check-topology.sh
           test -x demo/scripts/seed-workload.sh
           test -x demo/scripts/check-workload.sh
+          test -x demo/scripts/install-workload-service.sh
+          test -r demo/systemd/slurm-view-demo-workload.service
+          test -r demo/systemd/slurm-view-demo-workload.timer
           test -r demo/workload/workload-spec.sh
           test -x demo/workload/steady-job.sh
           test -x demo/workload/array-task.sh
@@ -289,6 +292,7 @@ jobs:
           bash -n demo/scripts/check-topology.sh
           bash -n demo/scripts/seed-workload.sh
           bash -n demo/scripts/check-workload.sh
+          bash -n demo/scripts/install-workload-service.sh
           bash -n demo/workload/workload-spec.sh
           bash -n demo/workload/steady-job.sh
           bash -n demo/workload/array-task.sh
@@ -504,12 +508,185 @@ jobs:
           test "${AFTER}" = "${BEFORE}"
           sudo ./demo/scripts/check-workload.sh
 
+      - name: Install and verify workload reconciler
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          source demo/workload/workload-spec.sh
+
+          owned_job_ids() {
+            squeue -a -h -o '%F|%k' \
+              | awk -F'|' \
+                  -v prefix="${DEMO_WORKLOAD_OWNER}:" \
+                  'index($2, prefix) == 1 { print $1 "|" $2 }' \
+              | sort -u
+          }
+
+          slot_job_id() {
+            local slot=$1
+            local comment="${DEMO_WORKLOAD_OWNER}:${slot}"
+
+            squeue -a -h -o '%F|%k' \
+              | awk -F'|' -v comment="${comment}" \
+                  '$2 == comment { print $1 }' \
+              | sort -u \
+              | head -n 1
+          }
+
+          BEFORE="$(owned_job_ids)"
+
+          sudo ./demo/scripts/install-workload-service.sh
+
+          sudo test -x \
+            /usr/local/libexec/slurm-view-demo/scripts/seed-workload.sh
+          sudo test -x \
+            /usr/local/libexec/slurm-view-demo/scripts/check-workload.sh
+          sudo cmp \
+            demo/scripts/seed-workload.sh \
+            /usr/local/libexec/slurm-view-demo/scripts/seed-workload.sh
+          sudo cmp \
+            demo/workload/workload-spec.sh \
+            /usr/local/libexec/slurm-view-demo/workload/workload-spec.sh
+
+          sudo systemd-analyze verify \
+            /etc/systemd/system/slurm-view-demo-workload.service \
+            /etc/systemd/system/slurm-view-demo-workload.timer
+
+          # A normal service run must reconcile in place without replacing a
+          # healthy workload generation.
+          sudo systemctl start slurm-view-demo-workload.service
+          test "$(
+            sudo systemctl show \
+              slurm-view-demo-workload.service \
+              --property=Result \
+              --value
+          )" = "success"
+
+          AFTER_NOOP="$(owned_job_ids)"
+          test "${AFTER_NOOP}" = "${BEFORE}"
+          sudo ./demo/scripts/check-workload.sh
+
+          # Reproduce the restart failure mode seen on the persistent demo:
+          # anchor allocations disappear, a job that is normally held pending
+          # can take their resources, and the reconciler must restore the
+          # anchor layer before rebuilding the pending-analysis layer.
+          ARRAY_BEFORE_RECOVERY="$(slot_job_id "${DEMO_ARRAY_SLOT}")"
+          OLD_GROMACS_ID="$(slot_job_id gromacs-md)"
+          OLD_LAMMPS_ID="$(slot_job_id lammps-solvation)"
+          REPLICA_ID="$(slot_job_id replica-expansion)"
+
+          test -n "${ARRAY_BEFORE_RECOVERY}"
+          test -n "${OLD_GROMACS_ID}"
+          test -n "${OLD_LAMMPS_ID}"
+          test -n "${REPLICA_ID}"
+
+          sudo scancel "${OLD_GROMACS_ID}" "${OLD_LAMMPS_ID}"
+
+          for _ in $(seq 1 80); do
+            REPLICA_STATE="$(
+              squeue -a -h -j "${REPLICA_ID}" -o '%T' \
+                | head -n 1
+            )"
+
+            [[ "${REPLICA_STATE}" == "RUNNING" ]] && break
+            sleep 0.25
+          done
+
+          test "${REPLICA_STATE}" = "RUNNING"
+
+          sudo systemctl start slurm-view-demo-workload.service
+
+          NEW_GROMACS_ID="$(slot_job_id gromacs-md)"
+          NEW_LAMMPS_ID="$(slot_job_id lammps-solvation)"
+          ARRAY_AFTER_RECOVERY="$(slot_job_id "${DEMO_ARRAY_SLOT}")"
+
+          test -n "${NEW_GROMACS_ID}"
+          test -n "${NEW_LAMMPS_ID}"
+          test "${NEW_GROMACS_ID}" != "${OLD_GROMACS_ID}"
+          test "${NEW_LAMMPS_ID}" != "${OLD_LAMMPS_ID}"
+
+          # Recovery should preserve the long-running array generation unless
+          # it is itself the resource blocker.
+          test "${ARRAY_AFTER_RECOVERY}" = "${ARRAY_BEFORE_RECOVERY}"
+
+          sudo ./demo/scripts/check-workload.sh
+
+          # Prove the service repairs a missing owned workload slot.
+          REPAIR_SLOT=render-batch
+          OLD_REPAIR_ID="$(slot_job_id "${REPAIR_SLOT}")"
+          test -n "${OLD_REPAIR_ID}"
+          sudo scancel "${OLD_REPAIR_ID}"
+
+          for _ in $(seq 1 40); do
+            if [[ -z "$(squeue -a -h -j "${OLD_REPAIR_ID}" -o '%i')" ]]; then
+              break
+            fi
+            sleep 0.25
+          done
+
+          test -z "$(squeue -a -h -j "${OLD_REPAIR_ID}" -o '%i')"
+
+          sudo systemctl start slurm-view-demo-workload.service
+          NEW_REPAIR_ID="$(slot_job_id "${REPAIR_SLOT}")"
+
+          test -n "${NEW_REPAIR_ID}"
+          test "${NEW_REPAIR_ID}" != "${OLD_REPAIR_ID}"
+          sudo ./demo/scripts/check-workload.sh
+
+          # A timer/manual overlap must be harmless. The second invocation
+          # sees the shared lock, logs the skip, and exits successfully.
+          sudo flock /run/lock/slurm-view-demo-workload.lock \
+            systemctl start slurm-view-demo-workload.service
+
+          test "$(
+            sudo systemctl show \
+              slurm-view-demo-workload.service \
+              --property=Result \
+              --value
+          )" = "success"
+
+          sudo journalctl \
+            -u slurm-view-demo-workload.service \
+            --no-pager \
+            -n 50 \
+            | grep -F \
+                'another workload reconciliation is already running; skipping'
+
+          # Reinstall while enabling the timer. This also exercises the
+          # update path against an already-installed reconciler.
+          sudo ./demo/scripts/install-workload-service.sh --enable
+
+          sudo systemctl is-enabled --quiet \
+            slurm-view-demo-workload.timer
+          sudo systemctl is-active --quiet \
+            slurm-view-demo-workload.timer
+
+          sudo systemctl list-timers --all --no-pager \
+            | grep -F 'slurm-view-demo-workload.timer'
+
+          sudo ./demo/scripts/check-workload.sh
+
       - name: Show demo cluster diagnostics
         if: failure()
         shell: bash
         run: |
           set +e
 
+          echo "=== Workload reconciler ==="
+          sudo systemctl status \
+            slurm-view-demo-workload.service \
+            slurm-view-demo-workload.timer \
+            --no-pager \
+            --full \
+            || true
+          sudo journalctl \
+            -u slurm-view-demo-workload.service \
+            --no-pager \
+            -n 100 \
+            || true
+
+          echo
           echo "=== Docker containers ==="
           sudo docker ps -a
 
@@ -580,6 +757,15 @@ jobs:
         shell: bash
         run: |
           set +e
+
+          sudo systemctl disable --now \
+            slurm-view-demo-workload.timer \
+            >/dev/null 2>&1 \
+            || true
+          sudo systemctl stop \
+            slurm-view-demo-workload.service \
+            >/dev/null 2>&1 \
+            || true
 
           if [[ ! -s /srv/slurm-view-demo/state/versions.env ]]; then
             exit 0

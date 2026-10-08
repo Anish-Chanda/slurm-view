@@ -30,6 +30,7 @@ for command in \
   awk \
   date \
   dirname \
+  flock \
   grep \
   head \
   id \
@@ -46,6 +47,13 @@ for command in \
   squeue; do
   command -v "${command}" >/dev/null 2>&1 || die "${command} is required"
 done
+
+WORKLOAD_LOCK_FILE=/run/lock/slurm-view-demo-workload.lock
+exec 9>"${WORKLOAD_LOCK_FILE}"
+if ! flock -n 9; then
+  log "another workload reconciliation is already running; skipping"
+  exit 0
+fi
 
 [[ -r "${STEADY_TEMPLATE}" ]] || die "missing ${STEADY_TEMPLATE}"
 [[ -r "${ARRAY_TEMPLATE}" ]] || die "missing ${ARRAY_TEMPLATE}"
@@ -303,6 +311,114 @@ wait_reason() {
   return 1
 }
 
+ANCHOR_RECOVERY_ACTIVE=0
+
+workload_needs_anchor_recovery() {
+  local slot
+  local job_id
+  local state
+  local -a ids=()
+
+  # Running anchors establish the resource and policy usage that keeps the
+  # curated pending jobs in their intended states. After a controller/slurmd
+  # restart Slurm can requeue those anchors and opportunistically start jobs
+  # that were supposed to remain pending. Treat that as generation drift.
+  for slot in "${DEMO_RUNNING_SLOTS[@]}"; do
+    mapfile -t ids < <(active_slot_ids "${slot}")
+
+    (( ${#ids[@]} <= 1 )) || \
+      die "multiple active jobs own workload slot ${slot}: ${ids[*]}"
+
+    if (( ${#ids[@]} == 0 )); then
+      log "running anchor ${slot} is missing"
+      return 0
+    fi
+
+    job_id="${ids[0]}"
+    state="$(job_state "${job_id}" || true)"
+
+    if [[ "${state}" != "RUNNING" ]]; then
+      log "running anchor ${slot} is ${state:-missing}; recovery required"
+      return 0
+    fi
+  done
+
+  # A showcase job that is expected to stay pending must never be allowed to
+  # take over resources from the running anchor layer.
+  for slot in "${DEMO_PENDING_SLOTS[@]}"; do
+    mapfile -t ids < <(active_slot_ids "${slot}")
+
+    (( ${#ids[@]} <= 1 )) || \
+      die "multiple active jobs own workload slot ${slot}: ${ids[*]}"
+
+    (( ${#ids[@]} == 1 )) || continue
+
+    job_id="${ids[0]}"
+    state="$(job_state "${job_id}" || true)"
+
+    case "${state}" in
+      RUNNING|COMPLETING|CONFIGURING)
+        log "pending scenario ${slot} is ${state}; recovery required"
+        return 0
+        ;;
+    esac
+  done
+
+  return 1
+}
+
+clear_pending_scenarios_for_anchor_recovery() {
+  local slot
+
+  log "clearing pending-analysis jobs before restoring running anchors"
+
+  for slot in "${DEMO_PENDING_SLOTS[@]}"; do
+    cancel_slot "${slot}"
+  done
+
+  # Ask slurmctld to reconsider the now-freed resources immediately rather
+  # than waiting for the next periodic scheduling cycle.
+  scontrol schedule >/dev/null 2>&1 || true
+}
+
+wait_anchor_running() {
+  local slot=$1
+  local job_id=$2
+  local state
+  local reason
+  local array_id=""
+
+  if wait_running "${job_id}"; then
+    return 0
+  fi
+
+  # Normally the large array is preserved across anchor repairs so its public
+  # progress map can live longer than the six-hour anchor jobs. If an anchor
+  # is still resource-blocked after all showcase-pending jobs were removed,
+  # the current array generation is the only owned workload allowed to be a
+  # remaining blocker. Rotate it once and retry.
+  if (( ANCHOR_RECOVERY_ACTIVE == 1 )); then
+    state="$(job_state "${job_id}" || true)"
+    reason="$(job_reason "${job_id}" || true)"
+
+    if [[ "${state}" == "PENDING" && "${reason}" == "Resources" ]]; then
+      array_id="$(find_slot_id "${DEMO_ARRAY_SLOT}")"
+
+      if [[ -n "${array_id}" ]]; then
+        log "anchor ${slot} is still resource-blocked; rotating parameter sweep ${array_id}"
+        cancel_slot "${DEMO_ARRAY_SLOT}"
+        scontrol schedule >/dev/null 2>&1 || true
+
+        if wait_running "${job_id}"; then
+          return 0
+        fi
+      fi
+    fi
+  fi
+
+  return 1
+}
+
 ensure_running() {
   local slot=$1
   local user=$2
@@ -324,7 +440,7 @@ ensure_running() {
       return 0
     fi
 
-    if wait_running "${job_id}"; then
+    if wait_anchor_running "${slot}" "${job_id}"; then
       printf '%s\n' "${job_id}"
       return 0
     fi
@@ -334,7 +450,8 @@ ensure_running() {
 
   log "submitting running anchor ${slot}"
   job_id="$(submit_job "${user}" "${slot}" "${job_name}" "${script}" "$@")"
-  wait_running "${job_id}" || die "${slot} did not reach RUNNING"
+  wait_anchor_running "${slot}" "${job_id}" || \
+    die "${slot} did not reach RUNNING"
   printf '%s\n' "${job_id}"
 }
 
@@ -385,6 +502,7 @@ ensure_array() {
         "${script}" \
         --qos=sweep \
         --partition=compute \
+        --nodelist=cpu07 \
         --array="0-$((DEMO_ARRAY_SIZE - 1))%${DEMO_ARRAY_THROTTLE}" \
         --nodes=1 \
         --ntasks=1 \
@@ -517,6 +635,12 @@ H100_EVAL_SCRIPT="$(prepare_job_script demo05 h100-eval "${STEADY_TEMPLATE}")"
 
 ML_SESSION_SCRIPT="$(prepare_job_script demo06 ml-lab-session "${STEADY_TEMPLATE}")"
 ML_NEXT_SCRIPT="$(prepare_job_script demo06 ml-lab-next "${STEADY_TEMPLATE}")"
+
+if workload_needs_anchor_recovery; then
+  ANCHOR_RECOVERY_ACTIVE=1
+  log "running-anchor drift detected; restoring the anchor layer first"
+  clear_pending_scenarios_for_anchor_recovery
+fi
 
 log "reconciling running anchors"
 

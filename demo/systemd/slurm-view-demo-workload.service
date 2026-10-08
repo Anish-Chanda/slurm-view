@@ -1,0 +1,11 @@
+[Unit]
+Description=Reconcile Slurm View demo workload
+After=docker.service munge.service network-online.target
+Wants=docker.service munge.service network-online.target
+ConditionPathExists=/srv/slurm-view-demo/state/versions.env
+
+[Service]
+Type=oneshot
+ExecCondition=/usr/bin/bash -c '/usr/bin/scontrol ping 2>/dev/null | /usr/bin/grep -q UP'
+ExecStart=/usr/local/libexec/slurm-view-demo/scripts/seed-workload.sh
+TimeoutStartSec=5min

@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 WORKLOAD_DIR="${REPO_ROOT}/demo/workload"
+SYSTEMD_DIR="${REPO_ROOT}/demo/systemd"
 
 die() {
   printf '[demo source check] error: %s\n' "$*" >&2
@@ -20,6 +21,7 @@ for script in \
   "${SCRIPT_DIR}/check-topology.sh" \
   "${SCRIPT_DIR}/seed-workload.sh" \
   "${SCRIPT_DIR}/check-workload.sh" \
+  "${SCRIPT_DIR}/install-workload-service.sh" \
   "${WORKLOAD_DIR}/workload-spec.sh" \
   "${WORKLOAD_DIR}/steady-job.sh" \
   "${WORKLOAD_DIR}/array-task.sh"; do
@@ -111,6 +113,25 @@ for script in \
   grep -Fq 'source "${WORKLOAD_DIR}/workload-spec.sh"' "${script}" || \
     die "${script} does not source workload-spec.sh"
 done
+
+for unit in \
+  "${SYSTEMD_DIR}/slurm-view-demo-workload.service" \
+  "${SYSTEMD_DIR}/slurm-view-demo-workload.timer"; do
+  [[ -r "${unit}" ]] || die "missing ${unit}"
+done
+
+grep -Fq \
+  'ExecStart=/usr/local/libexec/slurm-view-demo/scripts/seed-workload.sh' \
+  "${SYSTEMD_DIR}/slurm-view-demo-workload.service" || \
+  die "workload service does not execute the installed reconciler"
+
+grep -Fq 'OnUnitInactiveSec=5min' \
+  "${SYSTEMD_DIR}/slurm-view-demo-workload.timer" || \
+  die "workload timer does not use the expected reconciliation interval"
+
+grep -Fq 'Unit=slurm-view-demo-workload.service' \
+  "${SYSTEMD_DIR}/slurm-view-demo-workload.timer" || \
+  die "workload timer is not linked to the workload service"
 
 grep -Fq 'source demo/scripts/demo-identities.sh' \
   "${REPO_ROOT}/.github/workflows/demo-ci.yml" || \
