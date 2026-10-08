@@ -163,9 +163,6 @@ jobs:
 
           sudo test -f /usr/lib64/slurm/serializer_json.so
 
-          JSON_PARSERS="$(sudo scontrol --json=list 2>&1)"
-          grep -q 'v0.0.43' <<< "$JSON_PARSERS"
-
           systemctl is-active --quiet munge
           munge -n | unmunge >/dev/null
 
@@ -252,9 +249,6 @@ jobs:
           test "$CURRENT_VERSION_STATE_HASH" = "$VERSION_STATE_HASH"
           test "$CURRENT_JSON_SERIALIZER_HASH" = "$JSON_SERIALIZER_HASH"
 
-          JSON_PARSERS="$(sudo scontrol --json=list 2>&1)"
-          grep -q 'v0.0.43' <<< "$JSON_PARSERS"
-
           sudo cmp \
             /srv/slurm-view-demo/secrets/munge.key \
             /etc/munge/munge.key
@@ -308,6 +302,9 @@ jobs:
           set -euo pipefail
 
           scontrol ping | grep -q 'UP'
+
+          JSON_PARSERS="$(scontrol --json=list 2>&1)"
+          grep -q 'v0.0.43' <<< "$JSON_PARSERS"
 
           scontrol --json=v0.0.43 show node >/dev/null
           scontrol --json=v0.0.43 show partition >/dev/null

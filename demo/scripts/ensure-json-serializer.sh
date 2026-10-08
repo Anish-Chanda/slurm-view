@@ -14,6 +14,40 @@ die() {
   exit 1
 }
 
+json_serializer_works() {
+  local check_conf
+  local output
+  local rc
+
+  check_conf="$(mktemp)"
+
+  cat > "${check_conf}" <<EOF
+ClusterName=slurm-view-serializer-check
+SlurmctldHost=localhost(127.0.0.1)
+PluginDir=${PLUGIN_DIR}
+EOF
+
+  if output="$(
+    SLURM_CONF="${check_conf}" \
+      scontrol --json=list 2>&1
+  )"; then
+    rc=0
+  else
+    rc=$?
+  fi
+
+  rm -f "${check_conf}"
+
+  if [[ ${rc} -ne 0 ]]; then
+    if [[ "${1:-quiet}" == "verbose" ]]; then
+      printf '%s\n' "${output}" >&2
+    fi
+    return "${rc}"
+  fi
+
+  return 0
+}
+
 if [[ ${EUID} -ne 0 ]]; then
   die "run this script as root"
 fi
@@ -41,7 +75,7 @@ EXPECTED_SLURM="${SLURM_VERSION}-${SLURM_RELEASE}"
   die "expected slurm-ohpc ${EXPECTED_SLURM}, found ${INSTALLED_SLURM}"
 
 if [[ -f "${PLUGIN_PATH}" ]] &&
-   scontrol --json=list >/dev/null 2>&1; then
+   json_serializer_works; then
   log "JSON serializer is already available"
   exit 0
 fi
@@ -217,8 +251,9 @@ if command -v restorecon >/dev/null 2>&1; then
   restorecon -F "${PLUGIN_PATH}"
 fi
 
-scontrol --json=list >/dev/null 2>&1 || \
+if ! json_serializer_works verbose; then
   die "Slurm JSON serializer failed validation after installation"
+fi
 
 log "JSON serializer installed successfully"
 
