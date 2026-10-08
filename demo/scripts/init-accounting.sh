@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/demo-identities.sh"
+
 CLUSTER=slurm-view-demo
 ALL_QOS=normal,short,limited,shared,memcap,sweep
 
@@ -207,12 +210,11 @@ ensure_user() {
     >/dev/null
 }
 
-ensure_user demo01 proteins
-ensure_user demo02 chemistry
-ensure_user demo03 climate
-ensure_user demo04 cfd101
-ensure_user demo05 ai
-ensure_user demo06 ml101
+for index in "${!DEMO_USERS[@]}"; do
+  ensure_user \
+    "${DEMO_USERS[$index]}" \
+    "${DEMO_ACCOUNTS[$index]}"
+done
 
 # The demo originally placed demo01-demo04 directly under the two top-level
 # accounts. Remove those legacy associations after their replacement leaf
@@ -244,7 +246,7 @@ remove_legacy_association demo04 teaching
 # workload can therefore demonstrate a request that fits this user level but
 # is blocked by the intermediate molecular account.
 sacctmgr -i modify user \
-  where name=demo01 account=proteins cluster="${CLUSTER}" \
+  where name=demo01 account="$(demo_account_for demo01)" cluster="${CLUSTER}" \
   set GrpTRES=cpu=48 \
   >/dev/null
 

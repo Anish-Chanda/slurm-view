@@ -5,6 +5,8 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 DEMO_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 VERSIONS_FILE="${DEMO_DIR}/versions.env"
 
+source "${SCRIPT_DIR}/demo-identities.sh"
+
 DEMO_STATE_ROOT="${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}"
 RUNTIME_STATE_DIR="${DEMO_STATE_ROOT}/state"
 RESOLVED_VERSIONS_FILE="${RUNTIME_STATE_DIR}/versions.env"
@@ -12,8 +14,6 @@ CONFIG_DIR="${DEMO_STATE_ROOT}/config"
 SECRETS_DIR="${DEMO_STATE_ROOT}/secrets"
 SHARED_HOME_DIR="${DEMO_STATE_ROOT}/shared-home"
 
-DEMO_USERS=(demo01 demo02 demo03 demo04 demo05 demo06)
-DEMO_UIDS=(20001 20002 20003 20004 20005 20006)
 NODE_SERVICES=(
   cpu01 cpu02 cpu03 cpu04 cpu05 cpu06 cpu07 cpu08
   highmem01 highmem02 highmem03

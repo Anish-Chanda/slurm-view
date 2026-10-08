@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/demo-identities.sh"
+
 DEMO_STATE_ROOT="${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}"
-JOB_DIR="${DEMO_STATE_ROOT}/shared-home/demo01"
+DEMO_USER=demo01
+DEMO_ACCOUNT="$(demo_account_for "${DEMO_USER}")"
+JOB_DIR="${DEMO_STATE_ROOT}/shared-home/${DEMO_USER}"
 
 log() {
   printf '[demo check] %s\n' "$*"
@@ -14,21 +19,45 @@ die() {
 }
 
 [[ ${EUID} -eq 0 ]] || die "run this script as root"
-id demo01 >/dev/null 2>&1 || die "demo01 user is missing"
-[[ -d "${JOB_DIR}" ]] || die "shared demo01 home is missing"
+
+for command in \
+  scontrol \
+  sinfo \
+  sbatch \
+  sacct \
+  sacctmgr \
+  runuser \
+  seff; do
+  command -v "${command}" >/dev/null 2>&1 || \
+    die "${command} is required"
+done
+
+id "${DEMO_USER}" >/dev/null 2>&1 || \
+  die "${DEMO_USER} user is missing"
+
+[[ -d "${JOB_DIR}" ]] || \
+  die "shared ${DEMO_USER} home is missing"
+
+sacctmgr -nP \
+  show user "${DEMO_USER}" withassoc \
+  format=User,Account,Cluster \
+  | grep -qx "${DEMO_USER}|${DEMO_ACCOUNT}|slurm-view-demo" || \
+  die "missing ${DEMO_USER}/${DEMO_ACCOUNT} Slurm association"
 
 log "checking controller and node"
 scontrol ping | grep -q 'UP' || die "slurmctld is not responding"
+
 NODE_STATE="$(sinfo -h -N -n cpu01 -o '%T' | head -n 1)"
-[[ "${NODE_STATE}" == idle* ]] || die "cpu01 is not idle (state: ${NODE_STATE})"
+[[ "${NODE_STATE}" == idle* ]] || \
+  die "cpu01 is not idle (state: ${NODE_STATE})"
 
 OUTPUT_FILE="${JOB_DIR}/smoke-%j.out"
 
 log "submitting accounting smoke job"
 JOB_ID="$({
-  runuser -u demo01 -- sbatch \
+  runuser -u "${DEMO_USER}" -- sbatch \
     --parsable \
-    --account=research \
+    --account="${DEMO_ACCOUNT}" \
     --partition=compute \
     --job-name=demo-smoke \
     --cpus-per-task=1 \
@@ -55,14 +84,22 @@ PY
 JOB
 } | cut -d';' -f1)"
 
-[[ "${JOB_ID}" =~ ^[0-9]+$ ]] || die "unexpected sbatch response: ${JOB_ID}"
+[[ "${JOB_ID}" =~ ^[0-9]+$ ]] || \
+  die "unexpected sbatch response: ${JOB_ID}"
+
 log "submitted job ${JOB_ID}"
 
 FINAL_STATE=""
+
 for _ in $(seq 1 90); do
   FINAL_STATE="$(
-    sacct -nP -j "${JOB_ID}" --starttime now-10minutes --format=JobIDRaw,State \
-      | awk -F'|' -v id="${JOB_ID}" '$1 == id { print $2; exit }'
+    sacct \
+      -nP \
+      -j "${JOB_ID}" \
+      --starttime now-10minutes \
+      --format=JobIDRaw,State \
+      | awk -F'|' -v id="${JOB_ID}" \
+          '$1 == id { print $2; exit }'
   )"
 
   case "${FINAL_STATE}" in
@@ -77,7 +114,8 @@ for _ in $(seq 1 90); do
   sleep 2
 done
 
-[[ "${FINAL_STATE}" == COMPLETED* ]] || die "job ${JOB_ID} did not complete in time"
+[[ "${FINAL_STATE}" == COMPLETED* ]] || \
+  die "job ${JOB_ID} did not complete in time"
 
 log "accounting record"
 sacct \

@@ -48,6 +48,16 @@ jobs:
           echo "Runner: $PRETTY_NAME"
           echo "Kernel: $(uname -r)"
 
+      - name: Validate demo source consistency
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -r demo/scripts/demo-identities.sh
+          test -x demo/scripts/validate-source.sh
+
+          ./demo/scripts/validate-source.sh
+
       - name: Install Docker
         shell: bash
         run: |
@@ -257,12 +267,16 @@ jobs:
         run: |
           set -euo pipefail
 
+          test -r demo/scripts/demo-identities.sh
+          test -x demo/scripts/validate-source.sh
           test -x demo/scripts/setup.sh
           test -x demo/scripts/init-accounting.sh
           test -x demo/scripts/check.sh
           test -x demo/scripts/check-topology.sh
           test -x demo/slurm/entrypoint.sh
           test -f demo/slurm/gres.conf
+
+          ./demo/scripts/validate-source.sh
 
           bash -n demo/scripts/setup.sh
           bash -n demo/scripts/init-accounting.sh
@@ -348,15 +362,11 @@ jobs:
             format=Account \
             | grep -qx 'research'
 
-          for pair in \
-            'demo01|proteins' \
-            'demo02|chemistry' \
-            'demo03|climate' \
-            'demo04|cfd101' \
-            'demo05|ai' \
-            'demo06|ml101'; do
-            user="${pair%%|*}"
-            account="${pair##*|}"
+          source demo/scripts/demo-identities.sh
+
+          for index in "${!DEMO_USERS[@]}"; do
+            user="${DEMO_USERS[$index]}"
+            account="${DEMO_ACCOUNTS[$index]}"
 
             sacctmgr -nP \
               show user "$user" withassoc \

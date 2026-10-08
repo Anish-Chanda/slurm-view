@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/demo-identities.sh"
+
 EXPECTED_NODES=(
   cpu01 cpu02 cpu03 cpu04 cpu05 cpu06 cpu07 cpu08
   highmem01 highmem02 highmem03
@@ -147,15 +150,9 @@ for qos in normal short limited shared memcap sweep; do
     die "missing ${qos} qos"
 done
 
-for pair in \
-  'demo01|proteins' \
-  'demo02|chemistry' \
-  'demo03|climate' \
-  'demo04|cfd101' \
-  'demo05|ai' \
-  'demo06|ml101'; do
-  user="${pair%%|*}"
-  account="${pair##*|}"
+for index in "${!DEMO_USERS[@]}"; do
+  user="${DEMO_USERS[$index]}"
+  account="${DEMO_ACCOUNTS[$index]}"
 
   sacctmgr -nP show user "${user}" withassoc format=User,Account,Cluster \
     | grep -qx "${user}|${account}|slurm-view-demo" || \
@@ -200,7 +197,7 @@ account_parent() {
 [[ "$(account_parent ml101)" == "teaching" ]] || \
   die "ml101 should be a child of teaching"
 
-for user in demo01 demo02 demo03 demo04 demo05 demo06; do
+for user in "${DEMO_USERS[@]}"; do
   id "${user}" >/dev/null 2>&1 || die "missing local demo user ${user}"
 done
 
@@ -245,7 +242,7 @@ qos_field() {
 [[ "$(assoc_group_tres molecular)" == *"cpu=64"* ]] || \
   die "molecular should have GrpTRES cpu=64"
 
-[[ "$(assoc_group_tres proteins demo01)" == *"cpu=48"* ]] || \
+[[ "$(assoc_group_tres "$(demo_account_for demo01)" demo01)" == *"cpu=48"* ]] || \
   die "demo01/proteins should have GrpTRES cpu=48"
 
 [[ "$(assoc_group_tres ai)" == *"gres/gpu:h100=1"* ]] || \
@@ -266,7 +263,7 @@ qos_field() {
 log "running compute smoke job"
 CPU_JOB="$(
   submit_as demo01 \
-    --account=proteins \
+    --account="$(demo_account_for demo01)" \
     --qos=normal \
     --partition=compute \
     --job-name=topology-cpu \
@@ -280,7 +277,7 @@ seff "${CPU_JOB}" >/dev/null
 log "running high-memory partition smoke job"
 HIGHMEM_JOB="$(
   submit_as demo03 \
-    --account=climate \
+    --account="$(demo_account_for demo03)" \
     --qos=normal \
     --partition=highmem \
     --job-name=topology-highmem \
@@ -295,7 +292,7 @@ for gpu_type in v100 a100 h100 l40s mi250; do
 
   GPU_JOB="$(
     submit_as demo02 \
-      --account=chemistry \
+      --account="$(demo_account_for demo02)" \
       --qos=short \
       --partition=gpu \
       --job-name="topology-gpu-${gpu_type}" \
@@ -312,7 +309,7 @@ done
 log "running array smoke job"
 ARRAY_JOB="$(
   submit_as demo01 \
-    --account=proteins \
+    --account="$(demo_account_for demo01)" \
     --qos=short \
     --partition=compute \
     --job-name=topology-array \
@@ -358,7 +355,7 @@ log "checking dependency pending reason"
 PARENT_JOB="$(
   submit_as demo03 \
     --hold \
-    --account=climate \
+    --account="$(demo_account_for demo03)" \
     --qos=normal \
     --partition=compute \
     --job-name=dependency-parent \
@@ -366,7 +363,7 @@ PARENT_JOB="$(
 )"
 CHILD_JOB="$(
   submit_as demo03 \
-    --account=climate \
+    --account="$(demo_account_for demo03)" \
     --qos=normal \
     --partition=compute \
     --job-name=dependency-child \
@@ -399,7 +396,7 @@ wait_terminal "${CHILD_JOB}" COMPLETED
 log "checking qos job-count enforcement"
 LIMITED_ONE="$(
   submit_as demo04 \
-    --account=cfd101 \
+    --account="$(demo_account_for demo04)" \
     --qos=limited \
     --partition=compute \
     --job-name=limited-running \
@@ -409,7 +406,7 @@ wait_running "${LIMITED_ONE}"
 
 LIMITED_TWO="$(
   submit_as demo04 \
-    --account=cfd101 \
+    --account="$(demo_account_for demo04)" \
     --qos=limited \
     --partition=compute \
     --job-name=limited-waiting \
@@ -434,7 +431,7 @@ wait_terminal "${LIMITED_TWO}" COMPLETED
 log "checking intentional failure accounting"
 FAIL_JOB="$(
   submit_as demo03 \
-    --account=climate \
+    --account="$(demo_account_for demo03)" \
     --qos=short \
     --partition=compute \
     --job-name=expected-failure \
