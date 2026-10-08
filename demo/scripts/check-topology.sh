@@ -204,6 +204,65 @@ for user in demo01 demo02 demo03 demo04 demo05 demo06; do
   id "${user}" >/dev/null 2>&1 || die "missing local demo user ${user}"
 done
 
+assoc_group_tres() {
+  local account=$1
+  local user=${2:-}
+
+  sacctmgr -nP show assoc \
+    cluster=slurm-view-demo \
+    account="${account}" \
+    format=Account,User,GrpTRES \
+    | awk -F'|' \
+        -v account="${account}" \
+        -v user="${user}" \
+        '$1 == account && $2 == user { print $3; exit }'
+}
+
+assoc_max_jobs() {
+  local account=$1
+
+  sacctmgr -nP show assoc \
+    cluster=slurm-view-demo \
+    account="${account}" \
+    format=Account,User,MaxJobs \
+    | awk -F'|' -v account="${account}" \
+        '$1 == account && $2 == "" { print $3; exit }'
+}
+
+qos_field() {
+  local qos=$1
+  local field=$2
+
+  sacctmgr -nP show qos "${qos}" \
+    format=Name,"${field}" \
+    | awk -F'|' -v qos="${qos}" \
+        '$1 == qos { print $2; exit }'
+}
+
+[[ "$(assoc_group_tres research)" == *"cpu=160"* ]] || \
+  die "research should have GrpTRES cpu=160"
+
+[[ "$(assoc_group_tres molecular)" == *"cpu=64"* ]] || \
+  die "molecular should have GrpTRES cpu=64"
+
+[[ "$(assoc_group_tres proteins demo01)" == *"cpu=48"* ]] || \
+  die "demo01/proteins should have GrpTRES cpu=48"
+
+[[ "$(assoc_group_tres ai)" == *"gres/gpu:h100=1"* ]] || \
+  die "ai should have GrpTRES gres/gpu:h100=1"
+
+[[ "$(assoc_max_jobs ml101)" == "1" ]] || \
+  die "ml101 should have MaxJobs=1"
+
+[[ "$(qos_field shared GrpTRES)" == *"cpu=32"* ]] || \
+  die "shared qos should have GrpTRES cpu=32"
+
+[[ "$(qos_field memcap MaxTRESPU)" == *"mem=12G"* ]] || \
+  die "memcap qos should have MaxTRESPU mem=12G"
+
+[[ "$(qos_field limited MaxJobsPU)" == "1" ]] || \
+  die "limited qos should have MaxJobsPU=1"
+
 log "running compute smoke job"
 CPU_JOB="$(
   submit_as demo01 \

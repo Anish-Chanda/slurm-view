@@ -100,54 +100,83 @@ ensure_account teaching root "Teaching workloads"
 ensure_account cfd101 teaching "CFD course workloads"
 ensure_account ml101 teaching "Machine learning course workloads"
 
+ensure_account_parent() {
+  local account=$1
+  local expected_parent=$2
+  local actual_parent
+
+  actual_parent="$(
+    sacctmgr -nP show assoc       cluster="${CLUSTER}"       account="${account}"       format=Account,User,ParentName       | awk -F'|' -v account="${account}"           '$1 == account && $2 == "" { print $3; exit }'
+  )"
+
+  [[ -n "${actual_parent}" ]] ||     die "could not determine parent for ${account}"
+
+  if [[ "${actual_parent}" != "${expected_parent}" ]]; then
+    log "moving ${account} under ${expected_parent}"
+
+    sacctmgr -i modify account       name="${account}"       cluster="${CLUSTER}"       set Parent="${expected_parent}"       >/dev/null
+  fi
+}
+
+ensure_account_parent research root
+ensure_account_parent molecular research
+ensure_account_parent proteins molecular
+ensure_account_parent chemistry molecular
+ensure_account_parent climate research
+ensure_account_parent ai research
+
+ensure_account_parent teaching root
+ensure_account_parent cfd101 teaching
+ensure_account_parent ml101 teaching
+
 log "configuring account hierarchy and limits"
 
 sacctmgr -i modify account \
   where name=research cluster="${CLUSTER}" \
-  set Parent=root FairShare=70 QOS="${ALL_QOS}" DefaultQOS=normal \
+  set FairShare=70 QOS="${ALL_QOS}" DefaultQOS=normal \
       GrpTRES=cpu=160 \
   >/dev/null
 
 sacctmgr -i modify account \
   where name=molecular cluster="${CLUSTER}" \
-  set Parent=research FairShare=45 QOS="${ALL_QOS}" DefaultQOS=normal \
+  set FairShare=45 QOS="${ALL_QOS}" DefaultQOS=normal \
       GrpTRES=cpu=64 \
   >/dev/null
 
 sacctmgr -i modify account \
   where name=proteins cluster="${CLUSTER}" \
-  set Parent=molecular FairShare=60 QOS="${ALL_QOS}" DefaultQOS=normal \
+  set FairShare=60 QOS="${ALL_QOS}" DefaultQOS=normal \
   >/dev/null
 
 sacctmgr -i modify account \
   where name=chemistry cluster="${CLUSTER}" \
-  set Parent=molecular FairShare=40 QOS="${ALL_QOS}" DefaultQOS=normal \
+  set FairShare=40 QOS="${ALL_QOS}" DefaultQOS=normal \
   >/dev/null
 
 sacctmgr -i modify account \
   where name=climate cluster="${CLUSTER}" \
-  set Parent=research FairShare=35 QOS="${ALL_QOS}" DefaultQOS=normal \
+  set FairShare=35 QOS="${ALL_QOS}" DefaultQOS=normal \
   >/dev/null
 
 sacctmgr -i modify account \
   where name=ai cluster="${CLUSTER}" \
-  set Parent=research FairShare=20 QOS="${ALL_QOS}" DefaultQOS=normal \
+  set FairShare=20 QOS="${ALL_QOS}" DefaultQOS=normal \
       GrpTRES=gres/gpu:h100=1 \
   >/dev/null
 
 sacctmgr -i modify account \
   where name=teaching cluster="${CLUSTER}" \
-  set Parent=root FairShare=30 QOS="${ALL_QOS}" DefaultQOS=normal \
+  set FairShare=30 QOS="${ALL_QOS}" DefaultQOS=normal \
   >/dev/null
 
 sacctmgr -i modify account \
   where name=cfd101 cluster="${CLUSTER}" \
-  set Parent=teaching FairShare=60 QOS="${ALL_QOS}" DefaultQOS=normal \
+  set FairShare=60 QOS="${ALL_QOS}" DefaultQOS=normal \
   >/dev/null
 
 sacctmgr -i modify account \
   where name=ml101 cluster="${CLUSTER}" \
-  set Parent=teaching FairShare=40 QOS="${ALL_QOS}" DefaultQOS=normal \
+  set FairShare=40 QOS="${ALL_QOS}" DefaultQOS=normal \
       MaxJobs=1 \
   >/dev/null
 

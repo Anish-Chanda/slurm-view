@@ -228,10 +228,13 @@ if ! sacctmgr -nP show cluster format=Cluster >/dev/null 2>&1; then
   die "slurmdbd did not become reachable"
 fi
 
-"${SCRIPT_DIR}/init-accounting.sh"
+if ! sacctmgr -nP show cluster "${CLUSTER:-slurm-view-demo}"     format=Cluster 2>/dev/null   | grep -qx "${CLUSTER:-slurm-view-demo}"; then
+  log "registering demo cluster with slurmdbd"
+  sacctmgr -i add cluster "${CLUSTER:-slurm-view-demo}"
+fi
 
-log "starting controller and 16 demo nodes"
-compose up -d --force-recreate slurmctld "${NODE_SERVICES[@]}"
+log "starting controller"
+compose up -d --force-recreate slurmctld
 
 for _ in $(seq 1 60); do
   if scontrol ping 2>/dev/null | grep -q 'UP'; then
@@ -244,6 +247,49 @@ scontrol ping 2>/dev/null | grep -q 'UP' || {
   compose logs slurmctld >&2 || true
   die "slurmctld did not become reachable"
 }
+
+log "waiting for accounting TRES registration"
+
+EXPECTED_GPU_TRES=(
+  gpu
+  gpu:v100
+  gpu:a100
+  gpu:h100
+  gpu:l40s
+  gpu:mi250
+)
+
+tres_registered() {
+  local name=$1
+
+  sacctmgr -nP show tres format=Type,Name     | grep -Fx "gres|${name}" >/dev/null
+}
+
+for _ in $(seq 1 30); do
+  all_tres_ready=1
+
+  for tres in "${EXPECTED_GPU_TRES[@]}"; do
+    if ! tres_registered "${tres}"; then
+      all_tres_ready=0
+      break
+    fi
+  done
+
+  [[ ${all_tres_ready} -eq 1 ]] && break
+  sleep 1
+done
+
+for tres in "${EXPECTED_GPU_TRES[@]}"; do
+  tres_registered "${tres}" || {
+    sacctmgr -nP show tres format=Type,Name,ID >&2 || true
+    die "accounting TRES gres/${tres} was not registered"
+  }
+done
+
+"${SCRIPT_DIR}/init-accounting.sh"
+
+log "starting 16 demo nodes"
+compose up -d --force-recreate "${NODE_SERVICES[@]}"
 
 node_ready() {
   local node=$1
