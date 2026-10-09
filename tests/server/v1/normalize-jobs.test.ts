@@ -9,7 +9,7 @@ const END = '\x1e\n';
 function fields(overrides: Record<string, string> = {}): string[] {
   const values: Record<string, string> = {
     JobID: '101',
-    JobArrayID: '101',
+    ArrayJobID: '101',
     ArrayTaskID: 'N/A',
     Partition: 'debug',
     Name: 'train job',
@@ -65,16 +65,16 @@ describe('formatted squeue parser', () => {
     expect(job!.allocated.gpus).toEqual({ total: 4, byType: { a100: 4 } });
   });
 
-  test('parses array task identity and zero task IDs without classifying ordinary jobs as arrays', () => {
+  test('builds canonical array task identity from ArrayJobID and ArrayTaskID', () => {
     const [arrayJob] = parseJobsStdout(row({
-      JobID: '100_0', JobArrayID: '100', ArrayTaskID: '0', State: 'PENDING',
+      JobID: '137', ArrayJobID: '100', ArrayTaskID: '0', State: 'PENDING',
       'tres-alloc': 'cpu=8,mem=4G', StartTime: 'N/A', TimeLimit: 'UNLIMITED',
     }));
-    expect(arrayJob).toMatchObject({ id: '100_0', jobId: '100_0', arrayJobId: '100', arrayTaskId: '0', state: 'PENDING' });
+    expect(arrayJob).toMatchObject({ id: '100_0', jobId: '137', arrayJobId: '100', arrayTaskId: '0', state: 'PENDING' });
     expect(arrayJob!.allocated).toMatchObject({ cpus: null, memoryMiB: null, gpuPresent: false });
     expect(arrayJob!.timeLimit).toEqual({ kind: 'infinite' });
 
-    const [ordinary] = parseJobsStdout(row({ JobArrayID: '101', ArrayTaskID: 'N/A' }));
+    const [ordinary] = parseJobsStdout(row({ ArrayJobID: '101', ArrayTaskID: 'N/A' }));
     expect(ordinary!.arrayJobId).toBeNull();
     expect(ordinary!.arrayTaskId).toBeNull();
   });
@@ -139,14 +139,14 @@ describe('formatted squeue parser', () => {
     ['malformed duration', row({ TimeLimit: '1:99' })],
     ['malformed exit code', row({ exit_code: 'done' })],
     ['unsupported heterogeneous job ID', row({ JobID: '123+1' })],
-    ['inconsistent array identity', row({ JobID: '100_2', JobArrayID: '100', ArrayTaskID: '3' })],
+    ['malformed array job ID', row({ JobID: '102', ArrayJobID: '100_2', ArrayTaskID: '3' })],
   ])('rejects %s atomically', (_label, input) => {
     expect(() => parseJobsStdout(input)).toThrow(UpstreamInvalidError);
   });
 
   test('parses a 30,001-row snapshot completely', () => {
     const output = Array.from({ length: 30_001 }, (_, index) =>
-      row({ JobID: String(index + 1), JobArrayID: String(index + 1), Name: `job-${index}` })
+      row({ JobID: String(index + 1), ArrayJobID: String(index + 1), Name: `job-${index}` })
     ).join('');
     const jobs = parseJobsStdout(output);
     expect(jobs).toHaveLength(30_001);
@@ -200,6 +200,8 @@ describe('formatted squeue command', () => {
     expect(SQUEUE_FORMAT).toContain(`:0${SEP}`);
     expect(SQUEUE_FORMAT.endsWith(`:0${'\x1e'}`)).toBe(true);
     expect(SQUEUE_FORMAT).not.toContain('--json');
+    expect(SQUEUE_FORMAT).toContain('ArrayJobID:0');
+    expect(SQUEUE_FORMAT).not.toContain('JobArrayID:0');
   });
 
   test('malformed output fails without retrying another format', async () => {

@@ -53,11 +53,8 @@ function formattedSqueue(jobs: readonly RawJobFixture[]): string {
     const rawJobId = text(job.job_id);
     const arrayJobId = numeric(job.array_job_id);
     const arrayTaskId = numeric(job.array_task_id);
-    const canonicalId = arrayJobId !== null && arrayJobId > 0 && arrayTaskId !== null
-      ? `${Math.trunc(arrayJobId)}_${Math.trunc(arrayTaskId)}`
-      : rawJobId;
     const fields = [
-      canonicalId,
+      rawJobId,
       arrayJobId !== null && arrayJobId > 0 ? String(Math.trunc(arrayJobId)) : rawJobId,
       arrayJobId !== null && arrayJobId > 0 && arrayTaskId !== null ? String(Math.trunc(arrayTaskId)) : 'N/A',
       text(job.partition),

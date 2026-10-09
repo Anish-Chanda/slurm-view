@@ -14,7 +14,7 @@ const RECORD_TERMINATOR = `${RECORD_SEPARATOR}\n`;
 
 const JOB_FIELDS = [
   { name: 'JobID', key: 'jobId' },
-  { name: 'JobArrayID', key: 'arrayJobId' },
+  { name: 'ArrayJobID', key: 'arrayJobId' },
   { name: 'ArrayTaskID', key: 'arrayTaskId' },
   { name: 'Partition', key: 'partition' },
   { name: 'Name', key: 'name' },
@@ -42,7 +42,7 @@ const SQUEUE_FORMAT = JOB_FIELDS
 
 const JOB_BASE_STATE_SET: ReadonlySet<string> = new Set(JOB_BASE_STATES);
 type JobFieldKey = (typeof JOB_FIELDS)[number]['key'];
-const JOB_ID_PATTERN = /^[1-9]\d*(?:_[0-9]+)?$/;
+const JOB_ID_PATTERN = /^[1-9]\d*$/;
 const ARRAY_ID_PATTERN = /^[1-9]\d*$/;
 const INTEGER_PATTERN = /^\d+$/;
 const EMPTY_FIELD = [''] as const;
@@ -149,7 +149,7 @@ function parseJobRecord(fields: string[], recordIndex: number): QueueJob {
 
   const jobId = parseField(row.jobId, 'JobID', []);
   if (jobId === null || !JOB_ID_PATTERN.test(jobId)) invalid(`record ${recordIndex} has an unsupported JobID`);
-  const arrayIdField = parseField(row.arrayJobId, 'JobArrayID', SLURM_UNSET);
+  const arrayIdField = parseField(row.arrayJobId, 'ArrayJobID', SLURM_UNSET);
   const taskIdText = parseField(row.arrayTaskId, 'ArrayTaskID', SLURM_UNSET);
   const arrayTaskId = taskIdText === null ? null : String(parseInteger(taskIdText, 'ArrayTaskID', false));
   const arrayJobId = arrayIdField === null ? null : arrayIdField;
@@ -158,11 +158,9 @@ function parseJobRecord(fields: string[], recordIndex: number): QueueJob {
   // identifies array elements.
   if (arrayTaskId !== null) {
     if (arrayJobId === null || !ARRAY_ID_PATTERN.test(arrayJobId)) {
-      invalid(`record ${recordIndex} has an invalid JobArrayID`);
+      invalid(`record ${recordIndex} has an invalid ArrayJobID`);
     }
-    const expectedId = `${arrayJobId}_${arrayTaskId}`;
-    if (jobId !== expectedId) invalid(`record ${recordIndex} has inconsistent array identity`);
-    id = expectedId;
+    id = `${arrayJobId}_${arrayTaskId}`;
   } else if (!ARRAY_ID_PATTERN.test(jobId)) {
     invalid(`record ${recordIndex} has an unsupported non-array JobID`);
   }
