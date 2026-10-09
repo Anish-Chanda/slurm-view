@@ -1,0 +1,253 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/demo-identities.sh"
+
+CLUSTER=slurm-view-demo
+ALL_QOS=normal,short,limited,shared,memcap,sweep
+
+log() {
+  printf '[demo accounting] %s\n' "$*"
+}
+
+die() {
+  printf '[demo accounting] error: %s\n' "$*" >&2
+  exit 1
+}
+
+[[ ${EUID} -eq 0 ]] || die "run this script as root"
+command -v sacctmgr >/dev/null 2>&1 || die "sacctmgr is required"
+
+if ! sacctmgr -nP show cluster "${CLUSTER}" format=Cluster 2>/dev/null \
+  | grep -qx "${CLUSTER}"; then
+  log "creating cluster"
+  sacctmgr -i add cluster "${CLUSTER}"
+fi
+
+ensure_qos() {
+  local name=$1
+
+  if ! sacctmgr -nP show qos "${name}" format=Name 2>/dev/null \
+    | grep -qx "${name}"; then
+    log "creating ${name} qos"
+    sacctmgr -i add qos "${name}"
+  fi
+}
+
+for qos in normal short limited shared memcap sweep; do
+  ensure_qos "${qos}"
+done
+
+log "configuring qos policies"
+
+sacctmgr -i modify qos normal set \
+  Priority=100 \
+  MaxWall=08:00:00 \
+  >/dev/null
+
+sacctmgr -i modify qos short set \
+  Priority=200 \
+  MaxWall=00:05:00 \
+  >/dev/null
+
+sacctmgr -i modify qos limited set \
+  Priority=50 \
+  MaxWall=02:00:00 \
+  MaxJobsPU=1 \
+  >/dev/null
+
+sacctmgr -i modify qos shared set \
+  Priority=80 \
+  MaxWall=08:00:00 \
+  GrpTRES=cpu=32 \
+  >/dev/null
+
+sacctmgr -i modify qos memcap set \
+  Priority=70 \
+  MaxWall=08:00:00 \
+  MaxTRESPU=mem=12G \
+  >/dev/null
+
+sacctmgr -i modify qos sweep set \
+  Priority=5 \
+  MaxWall=00:30:00 \
+  >/dev/null
+
+ensure_account() {
+  local name=$1
+  local parent=$2
+  local description=$3
+
+  if ! sacctmgr -nP show assoc \
+      cluster="${CLUSTER}" \
+      account="${name}" \
+      format=Cluster,Account,User 2>/dev/null \
+    | grep -qx "${CLUSTER}|${name}|"; then
+    log "creating ${name} account under ${parent}"
+    sacctmgr -i add account "${name}" \
+      cluster="${CLUSTER}" \
+      parent="${parent}" \
+      description="${description}"
+  fi
+}
+
+ensure_account research root "Research workloads"
+ensure_account molecular research "Molecular simulation workloads"
+ensure_account proteins molecular "Protein simulation workloads"
+ensure_account chemistry molecular "Computational chemistry workloads"
+ensure_account climate research "Climate modeling workloads"
+ensure_account ai research "AI and accelerator workloads"
+
+ensure_account teaching root "Teaching workloads"
+ensure_account cfd101 teaching "CFD course workloads"
+ensure_account ml101 teaching "Machine learning course workloads"
+
+ensure_account_parent() {
+  local account=$1
+  local expected_parent=$2
+  local actual_parent
+
+  actual_parent="$(
+    sacctmgr -nP show assoc       cluster="${CLUSTER}"       account="${account}"       format=Account,User,ParentName       | awk -F'|' -v account="${account}"           '$1 == account && $2 == "" { print $3; exit }'
+  )"
+
+  [[ -n "${actual_parent}" ]] ||     die "could not determine parent for ${account}"
+
+  if [[ "${actual_parent}" != "${expected_parent}" ]]; then
+    log "moving ${account} under ${expected_parent}"
+
+    sacctmgr -i modify account       name="${account}"       cluster="${CLUSTER}"       set Parent="${expected_parent}"       >/dev/null
+  fi
+}
+
+ensure_account_parent research root
+ensure_account_parent molecular research
+ensure_account_parent proteins molecular
+ensure_account_parent chemistry molecular
+ensure_account_parent climate research
+ensure_account_parent ai research
+
+ensure_account_parent teaching root
+ensure_account_parent cfd101 teaching
+ensure_account_parent ml101 teaching
+
+log "configuring account hierarchy and limits"
+
+sacctmgr -i modify account \
+  where name=research cluster="${CLUSTER}" \
+  set FairShare=70 QOS="${ALL_QOS}" DefaultQOS=normal \
+      GrpTRES=cpu=160 \
+  >/dev/null
+
+sacctmgr -i modify account \
+  where name=molecular cluster="${CLUSTER}" \
+  set FairShare=45 QOS="${ALL_QOS}" DefaultQOS=normal \
+      GrpTRES=cpu=64 \
+  >/dev/null
+
+sacctmgr -i modify account \
+  where name=proteins cluster="${CLUSTER}" \
+  set FairShare=60 QOS="${ALL_QOS}" DefaultQOS=normal \
+  >/dev/null
+
+sacctmgr -i modify account \
+  where name=chemistry cluster="${CLUSTER}" \
+  set FairShare=40 QOS="${ALL_QOS}" DefaultQOS=normal \
+  >/dev/null
+
+sacctmgr -i modify account \
+  where name=climate cluster="${CLUSTER}" \
+  set FairShare=35 QOS="${ALL_QOS}" DefaultQOS=normal \
+  >/dev/null
+
+sacctmgr -i modify account \
+  where name=ai cluster="${CLUSTER}" \
+  set FairShare=20 QOS="${ALL_QOS}" DefaultQOS=normal \
+      GrpTRES=gres/gpu:h100=1 \
+  >/dev/null
+
+sacctmgr -i modify account \
+  where name=teaching cluster="${CLUSTER}" \
+  set FairShare=30 QOS="${ALL_QOS}" DefaultQOS=normal \
+  >/dev/null
+
+sacctmgr -i modify account \
+  where name=cfd101 cluster="${CLUSTER}" \
+  set FairShare=60 QOS="${ALL_QOS}" DefaultQOS=normal \
+  >/dev/null
+
+sacctmgr -i modify account \
+  where name=ml101 cluster="${CLUSTER}" \
+  set FairShare=40 QOS="${ALL_QOS}" DefaultQOS=normal \
+      MaxJobs=1 \
+  >/dev/null
+
+ensure_user() {
+  local user=$1
+  local account=$2
+
+  if ! sacctmgr -nP show assoc \
+      cluster="${CLUSTER}" \
+      account="${account}" \
+      user="${user}" \
+      format=Cluster,Account,User 2>/dev/null \
+    | grep -qx "${CLUSTER}|${account}|${user}"; then
+    log "creating ${user}/${account} association"
+    sacctmgr -i add user "${user}" \
+      account="${account}" \
+      cluster="${CLUSTER}"
+  fi
+
+  sacctmgr -i modify user \
+    where name="${user}" \
+    set DefaultAccount="${account}" \
+    >/dev/null
+
+  sacctmgr -i modify user \
+    where name="${user}" account="${account}" cluster="${CLUSTER}" \
+    set DefaultQOS=normal QOS="${ALL_QOS}" \
+    >/dev/null
+}
+
+for index in "${!DEMO_USERS[@]}"; do
+  ensure_user \
+    "${DEMO_USERS[$index]}" \
+    "${DEMO_ACCOUNTS[$index]}"
+done
+
+# The demo originally placed demo01-demo04 directly under the two top-level
+# accounts. Remove those legacy associations after their replacement leaf
+# associations exist. This keeps upgrades of an existing demo VM aligned with
+# a fresh install without resetting accounting history.
+remove_legacy_association() {
+  local user=$1
+  local account=$2
+
+  if sacctmgr -nP show assoc \
+      cluster="${CLUSTER}" \
+      account="${account}" \
+      user="${user}" \
+      format=Cluster,Account,User 2>/dev/null \
+    | grep -qx "${CLUSTER}|${account}|${user}"; then
+    log "removing legacy ${user}/${account} association"
+    sacctmgr -i remove user "${user}" \
+      where account="${account}" cluster="${CLUSTER}" \
+      >/dev/null
+  fi
+}
+
+remove_legacy_association demo01 research
+remove_legacy_association demo02 research
+remove_legacy_association demo03 teaching
+remove_legacy_association demo04 teaching
+
+# demo01 deliberately has its own CPU ceiling below its ancestors. The
+# workload can therefore demonstrate a request that fits this user level but
+# is blocked by the intermediate molecular account.
+sacctmgr -i modify user \
+  where name=demo01 account="$(demo_account_for demo01)" cluster="${CLUSTER}" \
+  set GrpTRES=cpu=48 \
+  >/dev/null
+
+log "accounting initialized"

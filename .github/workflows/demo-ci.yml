@@ -1,0 +1,788 @@
+name: Demo CI
+
+on:
+  pull_request:
+    paths:
+      - 'demo/**'
+      - '.github/workflows/demo-ci.yml'
+
+  push:
+    branches:
+      - main
+    paths:
+      - 'demo/**'
+      - '.github/workflows/demo-ci.yml'
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-bootstrap:
+    name: Rocky 10 host bootstrap
+    runs-on: chickadee-small-rocky-102
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Verify runner
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          source /etc/os-release
+
+          test "$ID" = "rocky"
+          test "${VERSION_ID%%.*}" = "10"
+          test "$(uname -m)" = "x86_64"
+
+          sudo -n true
+
+          echo "Runner: $PRETTY_NAME"
+          echo "Kernel: $(uname -r)"
+
+      - name: Validate demo source consistency
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -r demo/scripts/demo-identities.sh
+          test -x demo/scripts/validate-source.sh
+
+          ./demo/scripts/validate-source.sh
+
+      - name: Install Docker
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RUNNING_KERNEL="$(uname -r)"
+
+          echo "Installing modules for running kernel: ${RUNNING_KERNEL}"
+
+          sudo dnf install -y \
+            dnf-plugins-core \
+            kmod \
+            "kernel-modules-core-${RUNNING_KERNEL}" \
+            "kernel-modules-${RUNNING_KERNEL}" \
+            "kernel-modules-extra-${RUNNING_KERNEL}"
+
+          sudo modprobe overlay
+          sudo modprobe br_netfilter
+          sudo modprobe nf_nat
+          sudo modprobe xt_addrtype
+
+          sudo dnf config-manager --add-repo \
+            https://download.docker.com/linux/rhel/docker-ce.repo
+
+          sudo dnf install -y \
+            --setopt=install_weak_deps=False \
+            docker-ce \
+            docker-ce-cli \
+            containerd.io \
+            docker-buildx-plugin \
+            docker-compose-plugin
+
+          if ! sudo systemctl start docker; then
+            echo "Docker failed to start:"
+            sudo systemctl status docker --no-pager --full || true
+            sudo journalctl -u docker.service -b --no-pager -n 100 || true
+            exit 1
+          fi
+
+      - name: Verify Docker
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo docker version
+          sudo docker compose version
+
+          test "$(
+            sudo docker info --format '{{.CgroupVersion}}'
+          )" = "2"
+
+          sudo docker run --rm hello-world
+
+      - name: Validate bootstrap files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -x demo/scripts/bootstrap-host.sh
+          test -x demo/scripts/ensure-json-serializer.sh
+
+          bash -n demo/versions.env
+          bash -n demo/scripts/bootstrap-host.sh
+          bash -n demo/scripts/ensure-json-serializer.sh
+
+          source demo/versions.env
+
+          test "$ROCKY_MAJOR" = "10"
+          test "$OPENHPC_MAJOR" = "4"
+          test -n "$SLURM_SERIES"
+
+      - name: Run host bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo ./demo/scripts/bootstrap-host.sh
+
+      - name: Verify host bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          source demo/versions.env
+
+          ACTUAL_VERSION="$(
+            rpm -q --qf '%{VERSION}' slurm-ohpc
+          )"
+
+          case "$ACTUAL_VERSION" in
+            "${SLURM_SERIES}".*)
+              ;;
+            *)
+              echo "Expected Slurm ${SLURM_SERIES}.x, got ${ACTUAL_VERSION}"
+              exit 1
+              ;;
+          esac
+
+          test "$(command -v squeue)" = "/usr/bin/squeue"
+          test "$(command -v sacct)" = "/usr/bin/sacct"
+          test "$(command -v scontrol)" = "/usr/bin/scontrol"
+          test "$(command -v sinfo)" = "/usr/bin/sinfo"
+          test "$(command -v sprio)" = "/usr/bin/sprio"
+          test "$(command -v sbatch)" = "/usr/bin/sbatch"
+          test "$(command -v srun)" = "/usr/bin/srun"
+          test "$(command -v seff)" = "/usr/bin/seff"
+
+          rpm -q slurm-ohpc
+          rpm -q slurm-contribs-ohpc
+          rpm -q slurm-perlapi-ohpc
+          rpm -q perl-Sys-Hostname
+          rpm -q munge
+
+          sudo test -f /usr/lib64/slurm/serializer_json.so
+
+          systemctl is-active --quiet munge
+          munge -n | unmunge >/dev/null
+
+          sudo test -s /srv/slurm-view-demo/secrets/munge.key
+          sudo test -s /srv/slurm-view-demo/state/versions.env
+
+          sudo cmp \
+            /srv/slurm-view-demo/secrets/munge.key \
+            /etc/munge/munge.key
+
+          echo "Resolved demo versions:"
+          sudo cat /srv/slurm-view-demo/state/versions.env
+
+      - name: Record bootstrap state
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          MUNGE_HASH="$(
+            sudo sha256sum /srv/slurm-view-demo/secrets/munge.key \
+              | awk '{print $1}'
+          )"
+
+          VERSION_STATE_HASH="$(
+            sudo sha256sum /srv/slurm-view-demo/state/versions.env \
+              | awk '{print $1}'
+          )"
+
+          JSON_SERIALIZER_HASH="$(
+            sudo sha256sum /usr/lib64/slurm/serializer_json.so \
+              | awk '{print $1}'
+          )"
+
+          echo "MUNGE_HASH=$MUNGE_HASH" >> "$GITHUB_ENV"
+          echo "VERSION_STATE_HASH=$VERSION_STATE_HASH" >> "$GITHUB_ENV"
+          echo "JSON_SERIALIZER_HASH=$JSON_SERIALIZER_HASH" >> "$GITHUB_ENV"
+
+      - name: Run host bootstrap again
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo ./demo/scripts/bootstrap-host.sh
+
+      - name: Verify repeat bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          source demo/versions.env
+
+          ACTUAL_VERSION="$(
+            rpm -q --qf '%{VERSION}' slurm-ohpc
+          )"
+
+          case "$ACTUAL_VERSION" in
+            "${SLURM_SERIES}".*)
+              ;;
+            *)
+              echo "Expected Slurm ${SLURM_SERIES}.x, got ${ACTUAL_VERSION}"
+              exit 1
+              ;;
+          esac
+
+          systemctl is-active --quiet munge
+          munge -n | unmunge >/dev/null
+
+          CURRENT_MUNGE_HASH="$(
+            sudo sha256sum /srv/slurm-view-demo/secrets/munge.key \
+              | awk '{print $1}'
+          )"
+
+          CURRENT_VERSION_STATE_HASH="$(
+            sudo sha256sum /srv/slurm-view-demo/state/versions.env \
+              | awk '{print $1}'
+          )"
+
+          CURRENT_JSON_SERIALIZER_HASH="$(
+            sudo sha256sum /usr/lib64/slurm/serializer_json.so \
+              | awk '{print $1}'
+          )"
+
+          test "$CURRENT_MUNGE_HASH" = "$MUNGE_HASH"
+          test "$CURRENT_VERSION_STATE_HASH" = "$VERSION_STATE_HASH"
+          test "$CURRENT_JSON_SERIALIZER_HASH" = "$JSON_SERIALIZER_HASH"
+
+          sudo cmp \
+            /srv/slurm-view-demo/secrets/munge.key \
+            /etc/munge/munge.key
+      - name: Validate demo cluster files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -r demo/scripts/demo-identities.sh
+          test -x demo/scripts/validate-source.sh
+          test -x demo/scripts/setup.sh
+          test -x demo/scripts/init-accounting.sh
+          test -x demo/scripts/check.sh
+          test -x demo/scripts/check-topology.sh
+          test -x demo/scripts/seed-workload.sh
+          test -x demo/scripts/check-workload.sh
+          test -x demo/scripts/install-workload-service.sh
+          test -r demo/systemd/slurm-view-demo-workload.service
+          test -r demo/systemd/slurm-view-demo-workload.timer
+          test -r demo/workload/workload-spec.sh
+          test -x demo/workload/steady-job.sh
+          test -x demo/workload/array-task.sh
+          test -x demo/slurm/entrypoint.sh
+          test -f demo/slurm/gres.conf
+
+          ./demo/scripts/validate-source.sh
+
+          bash -n demo/scripts/setup.sh
+          bash -n demo/scripts/init-accounting.sh
+          bash -n demo/scripts/check.sh
+          bash -n demo/scripts/check-topology.sh
+          bash -n demo/scripts/seed-workload.sh
+          bash -n demo/scripts/check-workload.sh
+          bash -n demo/scripts/install-workload-service.sh
+          bash -n demo/workload/workload-spec.sh
+          bash -n demo/workload/steady-job.sh
+          bash -n demo/workload/array-task.sh
+          bash -n demo/slurm/entrypoint.sh
+
+          source demo/versions.env
+          source /srv/slurm-view-demo/state/versions.env
+
+          SLURM_UID="$(id -u slurm)"
+          SLURM_GID="$(id -g slurm)"
+
+          export \
+            ROCKY_MAJOR \
+            OPENHPC_MAJOR \
+            SLURM_VERSION \
+            SLURM_RELEASE \
+            SLURM_UID \
+            SLURM_GID \
+            SLURM_VIEW_DEMO_STATE_DIR=/srv/slurm-view-demo
+
+          docker compose \
+            -f demo/compose.yaml \
+            config --quiet
+
+      - name: Start demo cluster
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo ./demo/scripts/setup.sh
+
+      - name: Verify demo cluster
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          scontrol ping | grep -q 'UP'
+
+          JSON_PARSERS="$(scontrol --json=list 2>&1)"
+          grep -q 'v0.0.43' <<< "$JSON_PARSERS"
+
+          scontrol --json=v0.0.43 show node >/dev/null
+          scontrol --json=v0.0.43 show partition >/dev/null
+
+          test "$(
+            sudo docker exec slurm-view-demo-slurmctld-1 id -u slurm
+          )" = "$(id -u slurm)"
+
+          test "$(
+            sudo docker exec slurm-view-demo-slurmctld-1 id -g slurm
+          )" = "$(id -g slurm)"
+
+          test "$(
+            sudo docker exec slurm-view-demo-cpu01-1 id -u slurm
+          )" = "$(id -u slurm)"
+
+          test "$(
+            sudo docker exec slurm-view-demo-cpu01-1 id -g slurm
+          )" = "$(id -g slurm)"
+
+          NODE_STATE="$(
+            sinfo -h -N -n cpu01 -o '%T' | head -n 1
+          )"
+
+          case "$NODE_STATE" in
+            idle*)
+              ;;
+            *)
+              echo "Expected cpu01 to be idle, got ${NODE_STATE}"
+              exit 1
+              ;;
+          esac
+
+          sacctmgr -nP \
+            show cluster slurm-view-demo \
+            format=Cluster \
+            | grep -qx 'slurm-view-demo'
+
+          sacctmgr -nP \
+            show account research \
+            format=Account \
+            | grep -qx 'research'
+
+          source demo/scripts/demo-identities.sh
+
+          for index in "${!DEMO_USERS[@]}"; do
+            user="${DEMO_USERS[$index]}"
+            account="${DEMO_ACCOUNTS[$index]}"
+
+            sacctmgr -nP \
+              show user "$user" withassoc \
+              format=User,Account,Cluster \
+              | grep -qx "${user}|${account}|slurm-view-demo"
+          done
+
+          test "$(
+            sinfo -h -N -o '%N' | sort -u | wc -l
+          )" -eq 16
+
+          for pair in \
+            'gpu01|v100' \
+            'gpu02|a100' \
+            'gpu03|h100' \
+            'gpu04|l40s' \
+            'gpu05|mi250'; do
+            node="${pair%%|*}"
+            gpu_type="${pair##*|}"
+
+            scontrol show node "$node" -o \
+              | grep -F "Gres=gpu:${gpu_type}:2" >/dev/null
+          done
+
+          CPU08_STATE="$(
+            sinfo -h -N -n cpu08 -o '%T' | head -n 1
+          )"
+          case "$CPU08_STATE" in
+            drained*|draining*)
+              ;;
+            *)
+              echo "Expected cpu08 to be drained, got ${CPU08_STATE}"
+              exit 1
+              ;;
+          esac
+
+          sudo ./demo/scripts/check.sh
+          sudo ./demo/scripts/check-topology.sh
+
+      - name: Verify demo setup rerun and config refresh
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Change a bind-mounted source between setup runs. This catches
+          # regressions where Docker containers retain an obsolete inode.
+          printf '\n# ci-runtime-refresh\n' >> demo/slurm/gres.conf
+
+          sudo ./demo/scripts/setup.sh
+
+          grep -qx '# ci-runtime-refresh' \
+            /srv/slurm-view-demo/config/gres.conf
+
+          for node in gpu01 gpu02 gpu03 gpu04 gpu05; do
+            sudo docker exec "slurm-view-demo-${node}-1" \
+              grep -qx '# ci-runtime-refresh' /etc/slurm/gres.conf
+          done
+
+          test "$(
+            sinfo -h -N -o '%N' | sort -u | wc -l
+          )" -eq 16
+
+          for pair in \
+            'gpu01|v100' \
+            'gpu02|a100' \
+            'gpu03|h100' \
+            'gpu04|l40s' \
+            'gpu05|mi250'; do
+            node="${pair%%|*}"
+            gpu_type="${pair##*|}"
+
+            scontrol show node "$node" -o \
+              | grep -F "Gres=gpu:${gpu_type}:2" >/dev/null
+          done
+
+          CPU08_STATE="$(
+            sinfo -h -N -n cpu08 -o '%T' | head -n 1
+          )"
+
+          case "$CPU08_STATE" in
+            drained*|draining*)
+              ;;
+            *)
+              echo "Expected cpu08 to be drained, got ${CPU08_STATE}"
+              exit 1
+              ;;
+          esac
+
+      - name: Seed and verify demo workload
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo ./demo/scripts/seed-workload.sh
+          sudo ./demo/scripts/check-workload.sh
+
+          source demo/workload/workload-spec.sh
+
+          owned_job_ids() {
+            squeue -a -h -o '%F|%k' \
+              | awk -F'|' \
+                  -v prefix="${DEMO_WORKLOAD_OWNER}:" \
+                  'index($2, prefix) == 1 { print $1 }' \
+              | sort -u
+          }
+
+          BEFORE="$(owned_job_ids)"
+          EXPECTED_COUNT=$((
+            ${#DEMO_RUNNING_SLOTS[@]} +
+            ${#DEMO_PENDING_SLOTS[@]} +
+            1
+          ))
+          ACTUAL_COUNT="$(
+            printf '%s\n' "${BEFORE}" \
+              | awk 'NF { count++ } END { print count + 0 }'
+          )"
+
+          test "${ACTUAL_COUNT}" -eq "${EXPECTED_COUNT}"
+
+          # Reconciliation must be idempotent. Running it again should retain
+          # the same active workload generation and reservation-backed job.
+          sudo ./demo/scripts/seed-workload.sh
+          AFTER="$(owned_job_ids)"
+
+          test "${AFTER}" = "${BEFORE}"
+          sudo ./demo/scripts/check-workload.sh
+
+      - name: Install and verify workload reconciler
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          source demo/workload/workload-spec.sh
+
+          owned_job_ids() {
+            squeue -a -h -o '%F|%k' \
+              | awk -F'|' \
+                  -v prefix="${DEMO_WORKLOAD_OWNER}:" \
+                  'index($2, prefix) == 1 { print $1 "|" $2 }' \
+              | sort -u
+          }
+
+          slot_job_id() {
+            local slot=$1
+            local comment="${DEMO_WORKLOAD_OWNER}:${slot}"
+
+            squeue -a -h -o '%F|%k' \
+              | awk -F'|' -v comment="${comment}" \
+                  '$2 == comment { print $1 }' \
+              | sort -u \
+              | head -n 1
+          }
+
+          BEFORE="$(owned_job_ids)"
+
+          sudo ./demo/scripts/install-workload-service.sh
+
+          sudo test -x \
+            /usr/local/libexec/slurm-view-demo/scripts/seed-workload.sh
+          sudo test -x \
+            /usr/local/libexec/slurm-view-demo/scripts/check-workload.sh
+          sudo cmp \
+            demo/scripts/seed-workload.sh \
+            /usr/local/libexec/slurm-view-demo/scripts/seed-workload.sh
+          sudo cmp \
+            demo/workload/workload-spec.sh \
+            /usr/local/libexec/slurm-view-demo/workload/workload-spec.sh
+
+          sudo systemd-analyze verify \
+            /etc/systemd/system/slurm-view-demo-workload.service \
+            /etc/systemd/system/slurm-view-demo-workload.timer
+
+          # A normal service run must reconcile in place without replacing a
+          # healthy workload generation.
+          sudo systemctl start slurm-view-demo-workload.service
+          test "$(
+            sudo systemctl show \
+              slurm-view-demo-workload.service \
+              --property=Result \
+              --value
+          )" = "success"
+
+          AFTER_NOOP="$(owned_job_ids)"
+          test "${AFTER_NOOP}" = "${BEFORE}"
+          sudo ./demo/scripts/check-workload.sh
+
+          # Reproduce the restart failure mode seen on the persistent demo:
+          # anchor allocations disappear, a job that is normally held pending
+          # can take their resources, and the reconciler must restore the
+          # anchor layer before rebuilding the pending-analysis layer.
+          ARRAY_BEFORE_RECOVERY="$(slot_job_id "${DEMO_ARRAY_SLOT}")"
+          OLD_GROMACS_ID="$(slot_job_id gromacs-md)"
+          OLD_LAMMPS_ID="$(slot_job_id lammps-solvation)"
+          REPLICA_ID="$(slot_job_id replica-expansion)"
+
+          test -n "${ARRAY_BEFORE_RECOVERY}"
+          test -n "${OLD_GROMACS_ID}"
+          test -n "${OLD_LAMMPS_ID}"
+          test -n "${REPLICA_ID}"
+
+          sudo scancel "${OLD_GROMACS_ID}" "${OLD_LAMMPS_ID}"
+
+          for _ in $(seq 1 80); do
+            REPLICA_STATE="$(
+              squeue -a -h -j "${REPLICA_ID}" -o '%T' \
+                | head -n 1
+            )"
+
+            [[ "${REPLICA_STATE}" == "RUNNING" ]] && break
+            sleep 0.25
+          done
+
+          test "${REPLICA_STATE}" = "RUNNING"
+
+          sudo systemctl start slurm-view-demo-workload.service
+
+          NEW_GROMACS_ID="$(slot_job_id gromacs-md)"
+          NEW_LAMMPS_ID="$(slot_job_id lammps-solvation)"
+          ARRAY_AFTER_RECOVERY="$(slot_job_id "${DEMO_ARRAY_SLOT}")"
+
+          test -n "${NEW_GROMACS_ID}"
+          test -n "${NEW_LAMMPS_ID}"
+          test "${NEW_GROMACS_ID}" != "${OLD_GROMACS_ID}"
+          test "${NEW_LAMMPS_ID}" != "${OLD_LAMMPS_ID}"
+
+          # Recovery should preserve the long-running array generation unless
+          # it is itself the resource blocker.
+          test "${ARRAY_AFTER_RECOVERY}" = "${ARRAY_BEFORE_RECOVERY}"
+
+          sudo ./demo/scripts/check-workload.sh
+
+          # Prove the service repairs a missing owned workload slot.
+          REPAIR_SLOT=render-batch
+          OLD_REPAIR_ID="$(slot_job_id "${REPAIR_SLOT}")"
+          test -n "${OLD_REPAIR_ID}"
+          sudo scancel "${OLD_REPAIR_ID}"
+
+          for _ in $(seq 1 40); do
+            if [[ -z "$(squeue -a -h -j "${OLD_REPAIR_ID}" -o '%i')" ]]; then
+              break
+            fi
+            sleep 0.25
+          done
+
+          test -z "$(squeue -a -h -j "${OLD_REPAIR_ID}" -o '%i')"
+
+          sudo systemctl start slurm-view-demo-workload.service
+          NEW_REPAIR_ID="$(slot_job_id "${REPAIR_SLOT}")"
+
+          test -n "${NEW_REPAIR_ID}"
+          test "${NEW_REPAIR_ID}" != "${OLD_REPAIR_ID}"
+          sudo ./demo/scripts/check-workload.sh
+
+          # A timer/manual overlap must be harmless. The second invocation
+          # sees the shared lock, logs the skip, and exits successfully.
+          sudo flock /run/lock/slurm-view-demo-workload.lock \
+            systemctl start slurm-view-demo-workload.service
+
+          test "$(
+            sudo systemctl show \
+              slurm-view-demo-workload.service \
+              --property=Result \
+              --value
+          )" = "success"
+
+          sudo journalctl \
+            -u slurm-view-demo-workload.service \
+            --no-pager \
+            -n 50 \
+            | grep -F \
+                'another workload reconciliation is already running; skipping'
+
+          # Reinstall while enabling the timer. This also exercises the
+          # update path against an already-installed reconciler.
+          sudo ./demo/scripts/install-workload-service.sh --enable
+
+          sudo systemctl is-enabled --quiet \
+            slurm-view-demo-workload.timer
+          sudo systemctl is-active --quiet \
+            slurm-view-demo-workload.timer
+
+          sudo systemctl list-timers --all --no-pager \
+            | grep -F 'slurm-view-demo-workload.timer'
+
+          sudo ./demo/scripts/check-workload.sh
+
+      - name: Show demo cluster diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+
+          echo "=== Workload reconciler ==="
+          sudo systemctl status \
+            slurm-view-demo-workload.service \
+            slurm-view-demo-workload.timer \
+            --no-pager \
+            --full \
+            || true
+          sudo journalctl \
+            -u slurm-view-demo-workload.service \
+            --no-pager \
+            -n 100 \
+            || true
+
+          echo
+          echo "=== Docker containers ==="
+          sudo docker ps -a
+
+          if [[ -s /srv/slurm-view-demo/state/versions.env ]]; then
+            source demo/versions.env
+            source /srv/slurm-view-demo/state/versions.env
+
+            echo
+            echo "=== Compose status ==="
+            sudo env \
+              ROCKY_MAJOR="$ROCKY_MAJOR" \
+              OPENHPC_MAJOR="$OPENHPC_MAJOR" \
+              SLURM_VERSION="$SLURM_VERSION" \
+              SLURM_RELEASE="$SLURM_RELEASE" \
+              SLURM_UID="$(id -u slurm)" \
+              SLURM_GID="$(id -g slurm)" \
+              SLURM_VIEW_DEMO_STATE_DIR=/srv/slurm-view-demo \
+              docker compose \
+                -f demo/compose.yaml \
+                ps -a
+
+            echo
+            echo "=== Compose logs ==="
+            sudo env \
+              ROCKY_MAJOR="$ROCKY_MAJOR" \
+              OPENHPC_MAJOR="$OPENHPC_MAJOR" \
+              SLURM_VERSION="$SLURM_VERSION" \
+              SLURM_RELEASE="$SLURM_RELEASE" \
+              SLURM_UID="$(id -u slurm)" \
+              SLURM_GID="$(id -g slurm)" \
+              SLURM_VIEW_DEMO_STATE_DIR=/srv/slurm-view-demo \
+              docker compose \
+                -f demo/compose.yaml \
+                logs \
+                --no-color
+          fi
+
+          echo
+          echo "=== Slurm controller ==="
+          scontrol ping || true
+
+          echo
+          echo "=== Slurm nodes ==="
+          sinfo -N -l || true
+
+          echo
+          echo "=== Seeded workload ==="
+          squeue -a \
+            -o '%.18i %.24j %.10u %.12a %.10q %.10T %.32R %.32k' \
+            || true
+          scontrol show reservation demo-calibration || true
+
+          echo
+          echo "=== GPU node details ==="
+          for node in gpu01 gpu02 gpu03 gpu04 gpu05; do
+            scontrol -d -o show node "$node" || true
+          done
+
+          echo
+          echo "=== Recent accounting ==="
+          sacct \
+            --starttime now-30minutes \
+            --format=JobID,JobName,User,Account,State,Elapsed,AllocCPUS,MaxRSS \
+            || true
+
+      - name: Stop demo cluster
+        if: always()
+        shell: bash
+        run: |
+          set +e
+
+          sudo systemctl disable --now \
+            slurm-view-demo-workload.timer \
+            >/dev/null 2>&1 \
+            || true
+          sudo systemctl stop \
+            slurm-view-demo-workload.service \
+            >/dev/null 2>&1 \
+            || true
+
+          if [[ ! -s /srv/slurm-view-demo/state/versions.env ]]; then
+            exit 0
+          fi
+
+          source demo/versions.env
+          source /srv/slurm-view-demo/state/versions.env
+
+          sudo env \
+            ROCKY_MAJOR="$ROCKY_MAJOR" \
+            OPENHPC_MAJOR="$OPENHPC_MAJOR" \
+            SLURM_VERSION="$SLURM_VERSION" \
+            SLURM_RELEASE="$SLURM_RELEASE" \
+            SLURM_UID="$(id -u slurm)" \
+            SLURM_GID="$(id -g slurm)" \
+            SLURM_VIEW_DEMO_STATE_DIR=/srv/slurm-view-demo \
+            docker compose \
+              -f demo/compose.yaml \
+              down \
+              --remove-orphans
