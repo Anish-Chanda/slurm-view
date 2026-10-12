@@ -8,6 +8,14 @@ Slurm View is an Open OnDemand application for exploring a Slurm cluster without
 
 It gives users a quick view of cluster utilization and the job queue, while still making the details available when something needs a closer look. That includes requested resources, job timing, efficiency information, and analysis of why a pending job is waiting.
 
+> [!TIP]
+> ### Try it live
+>
+> There’s always a bunch of cool stuff to check out at HPC conferences, and never enough time to actually try all of it. So I keep a public Slurm View demo running with the latest version and some synthetic workloads if you want to poke around.
+>
+> **[Open the demo →](https://slurm-view.anishchanda.dev)**
+
+
 ## Screenshots
 
 <table>
@@ -36,10 +44,15 @@ It gives users a quick view of cluster utilization and the job queue, while stil
     </td>
   </tr>
   <tr>
-    <td colspan="2" align="center">
-      <img width="49%" src="https://github.com/user-attachments/assets/dade98b1-45f0-4952-ab3c-29535d5b21a4" alt="Pending reason: priority">
+    <td width="50%" align="center">
+      <img width="100%" src="https://github.com/user-attachments/assets/dade98b1-45f0-4952-ab3c-29535d5b21a4" alt="Pending reason: priority">
       <br>
       <sub>Pending reason: priority</sub>
+    </td>
+    <td width="50%" align="center">
+      <img width="100%" src="https://github.com/user-attachments/assets/7066e1f0-e487-45c3-aa63-c3bfc3b0ab4b" alt="Array task map">
+      <br>
+      <sub>Array task map</sub>
     </td>
   </tr>
 </table>
@@ -69,6 +82,12 @@ The analysis stays tied to information reported by Slurm rather than trying to p
 ### Job efficiency
 
 Completed jobs can include CPU and memory efficiency information from `seff`, making it easier to spot jobs that requested substantially more resources than they used.
+
+### Job arrays
+
+When accounting data is available, array jobs include a task map showing completed, running, pending, and failed tasks at a glance.
+
+Select a task to inspect its state, runtime, node, and exit code. Larger arrays are grouped automatically to keep the map usable.
 
 ## Requirements
 
