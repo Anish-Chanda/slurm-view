@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
-import type { ArrayOverviewDto, ArrayTaskDto, JobDto, JobState } from '../../../shared/api/v1/jobs.ts';
+import type { ArrayTaskDto, JobDto, JobState } from '../../../shared/api/v1/jobs.ts';
 import { arrayTasksQueryOptions } from '../../api/array-tasks.ts';
 import { StateBadge } from '../../components/StateBadge.tsx';
 import { RefreshWarning } from '../../components/RefreshWarning.tsx';
@@ -122,54 +122,21 @@ function TaskCell({
   );
 }
 
-// Overview uses live queue data.
 function ArrayOverview({
   job,
   arrayThrottle,
-  overview,
 }: {
   job: JobDto;
   arrayThrottle: number | null;
-  overview: ArrayOverviewDto | null;
 }) {
   const arrayJobId = job.arrayJobId ?? '';
-  const running = overview?.runningTasks ?? null;
-  const concurrency =
-    running !== null && arrayThrottle !== null
-      ? `${running} running / ${arrayThrottle} allowed`
-      : running !== null
-        ? `${running} running`
-        : arrayThrottle !== null
-          ? `Allows ${arrayThrottle} at a time`
-          : null;
   return (
     <section aria-label="Array overview">
       <h2 className="text-base font-semibold tracking-tight text-gray-900">Array overview</h2>
       <p className="mt-1 text-sm text-gray-600">Array {arrayJobId}</p>
-      {overview !== null ? (
-        <>
-          <p className="mt-1 text-sm text-gray-700">
-            {overview.runningTasks} running · {overview.pendingTasks} pending
-          </p>
-          {concurrency !== null ? <p className="mt-1 text-sm text-gray-700">{concurrency}</p> : null}
-          {overview.pendingTasks > 0 ? (
-            <p className="mt-1 text-sm text-gray-600">
-              {overview.pendingReasons.length > 0
-                ? overview.pendingReasons
-                    .map(({ reason, count }) => `${reason ?? 'Unknown'} ${count}`)
-                    .join(' · ')
-                : `Pending ${overview.pendingTasks}`}
-            </p>
-          ) : null}
-        </>
-      ) : (
-        <>
-          <p className="mt-1 text-sm text-gray-700">
-            Task {job.arrayTaskId} · {job.state}
-          </p>
-          {concurrency !== null ? <p className="mt-1 text-sm text-gray-700">{concurrency}</p> : null}
-        </>
-      )}
+      {arrayThrottle !== null ? (
+        <p className="mt-1 text-sm text-gray-700">Allows {arrayThrottle} at a time</p>
+      ) : null}
     </section>
   );
 }
@@ -177,12 +144,10 @@ function ArrayOverview({
 function ArrayExplorerContent({
   job,
   arrayThrottle,
-  arrayOverview,
   tasks,
 }: {
   job: JobDto;
   arrayThrottle: number | null;
-  arrayOverview: ArrayOverviewDto | null;
   tasks: ArrayTaskDto[];
 }) {
   const arrayJobId = job.arrayJobId ?? '';
@@ -244,7 +209,7 @@ function ArrayExplorerContent({
 
   return (
     <>
-      <ArrayOverview job={job} arrayThrottle={arrayThrottle} overview={arrayOverview} />
+      <ArrayOverview job={job} arrayThrottle={arrayThrottle} />
       <section aria-label="Array task map" className="mt-6">
         <h2 className="text-base font-semibold tracking-tight text-gray-900">Task map</h2>
         <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="Filter tasks by state">
@@ -346,27 +311,23 @@ function ArrayExplorerContent({
 function ArrayExplorer({
   job,
   arrayThrottle,
-  arrayOverview,
 }: {
   job: JobDto;
   arrayThrottle: number | null;
-  arrayOverview: ArrayOverviewDto | null;
 }) {
   if (job.arrayJobId === null || job.arrayTaskId === null) {
     return null;
   }
-  return <ArrayExplorerQuery job={job} arrayThrottle={arrayThrottle} arrayOverview={arrayOverview} arrayJobId={job.arrayJobId} />;
+  return <ArrayExplorerQuery job={job} arrayThrottle={arrayThrottle} arrayJobId={job.arrayJobId} />;
 }
 
 function ArrayExplorerQuery({
   job,
   arrayThrottle,
-  arrayOverview,
   arrayJobId,
 }: {
   job: JobDto;
   arrayThrottle: number | null;
-  arrayOverview: ArrayOverviewDto | null;
   arrayJobId: string;
 }) {
   const arrayQuery = useQuery(arrayTasksQueryOptions(arrayJobId));
@@ -374,7 +335,7 @@ function ArrayExplorerQuery({
   if (arrayQuery.data === undefined) {
     return (
       <>
-        <ArrayOverview job={job} arrayThrottle={arrayThrottle} overview={arrayOverview} />
+        <ArrayOverview job={job} arrayThrottle={arrayThrottle} />
         <section aria-label="Array task map" className="mt-6">
           <h2 className="text-base font-semibold tracking-tight text-gray-900">Task map</h2>
           {arrayQuery.isPending ? (
@@ -394,7 +355,7 @@ function ArrayExplorerQuery({
 
   return (
     <>
-      <ArrayExplorerContent job={job} arrayThrottle={arrayThrottle} arrayOverview={arrayOverview} tasks={arrayQuery.data.tasks} />
+      <ArrayExplorerContent job={job} arrayThrottle={arrayThrottle} tasks={arrayQuery.data.tasks} />
       {arrayQuery.isError ? (
         <div className="mt-3">
           <RefreshWarning

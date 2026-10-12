@@ -171,50 +171,36 @@ describe('ArrayExplorer', () => {
     expect(options.queryKey).toEqual(['jobs', 'array', { arrayJobId: '100' }]);
   });
 
-  test('overview shows live counts and concurrency with the throttle', async () => {
+  test('overview shows the array and throttle without duplicating task counts', async () => {
     renderArrayPage('100_2', {});
 
     const overview = await waitFor(() => screen.getByLabelText('Array overview'));
     expect(within(overview).getByText('Array overview')).toBeTruthy();
     expect(within(overview).getByText('Array 100')).toBeTruthy();
-    await waitFor(() => expect(within(overview).getByText('3 running · 7 pending')).toBeTruthy());
-    expect(within(overview).getByText('3 running / 2 allowed')).toBeTruthy();
+    expect(within(overview).getByText('Allows 2 at a time')).toBeTruthy();
+    expect(within(overview).queryByText(/running/i)).toBeNull();
+    expect(within(overview).queryByText(/pending/i)).toBeNull();
 
-    const map = await waitFor(() => screen.getByLabelText('Tasks in numeric order'));
-    const cells = within(map).getAllByRole('button');
-    expect(cells.map((cell) => cell.textContent)).toEqual(['1', '2', '3', '4', '5']);
+    expect(await screen.findByRole('button', { name: 'Completed 2' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Running 1' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Pending 1' })).toBeTruthy();
   });
 
-  test('without a throttle the overview shows only the running count', async () => {
+  test('overview omits concurrency when no throttle is available', async () => {
     renderArrayPage('100_2', { arrayThrottle: null });
 
-    await waitFor(() => expect(screen.getByLabelText('Array overview')).toBeTruthy());
-    await waitFor(() =>
-      expect(within(screen.getByLabelText('Array overview')).getByText('3 running')).toBeTruthy()
-    );
-    expect(within(screen.getByLabelText('Array overview')).queryByText(/allowed/)).toBeNull();
+    const overview = await waitFor(() => screen.getByLabelText('Array overview'));
+    expect(within(overview).getByText('Array 100')).toBeTruthy();
+    expect(within(overview).queryByText(/allows/i)).toBeNull();
+    expect(within(overview).queryByText(/running/i)).toBeNull();
+    expect(within(overview).queryByText(/pending/i)).toBeNull();
   });
 
-  test('pending overview breaks raw live reasons down compactly', async () => {
-    renderArrayPage('100_2', {});
-
-    await waitFor(() => expect(screen.getByLabelText('Array overview')).toBeTruthy());
-    const overview = await waitFor(() =>
-      within(screen.getByLabelText('Array overview')).getByText(/Resources 4/)
-    );
-    expect(overview).toBeTruthy();
-    const scope = screen.getByLabelText('Array overview');
-    expect(within(scope).getByText(/Priority 2/)).toBeTruthy();
-    expect(within(scope).getByText(/Unknown 1/)).toBeTruthy();
-  });
-
-  test('a missing live overview falls back to the current task without hiding the map', async () => {
+  test('a missing live overview does not hide the task map', async () => {
     renderArrayPage('100_2', { arrayOverview: null });
 
-    const overview = await waitFor(() => screen.getByLabelText('Array overview'));
-    expect(within(overview).getByText(/Task 2 · PENDING/)).toBeTruthy();
-    expect(within(overview).getByText('Allows 2 at a time')).toBeTruthy();
-    await waitFor(() => expect(screen.getByLabelText('Tasks in numeric order')).toBeTruthy());
+    await waitFor(() => expect(screen.getByLabelText('Array overview')).toBeTruthy());
+    expect(await screen.findByLabelText('Tasks in numeric order')).toBeTruthy();
   });
 
   test('the opened task is selected by default with its details in place', async () => {
