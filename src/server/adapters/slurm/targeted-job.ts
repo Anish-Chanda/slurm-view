@@ -9,6 +9,7 @@ import type { RawJob } from './schemas/jobs.js';
 import type { SupportedDataParser } from './parser-version.js';
 import { normalizeJob } from './job-normalizer.js';
 import type { Job } from '../../models/job.js';
+import type { QueueJob } from '../../models/queue-job.js';
 import { SlurmUpstreamError, UpstreamInvalidError, summarizeZodIssues } from './errors.js';
 import { parseMemoryToMiB } from './tres.js';
 import { canonicalJobIdSchema } from '../../validation/job-id.js';
@@ -54,6 +55,11 @@ interface TargetedJob {
   readonly memory: MemoryRequirement;
   readonly requestedNodes: number | null;
   readonly capturedAt: Date;
+}
+
+interface FetchTargetedJobOptions {
+  readonly signal?: AbortSignal;
+  readonly liveJob?: QueueJob | null;
 }
 
 // Slurm supports mutually exclusive --mem, --mem-per-cpu, and --mem-per-gpu
@@ -230,10 +236,87 @@ function rawCanonicalId(raw: RawTargetedJob): string | null {
   return jobId.length > 0 ? jobId : null;
 }
 
+function isArrayPlaceholder(raw: RawTargetedJob, arrayJobId: string): boolean {
+  const rawJobId = String(raw.job_id).trim();
+  const rawArrayJobId = normalizeSlurmNumber(raw.array_job_id ?? null).value;
+  const rawArrayTaskId = raw.array_task_id ?? null;
+  const taskIdUnset =
+    rawArrayTaskId === null ||
+    (typeof rawArrayTaskId === 'object' &&
+      (rawArrayTaskId as { set?: unknown }).set === false);
+
+  return (
+    rawJobId === arrayJobId &&
+    rawArrayJobId !== null &&
+    Number.isInteger(rawArrayJobId) &&
+    String(Math.trunc(rawArrayJobId)) === arrayJobId &&
+    taskIdUnset
+  );
+}
+
+function toPendingArrayTask(
+  raw: RawTargetedJob,
+  liveJob: QueueJob,
+  capturedAt: Date
+): TargetedJob {
+  const targeted = toTargetedJob(raw, capturedAt);
+  const job = targeted.job;
+
+  return {
+    ...targeted,
+    job: {
+      ...job,
+      id: liveJob.id,
+      jobId: liveJob.jobId,
+      arrayJobId: liveJob.arrayJobId,
+      arrayTaskId: liveJob.arrayTaskId,
+      partition: liveJob.partition ?? job.partition,
+      name: liveJob.name ?? job.name,
+      user: liveJob.user ?? job.user,
+      account: liveJob.account ?? job.account,
+      qos: liveJob.qos ?? job.qos,
+      state: liveJob.state,
+      stateFlags: liveJob.stateFlags,
+      stateReason: liveJob.stateReason,
+      timeLimit: liveJob.timeLimit ?? job.timeLimit,
+      submitTime: liveJob.submitTime ?? job.submitTime,
+      startTime: liveJob.startTime,
+      endTime: liveJob.endTime,
+      priority: liveJob.priority ?? job.priority,
+      nodeCount: liveJob.nodeCount,
+      nodeExpression: liveJob.nodeExpression,
+      allocated: liveJob.allocated,
+      exitCode: liveJob.exitCode,
+    },
+  };
+}
+
+function resolvePendingArrayPlaceholder(
+  jobs: readonly RawTargetedJob[],
+  jobId: string,
+  liveJob: QueueJob | null,
+  capturedAt: Date
+): TargetedJob | null {
+  if (
+    liveJob === null ||
+    liveJob.id !== jobId ||
+    liveJob.state !== 'PENDING' ||
+    liveJob.arrayJobId === null ||
+    liveJob.arrayTaskId === null
+  ) {
+    return null;
+  }
+
+  const arrayJobId = liveJob.arrayJobId;
+  const placeholder = jobs.find((entry) => isArrayPlaceholder(entry, arrayJobId)) ?? null;
+  return placeholder === null ? null : toPendingArrayTask(placeholder, liveJob, capturedAt);
+}
+
 function parseTargetedJobStdout(
   parser: SupportedDataParser,
   stdout: string,
-  jobId: string
+  jobId: string,
+  liveJob: QueueJob | null = null
 ): TargetedJob | null {
   void parser;
   let parsed: unknown;
@@ -260,19 +343,20 @@ function parseTargetedJobStdout(
       `[Slurm] scontrol warnings: ${envelope.data.warnings.map(describeNotice).join('; ')}`
     );
   }
+  const capturedAt = new Date();
   // The returned canonical ID must match the request, not the array master.
   const match = envelope.data.jobs.find((entry) => rawCanonicalId(entry) === jobId) ?? null;
   if (match === null) {
-    return null;
+    return resolvePendingArrayPlaceholder(envelope.data.jobs, jobId, liveJob, capturedAt);
   }
-  return toTargetedJob(match, new Date());
+  return toTargetedJob(match, capturedAt);
 }
 
 // Null means Slurm reports no such job (the service maps it to 404).
 async function fetchTargetedJob(
   context: SlurmContext,
   jobId: string,
-  options: { signal?: AbortSignal } = {}
+  options: FetchTargetedJobOptions = {}
 ): Promise<TargetedJob | null> {
   const parsed = canonicalJobIdSchema.safeParse(jobId);
   if (!parsed.success) {
@@ -284,7 +368,7 @@ async function fetchTargetedJob(
     maxBufferBytes: TARGETED_JOB_COMMAND_MAX_BUFFER_BYTES,
     signal: options.signal,
   });
-  return parseTargetedJobStdout(context.parser, stdout, parsed.data);
+  return parseTargetedJobStdout(context.parser, stdout, parsed.data, options.liveJob ?? null);
 }
 
 export {

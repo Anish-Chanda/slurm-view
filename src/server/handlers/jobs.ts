@@ -203,7 +203,8 @@ function createJobDetailsHandler(slurmContext: SlurmContext | undefined, jobsCac
       throw new HttpError(ProblemCode.BadRequest, `Invalid job ID: ${req.params.id}`);
     }
     try {
-      const targeted = await fetchTargetedJob(slurmContext, parsed.data);
+      const liveJob = jobsCache?.peek()?.byId.get(parsed.data) ?? null;
+      const targeted = await fetchTargetedJob(slurmContext, parsed.data, { liveJob });
       if (targeted === null) {
         throw new HttpError(
           ProblemCode.NotFound,

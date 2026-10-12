@@ -24,6 +24,47 @@ function liveSqueueStdout(): string {
   );
 }
 
+function unmaterializedPendingSqueueStdout(): string {
+  const base = ['debug', 'arr', 'alice', 'acct', 'normal'];
+  return squeueRow([
+    '100',
+    '100',
+    '3',
+    ...base,
+    'PENDING',
+    'JobArrayTaskLimit',
+    '1:00:00',
+    '1700000000',
+    '0',
+    '0',
+    '50',
+    '1',
+    'N/A',
+    'N/A',
+    'N/A',
+  ]);
+}
+
+function arrayPlaceholderStdout(): string {
+  return JSON.stringify({
+    errors: [],
+    warnings: [],
+    jobs: [{
+      job_id: 100,
+      array_job_id: { set: true, infinite: false, number: 100 },
+      array_task_id: { set: false, infinite: false, number: 0 },
+      partition: 'debug',
+      name: 'arr',
+      user_name: 'alice',
+      account: 'acct',
+      qos: 'normal',
+      job_state: ['PENDING'],
+      state_reason: 'JobArrayTaskLimit',
+      tres_req_str: 'cpu=1,mem=512M,node=1',
+    }],
+  });
+}
+
 function sacctStdout(): string {
   return [
     '100_1|COMPLETED|0:0|60|node01',
@@ -140,6 +181,64 @@ describe('GET /api/v1/jobs/:arrayJobId/array', () => {
       pendingTasks: 1,
       pendingReasons: [{ reason: 'Resources', count: 1 }],
     });
+    expect(squeueRun).toHaveBeenCalledTimes(1);
+  });
+
+  test('unmaterialized pending array task uses the current queue row', async () => {
+    const squeueRun = okRun(unmaterializedPendingSqueueStdout());
+    const jobsCache = new JobsCache({ parser: 'v0.0.45', run: squeueRun });
+    await jobsCache.refresh();
+    const scontrol = okRun(arrayPlaceholderStdout());
+    const app = createApp({
+      jobsCache,
+      slurmContext: { parser: 'v0.0.45', run: scontrol },
+    });
+
+    const res = await request(app).get('/api/v1/jobs/100_3');
+
+    expect(res.status).toBe(200);
+    expect(res.body.job).toMatchObject({
+      id: '100_3',
+      jobId: '100',
+      arrayJobId: '100',
+      arrayTaskId: '3',
+      state: 'PENDING',
+      stateReason: 'JobArrayTaskLimit',
+    });
+    expect(res.body.job.requested).toMatchObject({
+      cpus: 1,
+      memoryMiB: 512,
+      nodes: 1,
+    });
+    expect(res.body.arrayOverview).toEqual({
+      runningTasks: 0,
+      pendingTasks: 1,
+      pendingReasons: [{ reason: 'JobArrayTaskLimit', count: 1 }],
+    });
+    expect(squeueRun).toHaveBeenCalledTimes(1);
+    expect(scontrol).toHaveBeenCalledTimes(1);
+  });
+
+  test('array placeholder does not satisfy a task missing from the queue snapshot', async () => {
+    const squeueRun = okRun(
+      squeueRow([
+        '137', '100', '1', 'debug', 'arr', 'alice', 'acct', 'normal',
+        'RUNNING', 'None', '1:00:00', '1700000000', '1700000100', '0',
+        '100', '1', 'node09', 'cpu=8,mem=32768M,node=1', 'N/A',
+      ])
+    );
+    const jobsCache = new JobsCache({ parser: 'v0.0.45', run: squeueRun });
+    await jobsCache.refresh();
+    const scontrol = okRun(arrayPlaceholderStdout());
+    const app = createApp({
+      jobsCache,
+      slurmContext: { parser: 'v0.0.45', run: scontrol },
+    });
+
+    const res = await request(app).get('/api/v1/jobs/100_3');
+
+    expect(res.status).toBe(404);
+    expect(res.body.code).toBe('NOT_FOUND');
     expect(squeueRun).toHaveBeenCalledTimes(1);
   });
 
