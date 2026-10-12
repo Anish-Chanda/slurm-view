@@ -1,7 +1,8 @@
 import { Router } from 'express';
+import type { ArrayTasksCache } from '../../cache/array-tasks-cache.js';
 import type { JobsCache } from '../../cache/jobs-cache.js';
 import type { SeffRunFn } from '../../adapters/slurm/seff.js';
-import { createJobDetailsHandler, createJobsHandler } from '../../handlers/jobs.js';
+import { createJobArrayHandler, createJobDetailsHandler, createJobsHandler } from '../../handlers/jobs.js';
 import { createEfficiencyHandler } from '../../handlers/efficiency.js';
 import { createPendingAnalysisHandler } from '../../handlers/pending-analysis.js';
 import type { PendingAnalysisDeps } from '../../services/pending-analysis-service.js';
@@ -11,13 +12,15 @@ function createJobsRouter(
   jobsCache: JobsCache | undefined,
   run?: SeffRunFn,
   pendingAnalysis?: PendingAnalysisDeps | undefined,
-  slurmContext?: SlurmContext | undefined
+  slurmContext?: SlurmContext | undefined,
+  arrayTasksCache?: ArrayTasksCache | undefined
 ): Router {
   const router = Router();
   router.get('/', createJobsHandler(jobsCache));
   router.get('/:id/efficiency', createEfficiencyHandler(jobsCache, run));
   router.get('/:id/pending-analysis', createPendingAnalysisHandler(pendingAnalysis));
-  router.get('/:id', createJobDetailsHandler(slurmContext));
+  router.get('/:id/array', createJobArrayHandler(jobsCache, arrayTasksCache));
+  router.get('/:id', createJobDetailsHandler(slurmContext, jobsCache));
   return router;
 }
 

@@ -106,7 +106,33 @@ export interface JobsResponse {
 
 export interface JobDetailsResponse {
   job: JobDto;
+  arrayThrottle: number | null;
+  arrayOverview: ArrayOverviewDto | null;
   updatedAt: string;
+}
+
+export interface ArrayPendingReasonDto {
+  reason: string | null;
+  count: number;
+}
+
+// Live counts from the queue snapshot.
+export interface ArrayOverviewDto {
+  runningTasks: number;
+  pendingTasks: number;
+  pendingReasons: ArrayPendingReasonDto[];
+}
+
+export interface ArrayTaskDto {
+  taskId: number;
+  state: JobState;
+  elapsedSeconds: number | null;
+  nodeExpression: string | null;
+  exitCode: string | null;
+}
+
+export interface ArrayTasksResponse {
+  tasks: ArrayTaskDto[];
 }
 
 // Job IDs and array task IDs are valid; step suffixes are not.

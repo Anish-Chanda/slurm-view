@@ -7,6 +7,7 @@ import { TtlDataCache } from './ttl-data-cache.js';
 interface JobSnapshot {
   jobs: readonly QueueJob[];
   byId: ReadonlyMap<string, QueueJob>;
+  byArrayJobId: ReadonlyMap<string, readonly QueueJob[]>;
   capturedAt: Date;
 }
 
@@ -16,10 +17,19 @@ const JOBS_POLL_INTERVAL_MS = 30_000;
 
 function createJobSnapshot(jobs: QueueJob[], capturedAt: Date = new Date()): JobSnapshot {
   const byId = new Map<string, QueueJob>();
+  const siblings = new Map<string, QueueJob[]>();
   for (const job of jobs) {
     byId.set(job.id, job);
+    if (job.arrayJobId !== null && job.arrayTaskId !== null) {
+      const group = siblings.get(job.arrayJobId);
+      if (group === undefined) {
+        siblings.set(job.arrayJobId, [job]);
+      } else {
+        group.push(job);
+      }
+    }
   }
-  return { jobs: [...jobs], byId, capturedAt };
+  return { jobs: [...jobs], byId, byArrayJobId: siblings, capturedAt };
 }
 
 interface JobsCacheOptions {
