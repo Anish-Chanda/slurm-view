@@ -1,0 +1,186 @@
+name: slurm-view-demo
+
+x-slurmd-service: &slurmd-service
+  image: slurm-view-demo/slurm:${SLURM_VERSION:?SLURM_VERSION must be exported}
+  restart: unless-stopped
+  privileged: true
+  cgroup: private
+  volumes:
+    - ${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/config/slurm.conf:/etc/slurm/slurm.conf:ro,z
+    - ${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/config/cgroup.conf:/etc/slurm/cgroup.conf:ro,z
+    - ${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/config/gres.conf:/etc/slurm/gres.conf:ro,z
+    - ${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/secrets/munge.key:/run/demo-secrets/munge.key:ro,z
+    - ${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/shared-home:${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/shared-home:z
+  depends_on:
+    - slurmctld
+
+services:
+  mariadb:
+    image: mariadb:11.8
+    hostname: mariadb
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: slurm_acct_db
+      MARIADB_USER: slurm
+      MARIADB_ROOT_PASSWORD_FILE: /run/secrets/mariadb-root-password
+      MARIADB_PASSWORD_FILE: /run/secrets/slurmdbd-storage-password
+    volumes:
+      - ${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/mariadb:/var/lib/mysql:Z
+      - ${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/secrets/mariadb-root-password:/run/secrets/mariadb-root-password:ro,Z
+      - ${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/secrets/slurmdbd-storage-password:/run/secrets/slurmdbd-storage-password:ro,Z
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    networks:
+      demo:
+        ipv4_address: 172.30.50.10
+
+  slurmdbd:
+    image: slurm-view-demo/slurm:${SLURM_VERSION:?SLURM_VERSION must be exported}
+    hostname: slurmdbd
+    restart: unless-stopped
+    environment:
+      SLURM_ROLE: slurmdbd
+    volumes:
+      - ${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/config/slurm.conf:/etc/slurm/slurm.conf:ro,z
+      - ${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/config/slurmdbd.conf:/etc/slurm/slurmdbd.conf:ro,Z
+      - ${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/secrets/munge.key:/run/demo-secrets/munge.key:ro,z
+      - ${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/slurmdbd:/var/spool/slurmdbd:Z
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    networks:
+      demo:
+        ipv4_address: 172.30.50.11
+
+  slurmctld:
+    image: slurm-view-demo/slurm:${SLURM_VERSION:?SLURM_VERSION must be exported}
+    build:
+      context: .
+      dockerfile: slurm/Dockerfile
+      args:
+        ROCKY_MAJOR: ${ROCKY_MAJOR:?ROCKY_MAJOR must be exported}
+        OPENHPC_MAJOR: ${OPENHPC_MAJOR:?OPENHPC_MAJOR must be exported}
+        SLURM_VERSION: ${SLURM_VERSION:?SLURM_VERSION must be exported}
+        SLURM_RELEASE: ${SLURM_RELEASE:?SLURM_RELEASE must be exported}
+        SLURM_UID: ${SLURM_UID:?SLURM_UID must be exported}
+        SLURM_GID: ${SLURM_GID:?SLURM_GID must be exported}
+    hostname: slurmctld
+    restart: unless-stopped
+    environment:
+      SLURM_ROLE: slurmctld
+    volumes:
+      - ${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/config/slurm.conf:/etc/slurm/slurm.conf:ro,z
+      - ${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/secrets/munge.key:/run/demo-secrets/munge.key:ro,z
+      - ${SLURM_VIEW_DEMO_STATE_DIR:-/srv/slurm-view-demo}/slurmctld:/var/spool/slurmctld:Z
+    depends_on:
+      - slurmdbd
+    networks:
+      demo:
+        ipv4_address: 172.30.50.12
+
+  cpu01:
+    <<: *slurmd-service
+    hostname: cpu01
+    environment: { SLURM_ROLE: slurmd, SLURM_NODE_NAME: cpu01 }
+    networks: { demo: { ipv4_address: 172.30.50.21 } }
+
+  cpu02:
+    <<: *slurmd-service
+    hostname: cpu02
+    environment: { SLURM_ROLE: slurmd, SLURM_NODE_NAME: cpu02 }
+    networks: { demo: { ipv4_address: 172.30.50.22 } }
+
+  cpu03:
+    <<: *slurmd-service
+    hostname: cpu03
+    environment: { SLURM_ROLE: slurmd, SLURM_NODE_NAME: cpu03 }
+    networks: { demo: { ipv4_address: 172.30.50.23 } }
+
+  cpu04:
+    <<: *slurmd-service
+    hostname: cpu04
+    environment: { SLURM_ROLE: slurmd, SLURM_NODE_NAME: cpu04 }
+    networks: { demo: { ipv4_address: 172.30.50.24 } }
+
+  cpu05:
+    <<: *slurmd-service
+    hostname: cpu05
+    environment: { SLURM_ROLE: slurmd, SLURM_NODE_NAME: cpu05 }
+    networks: { demo: { ipv4_address: 172.30.50.25 } }
+
+  cpu06:
+    <<: *slurmd-service
+    hostname: cpu06
+    environment: { SLURM_ROLE: slurmd, SLURM_NODE_NAME: cpu06 }
+    networks: { demo: { ipv4_address: 172.30.50.26 } }
+
+  cpu07:
+    <<: *slurmd-service
+    hostname: cpu07
+    environment: { SLURM_ROLE: slurmd, SLURM_NODE_NAME: cpu07 }
+    networks: { demo: { ipv4_address: 172.30.50.27 } }
+
+  cpu08:
+    <<: *slurmd-service
+    hostname: cpu08
+    environment: { SLURM_ROLE: slurmd, SLURM_NODE_NAME: cpu08 }
+    networks: { demo: { ipv4_address: 172.30.50.28 } }
+
+  highmem01:
+    <<: *slurmd-service
+    hostname: highmem01
+    environment: { SLURM_ROLE: slurmd, SLURM_NODE_NAME: highmem01 }
+    networks: { demo: { ipv4_address: 172.30.50.29 } }
+
+  highmem02:
+    <<: *slurmd-service
+    hostname: highmem02
+    environment: { SLURM_ROLE: slurmd, SLURM_NODE_NAME: highmem02 }
+    networks: { demo: { ipv4_address: 172.30.50.30 } }
+
+  gpu01:
+    <<: *slurmd-service
+    hostname: gpu01
+    environment: { SLURM_ROLE: slurmd, SLURM_NODE_NAME: gpu01 }
+    networks: { demo: { ipv4_address: 172.30.50.31 } }
+
+  gpu02:
+    <<: *slurmd-service
+    hostname: gpu02
+    environment: { SLURM_ROLE: slurmd, SLURM_NODE_NAME: gpu02 }
+    networks: { demo: { ipv4_address: 172.30.50.32 } }
+
+  highmem03:
+    <<: *slurmd-service
+    hostname: highmem03
+    environment: { SLURM_ROLE: slurmd, SLURM_NODE_NAME: highmem03 }
+    networks: { demo: { ipv4_address: 172.30.50.33 } }
+
+  gpu03:
+    <<: *slurmd-service
+    hostname: gpu03
+    environment: { SLURM_ROLE: slurmd, SLURM_NODE_NAME: gpu03 }
+    networks: { demo: { ipv4_address: 172.30.50.34 } }
+
+  gpu04:
+    <<: *slurmd-service
+    hostname: gpu04
+    environment: { SLURM_ROLE: slurmd, SLURM_NODE_NAME: gpu04 }
+    networks: { demo: { ipv4_address: 172.30.50.35 } }
+
+  gpu05:
+    <<: *slurmd-service
+    hostname: gpu05
+    environment: { SLURM_ROLE: slurmd, SLURM_NODE_NAME: gpu05 }
+    networks: { demo: { ipv4_address: 172.30.50.36 } }
+
+networks:
+  demo:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.50.0/24

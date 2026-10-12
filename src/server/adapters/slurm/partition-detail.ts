@@ -14,16 +14,37 @@ const PARTITION_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 // Only the name is guaranteed. Other fields are optional and may arrive as
 // numbers, numeric strings, `{number,set,infinite}` wrappers, or time strings.
+const rawPartitionQosSchema = z
+  .object({
+    allowed: z.string().nullish(),
+    deny: z.string().nullish(),
+    assigned: z.string().nullish(),
+  })
+  .passthrough();
+
 const rawPartitionDetailSchema = z
   .object({
     name: z.string(),
-    state: z.union([z.string(), z.array(z.string())]).nullish(),
-    qos: z.union([z.string(), z.array(z.string())]).nullish(),
-    max_time: z.union([z.string(), z.number(), slurmNumericSchema]).nullish(),
-    maximum_time: z.union([z.string(), z.number(), slurmNumericSchema]).nullish(),
-    max_nodes: z.union([z.string(), z.number(), slurmNumericSchema]).nullish(),
-    maximum_nodes: z.union([z.string(), z.number(), slurmNumericSchema]).nullish(),
-    total_nodes: z.union([z.string(), z.number(), slurmNumericSchema]).nullish(),
+    partition: z
+      .object({
+        state: z.array(z.string()).nullish(),
+      })
+      .passthrough()
+      .nullish(),
+    qos: rawPartitionQosSchema.nullish(),
+    maximums: z
+      .object({
+        time: slurmNumericSchema.nullish(),
+        nodes: slurmNumericSchema.nullish(),
+      })
+      .passthrough()
+      .nullish(),
+    nodes: z
+      .object({
+        total: slurmNumericSchema.nullish(),
+      })
+      .passthrough()
+      .nullish(),
   })
   .passthrough();
 
@@ -45,7 +66,7 @@ function cleanText(input: unknown): string | null {
   return trimmed.length > 0 && trimmed !== '(null)' ? trimmed : null;
 }
 
-function normalizeState(input: RawPartitionDetail['state']): string | null {
+function normalizeState(input: unknown): string | null {
   if (typeof input === 'string') {
     return cleanText(input);
   }
@@ -145,17 +166,13 @@ function normalizeCount(input: unknown): number | null {
 }
 
 function toPartitionDetail(raw: RawPartitionDetail): PartitionDetail {
-  const qosRaw = Array.isArray(raw.qos) ? (raw.qos[0] ?? null) : (raw.qos ?? null);
   return {
     name: raw.name.trim(),
-    state: normalizeState(raw.state ?? null),
-    maxTimeSeconds:
-      parseSlurmDurationToSeconds(raw.max_time ?? null) ??
-      parseSlurmDurationToSeconds(raw.maximum_time ?? null),
-    maxNodes:
-      normalizeCount(raw.max_nodes ?? null) ?? normalizeCount(raw.maximum_nodes ?? null),
-    totalNodes: normalizeCount(raw.total_nodes ?? null),
-    qos: cleanText(typeof qosRaw === 'string' ? qosRaw : null),
+    state: normalizeState(raw.partition?.state ?? null),
+    maxTimeSeconds: parseSlurmDurationToSeconds(raw.maximums?.time ?? null),
+    maxNodes: normalizeCount(raw.maximums?.nodes ?? null),
+    totalNodes: normalizeCount(raw.nodes?.total ?? null),
+    qos: cleanText(raw.qos?.assigned ?? null),
   };
 }
 

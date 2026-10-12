@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodically reconcile Slurm View demo workload
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=5min
+RandomizedDelaySec=20s
+AccuracySec=5s
+Unit=slurm-view-demo-workload.service
+
+[Install]
+WantedBy=timers.target
