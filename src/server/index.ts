@@ -4,6 +4,7 @@ import { createApp } from './app.js';
 import { negotiateDataParser, SlurmCompatibilityError } from './adapters/slurm/parser-version.js';
 import type { SupportedDataParser } from './adapters/slurm/parser-version.js';
 import { JobsCache, JOBS_POLL_INTERVAL_MS } from './cache/jobs-cache.js';
+import { ArrayTasksCache } from './cache/array-tasks-cache.js';
 import { NodesCache } from './cache/nodes-cache.js';
 import { PartitionsCache } from './cache/partitions-cache.js';
 import { AssocCache } from './cache/assoc-cache.js';
@@ -26,6 +27,7 @@ interface ServerRuntime {
   app: Express;
   server: Server;
   jobsCache: JobsCache;
+  arrayTasksCache: ArrayTasksCache;
   nodesCache: NodesCache;
   partitionsCache: PartitionsCache;
   assocCache: AssocCache;
@@ -61,6 +63,7 @@ async function startServer(): Promise<ServerRuntime> {
 
   const jobsCache = new JobsCache({ parser });
   const slurmContext = { parser } as const;
+  const arrayTasksCache = new ArrayTasksCache(slurmContext);
   const nodesCache = new NodesCache({ parser });
   const partitionsCache = new PartitionsCache({ parser });
   const assocCache = new AssocCache({ parser });
@@ -76,6 +79,7 @@ async function startServer(): Promise<ServerRuntime> {
 
   const app = createApp({
     jobsCache,
+    arrayTasksCache,
     slurmContext,
     nodesCache,
     partitionsCache,
@@ -113,7 +117,7 @@ async function startServer(): Promise<ServerRuntime> {
   process.on('SIGTERM', gracefulShutdown);
   process.on('SIGINT', gracefulShutdown);
 
-  return { app, server, jobsCache, nodesCache, partitionsCache, assocCache, qosCache, sprioWeightsCache, jobsPoller };
+  return { app, server, jobsCache, arrayTasksCache, nodesCache, partitionsCache, assocCache, qosCache, sprioWeightsCache, jobsPoller };
 }
 
 export { startServer };

@@ -4,6 +4,10 @@ export type { HealthResponse } from './health.js';
 export type { CpuEfficiencyDto, EfficiencyResponse, MemoryEfficiencyDto } from './efficiency.js';
 export type {
   AllocatedResourcesDto,
+  ArrayOverviewDto,
+  ArrayPendingReasonDto,
+  ArrayTaskDto,
+  ArrayTasksResponse,
   GpuBreakdownDto,
   JobDetailsResponse,
   JobDto,

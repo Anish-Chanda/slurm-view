@@ -7,9 +7,11 @@ import {
   JOBS_PAGE_SIZE_DEFAULT,
   JOBS_PAGE_SIZE_MAX,
 } from '../../shared/api/v1/jobs.js';
-import type { JobDto, JobDetailsResponse, JobSummaryDto, JobsResponse } from '../../shared/api/v1/jobs.js';
+import type { JobDto, JobDetailsResponse, JobSummaryDto, JobsResponse, ArrayOverviewDto, ArrayTasksResponse } from '../../shared/api/v1/jobs.js';
 import { JOB_BASE_STATES } from '../models/job.js';
+import type { ArrayTasksCache } from '../cache/array-tasks-cache.js';
 import type { JobsCache } from '../cache/jobs-cache.js';
+import { getArrayTasks, summarizeLiveSiblings } from '../services/array-service.js';
 import type { Job } from '../models/job.js';
 import type { QueueJob } from '../models/queue-job.js';
 import { JobsService } from '../services/jobs-service.js';
@@ -127,9 +129,16 @@ function toJobsResponse(result: JobsResult): JobsResponse {
   };
 }
 
-function toJobDetailsResponse(job: Job, updatedAt: Date): JobDetailsResponse {
+function toJobDetailsResponse(
+  job: Job,
+  arrayThrottle: number | null,
+  arrayOverview: ArrayOverviewDto | null,
+  updatedAt: Date
+): JobDetailsResponse {
   return {
     job: toJobDto(job),
+    arrayThrottle,
+    arrayOverview,
     updatedAt: updatedAt.toISOString(),
   };
 }
@@ -181,7 +190,7 @@ function isMissingTargetedJob(error: unknown, jobId: string): boolean {
   return error instanceof SlurmUpstreamError && isMissingJobSignal(error.message, jobId);
 }
 
-function createJobDetailsHandler(slurmContext: SlurmContext | undefined) {
+function createJobDetailsHandler(slurmContext: SlurmContext | undefined, jobsCache?: JobsCache | undefined) {
   return asyncHandler(async (req, res) => {
     if (!slurmContext) {
       throw new HttpError(
@@ -201,7 +210,8 @@ function createJobDetailsHandler(slurmContext: SlurmContext | undefined) {
           `Job ${parsed.data} is no longer available in the live scheduler data. Historical accounting is not queried.`
         );
       }
-      res.json(toJobDetailsResponse(targeted.job, targeted.capturedAt));
+      const arrayOverview = resolveArrayOverview(targeted.job, jobsCache);
+      res.json(toJobDetailsResponse(targeted.job, targeted.arrayThrottle, arrayOverview, targeted.capturedAt));
     } catch (error) {
       if (isMissingTargetedJob(error, parsed.data)) {
         throw new HttpError(
@@ -214,5 +224,40 @@ function createJobDetailsHandler(slurmContext: SlurmContext | undefined) {
   });
 }
 
-export { createJobDetailsHandler, createJobsHandler, jobsQuerySchema, toJobDetailsResponse, toJobDto, toJobSummaryDto, toJobsResponse };
+function resolveArrayOverview(job: Job, jobsCache?: JobsCache): ArrayOverviewDto | null {
+  if (job.arrayJobId === null || !jobsCache) {
+    return null;
+  }
+  const snapshot = jobsCache.peek();
+  return snapshot ? summarizeLiveSiblings(snapshot.byArrayJobId.get(job.arrayJobId) ?? []) : null;
+}
+
+export { createJobArrayHandler, createJobDetailsHandler, createJobsHandler, jobsQuerySchema, toJobDetailsResponse, toJobDto, toJobSummaryDto, toJobsResponse };
 export type { JobsQuery };
+
+const ARRAY_JOB_ID_PATTERN = /^[1-9]\d*$/;
+
+function createJobArrayHandler(
+  jobsCache: JobsCache | undefined,
+  arrayTasksCache: ArrayTasksCache | undefined
+) {
+  return asyncHandler(async (req, res) => {
+    if (!jobsCache || !arrayTasksCache) {
+      throw new HttpError(
+        ProblemCode.SlurmUnavailable,
+        'Array task lookup is not initialized.'
+      );
+    }
+    const arrayJobId = req.params.id;
+    if (typeof arrayJobId !== 'string' || !ARRAY_JOB_ID_PATTERN.test(arrayJobId)) {
+      throw new HttpError(ProblemCode.BadRequest, `Invalid array job ID: ${req.params.id}`);
+    }
+    try {
+      const tasks = await getArrayTasks(arrayJobId, { jobsCache, arrayTasksCache });
+      const body: ArrayTasksResponse = { tasks };
+      res.json(body);
+    } catch (error) {
+      throw toHttpError(error);
+    }
+  });
+}

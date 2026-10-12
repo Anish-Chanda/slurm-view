@@ -6,6 +6,7 @@ import { jobDetailQueryOptions } from '../../api/job-details.ts';
 import { ErrorPanel } from '../../components/ErrorPanel.tsx';
 import { Navbar } from '../../components/Navbar.tsx';
 import { RefreshWarning } from '../../components/RefreshWarning.tsx';
+import { ArrayExplorer } from './ArrayExplorer.tsx';
 import { Execution } from './Execution.tsx';
 import { BackToJobs, JobHeader } from './JobHeader.tsx';
 import { Resources } from './Resources.tsx';
@@ -58,7 +59,7 @@ function JobSkeleton() {
   );
 }
 
-function JobDetailsContent({ job, updatedAt }: { job: JobDto; updatedAt: string }) {
+function JobDetailsContent({ job, arrayThrottle, updatedAt }: { job: JobDto; arrayThrottle: number | null; updatedAt: string }) {
   // Calculate lifecycle values at the snapshot time; this page does not poll.
   const parsed = Date.parse(updatedAt);
   const snapshotMs = Number.isNaN(parsed) ? Date.now() : parsed;
@@ -66,6 +67,11 @@ function JobDetailsContent({ job, updatedAt }: { job: JobDto; updatedAt: string 
   return (
     <>
       <JobHeader job={job} snapshotMs={snapshotMs} snapshotTaken={snapshotTaken} />
+      {job.arrayJobId !== null && job.arrayTaskId !== null ? (
+        <div className="mt-6 border-t border-gray-200 pt-6">
+          <ArrayExplorer key={job.id} job={job} arrayThrottle={arrayThrottle} />
+        </div>
+      ) : null}
       {job.state === 'PENDING' ? <PendingAnalysis job={job} /> : null}
       <StateLead job={job} />
       <div className="mt-8 grid grid-cols-12 gap-x-10 gap-y-10">
@@ -107,10 +113,10 @@ function JobPage({ jobId }: { jobId: string }) {
 
   // Keep the captured snapshot visible if a later refresh fails, including
   // a 404 after the job leaves live scheduler data.
-  const { job, updatedAt } = detailQuery.data;
+  const { job, arrayThrottle, updatedAt } = detailQuery.data;
   return (
     <JobPageLayout>
-      <JobDetailsContent job={job} updatedAt={updatedAt} />
+      <JobDetailsContent job={job} arrayThrottle={arrayThrottle ?? null} updatedAt={updatedAt} />
       {detailQuery.isError ? (
         <div className="mt-6">
           <RefreshWarning

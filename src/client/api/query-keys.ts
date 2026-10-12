@@ -36,6 +36,7 @@ const jobsKeys = {
   all: ['jobs'] as const,
   list: jobsListKey,
   detail: (id: string) => ['jobs', 'detail', { id }] as const,
+  array: (arrayJobId: string) => ['jobs', 'array', { arrayJobId }] as const,
 };
 
 const efficiencyKeys = {
