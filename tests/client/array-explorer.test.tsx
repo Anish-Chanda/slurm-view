@@ -323,17 +323,16 @@ describe('ArrayExplorer', () => {
     expect(within(inspector).getByText('FAILED')).toBeTruthy();
   });
 
-  test('array failure keeps the full live overview with a neutral notice', async () => {
+  test('array failure keeps the array overview with a neutral notice', async () => {
     renderArrayPage('100_2', { arrayStatus: 503 });
 
-    await waitFor(() => expect(screen.getByLabelText('Array overview')).toBeTruthy());
-    await waitFor(() =>
-      expect(within(screen.getByLabelText('Array overview')).getByText('3 running · 7 pending')).toBeTruthy()
-    );
-    const overview = screen.getByLabelText('Array overview');
+    const overview = await waitFor(() => screen.getByLabelText('Array overview'));
     expect(within(overview).getByText('Array overview')).toBeTruthy();
-    expect(within(overview).getByText('3 running / 2 allowed')).toBeTruthy();
-    expect(within(overview).getByText(/Resources 4/)).toBeTruthy();
+    expect(within(overview).getByText('Array 100')).toBeTruthy();
+    expect(within(overview).getByText('Allows 2 at a time')).toBeTruthy();
+    expect(within(overview).queryByText(/running/i)).toBeNull();
+    expect(within(overview).queryByText(/pending/i)).toBeNull();
+
     await waitFor(() =>
       expect(screen.getByText('Array task history is not available on this cluster.')).toBeTruthy()
     );
