@@ -273,13 +273,13 @@ function NeverRunsBanner({ analysis }: { analysis: LimitAnalysisDto }) {
       role="alert"
       className="mb-5 border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
     >
-      <p className="font-semibold">This job will never run</p>
+      <p className="font-semibold">This job exceeds your current limit</p>
       <p className="mt-0.5">
         It requests{" "}
         {metricQuantity(analysis.metric, analysis.requested, analysis.gpuType)},
         but the limit for {level.user ? `${level.user} @ ${level.account}` : level.account} is{" "}
         {metricQuantity(analysis.metric, level.limit, analysis.gpuType)}. It will
-        stay pending until the request or the limit changes.
+        probably never run unless the request or the limit changes.
       </p>
     </div>
   );
