@@ -112,9 +112,17 @@ function tightestKnownLevel(levels: LevelMeasurement[], requested: number): Leve
   return best;
 }
 
+// Only CPU, memory and GPU limits are checked against the request. Job counts and run-minutes are not.
+const EXCEEDABLE_METRICS: readonly LimitMetric[] = ['cpus', 'memoryMiB', 'gpus'];
+
 // Mark levels whose limit is below the job's whole request. Usage is irrelevant: such a job cannot start.
 function flagExceededLevels(analysis: LimitAnalysisDto | null): LimitAnalysisDto | null {
-  if (analysis === null || analysis.requested === null || analysis.hierarchy === undefined) {
+  if (
+    analysis === null ||
+    !EXCEEDABLE_METRICS.includes(analysis.metric) ||
+    analysis.requested === null ||
+    analysis.hierarchy === undefined
+  ) {
     return analysis;
   }
   const requested = analysis.requested;
