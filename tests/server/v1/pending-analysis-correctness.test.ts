@@ -2786,3 +2786,37 @@ describe('full association ancestry in hierarchy', () => {
     ]);
   });
 });
+
+describe('Association request above limit', () => {
+  function ctxWithCpuLimit(requestedCpus: number): AnalyzerContext {
+    const pending = makeJob({
+      id: '901', state: 'PENDING', stateReason: 'AssocGrpCpuLimit', account: 'organization-a',
+      requested: { cpus: requestedCpus, memoryMiB: 1024, nodes: 1, gpus: { total: 0, byType: {} } },
+    });
+    return {
+      ...makeCtx(pending),
+      assoc: {
+        store: buildAssociationStore([
+          assocEntry({ id: '1', parentId: null, account: 'root' }),
+          assocEntry({
+            id: '2', parentId: '1', account: 'organization-a', parentAccount: 'root',
+            grpTres: { cpu: 100, memMiB: null, node: null, gres: {} },
+          }),
+          assocEntry({ id: '9', parentId: '2', account: 'organization-a', user: 'alice' }),
+        ]),
+        capturedAt: new Date(),
+      },
+    } as AnalyzerContext;
+  }
+
+  test('flags only the level whose limit is below the request', async () => {
+    const result = await analyzeAssocLimits(ctxWithCpuLimit(128));
+    const flagged = result?.hierarchy?.filter((level) => level.exceedsLimit).map((level) => level.account);
+    expect(flagged).toEqual(['organization-a']);
+  });
+
+  test('does not flag a request that fits when usage is high', async () => {
+    const result = await analyzeAssocLimits(ctxWithCpuLimit(100));
+    expect(result?.hierarchy?.some((level) => level.exceedsLimit)).toBe(false);
+  });
+});
