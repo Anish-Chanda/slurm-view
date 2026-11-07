@@ -2786,3 +2786,107 @@ describe('full association ancestry in hierarchy', () => {
     ]);
   });
 });
+
+describe('Association request above limit', () => {
+  const noGpus = { total: 0, byType: {} };
+  const limitsOf = (patch: Partial<AssociationEntry>) => [
+    assocEntry({ id: '1', parentId: null, account: 'root' }),
+    assocEntry({ id: '2', parentId: '1', account: 'organization-a', parentAccount: 'root', ...patch }),
+    assocEntry({ id: '9', parentId: '2', account: 'organization-a', user: 'alice' }),
+  ];
+
+  async function analyze(
+    reason: string,
+    requested: Job['requested'],
+    assocEntries: AssociationEntry[],
+    extra: Partial<Job> = {},
+    jobs: Job[] = [],
+  ) {
+    const pending = makeJob({
+      id: '901', state: 'PENDING', stateReason: reason, account: 'organization-a', user: 'alice', requested, ...extra,
+    });
+    return analyzeAssocLimits({
+      ...makeCtx(pending, { assocEntries, jobs }),
+      qos: { store: buildQosStore([emptyQosEntry('normal')]), capturedAt: new Date() },
+    });
+  }
+
+  const flaggedLimits = (result: Awaited<ReturnType<typeof analyze>>) =>
+    (result?.hierarchy ?? []).filter((level) => level.exceedsLimit).map((level) => level.limit);
+
+  const cases = [
+    {
+      reason: 'AssocGrpCpuLimit',
+      metric: 'cpus',
+      entries: limitsOf({ grpTres: { cpu: 100, memMiB: null, node: null, gres: {} } }),
+      over: { cpus: 128, memoryMiB: 1024, nodes: 1, gpus: noGpus },
+      fits: { cpus: 100, memoryMiB: 1024, nodes: 1, gpus: noGpus },
+      limit: 100,
+    },
+    {
+      reason: 'AssocGrpMemLimit',
+      metric: 'memoryMiB',
+      entries: limitsOf({ grpTres: { cpu: null, memMiB: 100000, node: null, gres: {} } }),
+      over: { cpus: 1, memoryMiB: 128000, nodes: 1, gpus: noGpus },
+      fits: { cpus: 1, memoryMiB: 100000, nodes: 1, gpus: noGpus },
+      limit: 100000,
+    },
+    {
+      reason: 'AssocGrpGRES',
+      metric: 'gpus',
+      entries: limitsOf({ grpTres: { cpu: null, memMiB: null, node: null, gres: { gpu: 4 } } }),
+      over: { cpus: 1, memoryMiB: 1024, nodes: 1, gpus: { total: 8, byType: {} } },
+      fits: { cpus: 1, memoryMiB: 1024, nodes: 1, gpus: { total: 4, byType: {} } },
+      limit: 4,
+    },
+  ];
+
+  describe.each(cases)('$reason', ({ reason, metric, entries, over, fits, limit }) => {
+    test('flags only the level whose limit is below the request', async () => {
+      const result = await analyze(reason, over, entries);
+      expect(result?.metric).toBe(metric);
+      expect(flaggedLimits(result)).toEqual([limit]);
+    });
+
+    test('does not flag a request equal to the limit', async () => {
+      const result = await analyze(reason, fits, entries);
+      expect(result).not.toBeNull();
+      expect(flaggedLimits(result)).toEqual([]);
+    });
+  });
+
+  // Job counts and run-minutes are outside the CPU/memory/GPU scope, so they are never flagged.
+  describe('AssocMaxJobsLimit', () => {
+    test('is not flagged, even with a limit of zero', async () => {
+      const entries = [
+        assocEntry({ id: '1', parentId: null, account: 'root' }),
+        assocEntry({ id: '2', parentId: '1', account: 'organization-a', parentAccount: 'root' }),
+        assocEntry({ id: '9', parentId: '2', account: 'organization-a', user: 'alice', maxJobs: 0 }),
+      ];
+      const result = await analyze('AssocMaxJobsLimit', { cpus: 1, memoryMiB: 1024, nodes: 1, gpus: noGpus }, entries);
+      expect(result?.metric).toBe('jobs');
+      expect(flaggedLimits(result)).toEqual([]);
+    });
+  });
+
+  describe.each([
+    ['AssocGrpCPURunMinutesLimit', { cpu: 100, memMiB: null }],
+    ['AssocGrpMemRunMinutes', { cpu: null, memMiB: 100 }],
+  ])('%s', (reason, runMins) => {
+    test('is not flagged even when the job is far above the limit', async () => {
+      const entries = limitsOf({ grpTresRunMins: { ...runMins, node: null, gres: {} } });
+      const huge = { cpus: 4000, memoryMiB: 4_000_000, nodes: 1, gpus: noGpus };
+      const timeLimit = { kind: 'finite' as const, seconds: 3600 };
+      // A running job already consumes the run-minute budget, so the analysis is proven.
+      const running = makeJob({
+        id: '902', account: 'organization-a', user: 'alice', qos: 'normal', timeLimit,
+        startTime: new Date(Date.now() - 60_000),
+        allocated: { cpus: 4000, memoryMiB: 4_000_000, nodes: 1, gpus: noGpus, gpuPresent: true },
+      });
+      const result = await analyze(reason, huge, entries, { qos: 'normal', timeLimit }, [running]);
+      expect(result).not.toBeNull();
+      expect(result?.requested).toBeNull();
+      expect(flaggedLimits(result)).toEqual([]);
+    });
+  });
+});

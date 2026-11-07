@@ -265,6 +265,26 @@ function Consumers({ analysis }: { analysis: LimitAnalysisDto }) {
   );
 }
 
+function NeverRunsBanner({ analysis }: { analysis: LimitAnalysisDto }) {
+  const level = analysis.hierarchy?.find((entry) => entry.exceedsLimit);
+  if (!level || analysis.requested === null || level.limit === null) return null;
+  return (
+    <div
+      role="alert"
+      className="mb-5 border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+    >
+      <p className="font-semibold">This job exceeds your current limit</p>
+      <p className="mt-0.5">
+        It requests{" "}
+        {metricQuantity(analysis.metric, analysis.requested, analysis.gpuType)},
+        but the limit for {level.user ? `${level.user} @ ${level.account}` : level.account} is{" "}
+        {metricQuantity(analysis.metric, level.limit, analysis.gpuType)}. It will
+        probably never run unless the request or the limit changes.
+      </p>
+    </div>
+  );
+}
+
 function LimitAnalysis({ analysis }: { analysis: LimitAnalysisDto }) {
   const context =
     analysis.domain === "qos"
@@ -281,6 +301,7 @@ function LimitAnalysis({ analysis }: { analysis: LimitAnalysisDto }) {
   return (
     <div>
       {context ? <p className="mb-4 text-sm text-gray-600">{context}</p> : null}
+      <NeverRunsBanner analysis={analysis} />
       <LimitUsage analysis={analysis} />
       {analysis.domain === "association" && analysis.hierarchy?.length ? (
         <div className="mt-6 border-t border-gray-100 pt-6">
