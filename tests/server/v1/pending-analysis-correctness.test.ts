@@ -2149,6 +2149,43 @@ describe('GPU allocation presence', () => {
     expect(result?.used).toBe(0);
     expect(result?.requested).toBe(1);
   });
+
+  describe('generic vs typed GPU limit scope', () => {
+    async function run(gres: Record<string, number>) {
+      const pending = makeJob({
+        id: '360', state: 'PENDING', stateReason: 'AssocGrpGRES', account: 'organization-a',
+        requested: { cpus: null, memoryMiB: null, nodes: 1, gpus: { total: 1, byType: { a100: 1 } } },
+      });
+      const running = (id: string, byType: Record<string, number>, total: number) =>
+        makeJob({
+          id, account: 'organization-a',
+          allocated: { cpus: 1, memoryMiB: 100, nodes: 1, gpus: { total, byType }, gpuPresent: true },
+        });
+      return analyzeAssocLimits({
+        ...makeCtx(pending, { jobs: [running('361', { a100: 7 }, 7), running('362', { h200: 2 }, 2)] }),
+        assoc: {
+          store: buildAssociationStore([
+            assocEntry({ id: '1', parentId: null, account: 'root' }),
+            assocEntry({ id: '2', parentId: '1', account: 'organization-a', parentAccount: 'root', grpTres: { cpu: null, memMiB: null, node: null, gres } }),
+            assocEntry({ id: '9', parentId: '2', account: 'organization-a', user: 'alice' }),
+          ]),
+          capturedAt: new Date(),
+        },
+      });
+    }
+
+    test('generic gres/gpu limit counts GPUs of every type', async () => {
+      const result = await run({ gpu: 9 });
+      expect(result?.used).toBe(9);
+      expect(result?.limitingAccount).toBe('organization-a');
+    });
+
+    test('typed gpu:a100 limit counts only that type', async () => {
+      const result = await run({ 'gpu:a100': 9 });
+      expect(result?.used).toBe(7);
+      expect(result?.limitingAccount).toBeUndefined();
+    });
+  });
 });
 
 describe('single-node unknown-mode memory coverage', () => {

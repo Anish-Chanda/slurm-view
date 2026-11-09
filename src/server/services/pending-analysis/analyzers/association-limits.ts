@@ -219,7 +219,8 @@ async function analyzeAssocLimits(ctx: AnalyzerContext): Promise<LimitAnalysisDt
       }
       const levels: LevelMeasurement[] = [];
       for (const entry of chain) {
-        const raw = entry.grpTres.gres[gpu.key] ?? entry.grpTres.gres['gpu'] ?? null;
+        const typedLimit = entry.grpTres.gres[gpu.key] ?? null;
+        const raw = typedLimit ?? entry.grpTres.gres['gpu'] ?? null;
         if (raw === null) {
           continue;
         }
@@ -227,7 +228,9 @@ async function analyzeAssocLimits(ctx: AnalyzerContext): Promise<LimitAnalysisDt
         if (effectiveLimit === null) {
           continue;
         }
-        const pick = gpu.key === 'gpu' ? allocatedGpuTotal : allocatedGpuType(gpu.display);
+        // A generic gres/gpu limit covers every GPU type, so count all of them.
+        // Only a typed limit is scoped to the requested type.
+        const pick = typedLimit === null || gpu.key === 'gpu' ? allocatedGpuTotal : allocatedGpuType(gpu.display);
         const usage = calculateAssociationEntryGroupUsage(entry, assocStore, resolved, { jobs }, pick);
         levels.push({
           entry,
