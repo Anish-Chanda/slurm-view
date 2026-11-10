@@ -53,12 +53,18 @@ interface LevelMeasurement {
   used: number | null;
   knownUsed: number;
   runningJobs: number;
+  // GRES only: true when a GPU-type-specific limit matched this level; false
+  // when a generic gres/gpu limit (covering every GPU type) did.
+  typed?: boolean;
 }
 
 function buildHierarchy(
   chain: AssociationEntry[],
   levels: LevelMeasurement[],
-  limiting: AssociationEntry | null
+  limiting: AssociationEntry | null,
+  // GRES only: the requested GPU type, attached to rows whose limit is
+  // scoped to that type. Generic gres/gpu rows stay unlabeled.
+  typedGpuType?: string
 ): LimitAnalysisDto['hierarchy'] {
   const measurements = new Map<string, LevelMeasurement>();
   for (const level of levels) {
@@ -73,6 +79,7 @@ function buildHierarchy(
       account: entry.account,
       ...(entry.user !== null ? { user: entry.user } : {}),
       ...(entry.partition !== null ? { partition: entry.partition } : {}),
+      ...(level?.typed && typedGpuType !== undefined ? { gpuType: typedGpuType } : {}),
       parent: parentEntry?.account ?? null,
       limit: level?.effectiveLimit ?? null,
       used: level?.used ?? null,
@@ -238,6 +245,7 @@ async function analyzeAssocLimits(ctx: AnalyzerContext): Promise<LimitAnalysisDt
           used: usage.unknown > 0 ? null : usage.total,
           knownUsed: usage.total,
           runningJobs: usage.runningJobs,
+          typed: typedLimit !== null && gpu.key !== 'gpu',
         });
       }
       if (levels.length === 0) {
@@ -253,14 +261,14 @@ async function analyzeAssocLimits(ctx: AnalyzerContext): Promise<LimitAnalysisDt
           kind: 'limit',
           domain: 'association',
           metric: 'gpus',
-          gpuType: gpu.display === 'gpu' ? undefined : gpu.display,
+          gpuType: tightest.typed ? gpu.display : undefined,
           limit: tightest.effectiveLimit as number,
           used: tightest.used,
           requested: gpu.count,
           account,
           user: job.user ?? undefined,
           runningJobs: tightest.runningJobs,
-          hierarchy: buildHierarchy(chain, levels, null),
+          hierarchy: buildHierarchy(chain, levels, null, gpu.display),
         };
       }
       const limitingLevel = levels.find((level) => level.entry === limiting) as LevelMeasurement;
@@ -268,7 +276,7 @@ async function analyzeAssocLimits(ctx: AnalyzerContext): Promise<LimitAnalysisDt
         kind: 'limit',
         domain: 'association',
         metric: 'gpus',
-        gpuType: gpu.display === 'gpu' ? undefined : gpu.display,
+        gpuType: limitingLevel.typed ? gpu.display : undefined,
         limit: limitingLevel.effectiveLimit as number,
         used: limitingLevel.used,
         requested: gpu.count,
@@ -276,7 +284,7 @@ async function analyzeAssocLimits(ctx: AnalyzerContext): Promise<LimitAnalysisDt
         limitingAccount: limiting?.account ?? undefined,
         user: job.user ?? undefined,
         runningJobs: limitingLevel.runningJobs,
-        hierarchy: buildHierarchy(chain, levels, limiting),
+        hierarchy: buildHierarchy(chain, levels, limiting, gpu.display),
       };
     }
     case 'AssocMaxJobsLimit': {
