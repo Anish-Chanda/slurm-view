@@ -128,6 +128,8 @@ export interface LimitAnalysisDto {
     limit: number | null;
     used: number | null;
     limiting: boolean;
+    // The job's whole request is above this level's limit, so it can never start.
+    exceedsLimit?: boolean;
   }>;
   topConsumers?: Array<{
     jobId: string;

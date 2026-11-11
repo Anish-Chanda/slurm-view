@@ -131,7 +131,33 @@ function pickBindingCandidate(candidates: LevelMeasurement[], requested: number)
   return tightestKnownLevel(candidates, requested);
 }
 
+// Only CPU, memory and GPU limits are checked against the request. Job counts and run-minutes are not.
+const EXCEEDABLE_METRICS: readonly LimitMetric[] = ['cpus', 'memoryMiB', 'gpus'];
+
+// Mark levels whose limit is below the job's whole request. Usage is irrelevant: such a job cannot start.
+function flagExceededLevels(analysis: LimitAnalysisDto | null): LimitAnalysisDto | null {
+  if (
+    analysis === null ||
+    !EXCEEDABLE_METRICS.includes(analysis.metric) ||
+    analysis.requested === null ||
+    analysis.hierarchy === undefined
+  ) {
+    return analysis;
+  }
+  const requested = analysis.requested;
+  return {
+    ...analysis,
+    hierarchy: analysis.hierarchy.map((level) =>
+      level.limit !== null && requested > level.limit ? { ...level, exceedsLimit: true } : level
+    ),
+  };
+}
+
 async function analyzeAssocLimits(ctx: AnalyzerContext): Promise<LimitAnalysisDto | null> {
+  return flagExceededLevels(await analyzeAssocReason(ctx));
+}
+
+async function analyzeAssocReason(ctx: AnalyzerContext): Promise<LimitAnalysisDto | null> {
   const reason = ctx.targeted.job.stateReason;
   if (!isAssocReason(reason) || ctx.assoc === null) {
     return null;
