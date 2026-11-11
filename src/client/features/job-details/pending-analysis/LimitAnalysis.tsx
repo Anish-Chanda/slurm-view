@@ -108,14 +108,15 @@ function AssociationTreeLevel({
   levels,
   index,
   metric,
-  gpuType,
 }: {
   levels: AssociationLevel[];
   index: number;
   metric: LimitAnalysisDto["metric"];
-  gpuType?: string;
 }) {
   const level = levels[index];
+  // Each level carries its own GPU scope: typed limits count one type, generic
+  // gres/gpu limits count all, so the banner's type must not be reused here.
+  const gpuType = level.gpuType;
   const limiting = level.limiting;
   const label = level.user ? `${level.user} @ ${level.account}` : level.account;
   const usage =
@@ -178,7 +179,6 @@ function AssociationTreeLevel({
             levels={levels}
             index={index + 1}
             metric={metric}
-            gpuType={gpuType}
           />
         </ol>
       ) : null}
@@ -205,7 +205,6 @@ function AssociationTree({ analysis }: { analysis: LimitAnalysisDto }) {
           levels={levels}
           index={0}
           metric={analysis.metric}
-          gpuType={analysis.gpuType}
         />
       </ol>
     </section>

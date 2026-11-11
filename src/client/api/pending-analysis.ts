@@ -162,6 +162,7 @@ function isLimitAnalysis(value: Record<string, unknown>): boolean {
           typeof item.account === "string" &&
           isOptionalString(item.user) &&
           isOptionalString(item.partition) &&
+          isOptionalString(item.gpuType) &&
           isNullableString(item.parent) &&
           isNullableNumber(item.limit) &&
           isNullableNumber(item.used) &&

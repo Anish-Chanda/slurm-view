@@ -2149,6 +2149,120 @@ describe('GPU allocation presence', () => {
     expect(result?.used).toBe(0);
     expect(result?.requested).toBe(1);
   });
+
+  describe('generic vs typed GPU limit scope', () => {
+    async function run(gres: Record<string, number>) {
+      const pending = makeJob({
+        id: '360', state: 'PENDING', stateReason: 'AssocGrpGRES', account: 'organization-a',
+        requested: { cpus: null, memoryMiB: null, nodes: 1, gpus: { total: 1, byType: { a100: 1 } } },
+      });
+      const running = (id: string, byType: Record<string, number>, total: number) =>
+        makeJob({
+          id, account: 'organization-a',
+          allocated: { cpus: 1, memoryMiB: 100, nodes: 1, gpus: { total, byType }, gpuPresent: true },
+        });
+      return analyzeAssocLimits({
+        ...makeCtx(pending, { jobs: [running('361', { a100: 7 }, 7), running('362', { h200: 2 }, 2)] }),
+        assoc: {
+          store: buildAssociationStore([
+            assocEntry({ id: '1', parentId: null, account: 'root' }),
+            assocEntry({ id: '2', parentId: '1', account: 'organization-a', parentAccount: 'root', grpTres: { cpu: null, memMiB: null, node: null, gres } }),
+            assocEntry({ id: '9', parentId: '2', account: 'organization-a', user: 'alice' }),
+          ]),
+          capturedAt: new Date(),
+        },
+      });
+    }
+
+    test('generic gres/gpu limit counts GPUs of every type', async () => {
+      const result = await run({ gpu: 9 });
+      expect(result?.used).toBe(9);
+      expect(result?.limitingAccount).toBe('organization-a');
+      // Count covers every type, so the banner must say generic "GPU".
+      expect(result?.gpuType).toBeUndefined();
+    });
+
+    test('typed gpu:a100 limit counts only that type', async () => {
+      const result = await run({ 'gpu:a100': 9 });
+      expect(result?.used).toBe(7);
+      expect(result?.limitingAccount).toBeUndefined();
+      expect(result?.gpuType).toBe('a100');
+      expect(result?.hierarchy?.find((row) => row.account === 'organization-a' && !row.user)?.gpuType).toBe('a100');
+    });
+
+    // Typed user limit under a generic account limit: each hierarchy row must
+    // carry its own GPU scope, independent of which level the banner shows.
+    async function runMixed(userGres: Record<string, number>, accountGres: Record<string, number>) {
+      const pending = makeJob({
+        id: '370', state: 'PENDING', stateReason: 'AssocGrpGRES', account: 'organization-a',
+        requested: { cpus: null, memoryMiB: null, nodes: 1, gpus: { total: 2, byType: { a100: 2 } } },
+      });
+      const running = (id: string, byType: Record<string, number>, total: number) =>
+        makeJob({
+          id, account: 'organization-a',
+          allocated: { cpus: 1, memoryMiB: 100, nodes: 1, gpus: { total, byType }, gpuPresent: true },
+        });
+      return analyzeAssocLimits({
+        ...makeCtx(pending, { jobs: [running('371', { a100: 3 }, 3), running('372', { h200: 6 }, 6)] }),
+        assoc: {
+          store: buildAssociationStore([
+            assocEntry({ id: '1', parentId: null, account: 'root' }),
+            assocEntry({ id: '2', parentId: '1', account: 'organization-a', parentAccount: 'root', grpTres: { cpu: null, memMiB: null, node: null, gres: accountGres } }),
+            assocEntry({ id: '9', parentId: '2', account: 'organization-a', user: 'alice', grpTres: { cpu: null, memMiB: null, node: null, gres: userGres } }),
+          ]),
+          capturedAt: new Date(),
+        },
+      });
+    }
+
+    test('mixed chain, generic account level limiting: banner generic, user row typed', async () => {
+      // Account: 9 total in use (3 a100 + 6 h200) + 2 requested > 9. User: 3 a100 + 2 <= 6.
+      const result = await runMixed({ 'gpu:a100': 6 }, { gpu: 9 });
+      expect(result?.limitingAccount).toBe('organization-a');
+      expect(result?.gpuType).toBeUndefined();
+      const account = result?.hierarchy?.find((row) => !row.user && row.account === 'organization-a');
+      const user = result?.hierarchy?.find((row) => row.user === 'alice');
+      expect(account).toMatchObject({ limit: 9, used: 9, limiting: true });
+      expect(account?.gpuType).toBeUndefined();
+      expect(user).toMatchObject({ limit: 6, used: 3, limiting: false });
+      expect(user?.gpuType).toBe('a100');
+    });
+
+    test('mixed chain, typed user level limiting: banner typed, account row generic', async () => {
+      // User: 3 a100 + 2 > 4. Account: 9 total in use + 2 > 9 would also bind, so give it room.
+      const result = await runMixed({ 'gpu:a100': 4 }, { gpu: 50 });
+      expect(result?.gpuType).toBe('a100');
+      const account = result?.hierarchy?.find((row) => !row.user && row.account === 'organization-a');
+      const user = result?.hierarchy?.find((row) => row.user === 'alice');
+      expect(user).toMatchObject({ limit: 4, used: 3, limiting: true });
+      expect(user?.gpuType).toBe('a100');
+      expect(account).toMatchObject({ limit: 50, used: 9, limiting: false });
+      expect(account?.gpuType).toBeUndefined();
+    });
+
+    // One association carrying both limits: Slurm enforces each, so the
+    // binding one must be reported.
+    test('same level with both limits, generic binds: banner generic', async () => {
+      // Generic: 9 in use + 2 > 9. Typed: 3 a100 + 2 <= 6.
+      const result = await runMixed({}, { gpu: 9, 'gpu:a100': 6 });
+      expect(result?.gpuType).toBeUndefined();
+      expect(result?.limit).toBe(9);
+      expect(result?.used).toBe(9);
+      const account = result?.hierarchy?.find((row) => !row.user && row.account === 'organization-a');
+      expect(account).toMatchObject({ limit: 9, used: 9, limiting: true });
+      expect(account?.gpuType).toBeUndefined();
+    });
+
+    test('same level with both limits, typed binds: banner typed', async () => {
+      // Typed: 3 a100 + 2 > 4. Generic: 9 in use + 2 <= 50.
+      const result = await runMixed({}, { gpu: 50, 'gpu:a100': 4 });
+      expect(result?.gpuType).toBe('a100');
+      expect(result?.limit).toBe(4);
+      expect(result?.used).toBe(3);
+      const account = result?.hierarchy?.find((row) => !row.user && row.account === 'organization-a');
+      expect(account).toMatchObject({ limit: 4, used: 3, limiting: true, gpuType: 'a100' });
+    });
+  });
 });
 
 describe('single-node unknown-mode memory coverage', () => {

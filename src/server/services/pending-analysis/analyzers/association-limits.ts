@@ -53,12 +53,18 @@ interface LevelMeasurement {
   used: number | null;
   knownUsed: number;
   runningJobs: number;
+  // GRES only: true when a GPU-type-specific limit matched this level; false
+  // when a generic gres/gpu limit (covering every GPU type) did.
+  typed?: boolean;
 }
 
 function buildHierarchy(
   chain: AssociationEntry[],
   levels: LevelMeasurement[],
-  limiting: AssociationEntry | null
+  limiting: AssociationEntry | null,
+  // GRES only: the requested GPU type, attached to rows whose limit is
+  // scoped to that type. Generic gres/gpu rows stay unlabeled.
+  typedGpuType?: string
 ): LimitAnalysisDto['hierarchy'] {
   const measurements = new Map<string, LevelMeasurement>();
   for (const level of levels) {
@@ -73,6 +79,7 @@ function buildHierarchy(
       account: entry.account,
       ...(entry.user !== null ? { user: entry.user } : {}),
       ...(entry.partition !== null ? { partition: entry.partition } : {}),
+      ...(level?.typed && typedGpuType !== undefined ? { gpuType: typedGpuType } : {}),
       parent: parentEntry?.account ?? null,
       limit: level?.effectiveLimit ?? null,
       used: level?.used ?? null,
@@ -110,6 +117,18 @@ function tightestKnownLevel(levels: LevelMeasurement[], requested: number): Leve
     }
   }
   return best;
+}
+
+// Pick which of one association's limits binds: a proven-exceeded one (typed
+// first, as the more specific), else the least headroom among known usage.
+function pickBindingCandidate(candidates: LevelMeasurement[], requested: number): LevelMeasurement {
+  const proven = candidates.find(
+    (candidate) => candidate.knownUsed + requested > (candidate.effectiveLimit ?? 0)
+  );
+  if (proven !== undefined) {
+    return proven;
+  }
+  return tightestKnownLevel(candidates, requested);
 }
 
 // Only CPU, memory and GPU limits are checked against the request. Job counts and run-minutes are not.
@@ -245,23 +264,37 @@ async function analyzeAssocReason(ctx: AnalyzerContext): Promise<LimitAnalysisDt
       }
       const levels: LevelMeasurement[] = [];
       for (const entry of chain) {
-        const raw = entry.grpTres.gres[gpu.key] ?? entry.grpTres.gres['gpu'] ?? null;
-        if (raw === null) {
-          continue;
+        // Slurm enforces typed and generic limits independently, so an entry
+        // may carry both. Measure each, then keep the one that binds.
+        const candidates: LevelMeasurement[] = [];
+        const consider = (raw: number | null, typed: boolean): void => {
+          if (raw === null) {
+            return;
+          }
+          const { effectiveLimit } = effectiveAssocTresLimit(raw, limitFactor);
+          if (effectiveLimit === null) {
+            return;
+          }
+          // A generic gres/gpu limit covers every GPU type, so count all of them.
+          // Only a typed limit is scoped to the requested type.
+          const pick = typed ? allocatedGpuType(gpu.display) : allocatedGpuTotal;
+          const usage = calculateAssociationEntryGroupUsage(entry, assocStore, resolved, { jobs }, pick);
+          candidates.push({
+            entry,
+            effectiveLimit,
+            used: usage.unknown > 0 ? null : usage.total,
+            knownUsed: usage.total,
+            runningJobs: usage.runningJobs,
+            typed,
+          });
+        };
+        if (gpu.key !== 'gpu') {
+          consider(entry.grpTres.gres[gpu.key] ?? null, true);
         }
-        const { effectiveLimit } = effectiveAssocTresLimit(raw, limitFactor);
-        if (effectiveLimit === null) {
-          continue;
+        consider(entry.grpTres.gres['gpu'] ?? null, false);
+        if (candidates.length > 0) {
+          levels.push(pickBindingCandidate(candidates, gpu.count));
         }
-        const pick = gpu.key === 'gpu' ? allocatedGpuTotal : allocatedGpuType(gpu.display);
-        const usage = calculateAssociationEntryGroupUsage(entry, assocStore, resolved, { jobs }, pick);
-        levels.push({
-          entry,
-          effectiveLimit,
-          used: usage.unknown > 0 ? null : usage.total,
-          knownUsed: usage.total,
-          runningJobs: usage.runningJobs,
-        });
       }
       if (levels.length === 0) {
         return null;
@@ -276,14 +309,14 @@ async function analyzeAssocReason(ctx: AnalyzerContext): Promise<LimitAnalysisDt
           kind: 'limit',
           domain: 'association',
           metric: 'gpus',
-          gpuType: gpu.display === 'gpu' ? undefined : gpu.display,
+          gpuType: tightest.typed ? gpu.display : undefined,
           limit: tightest.effectiveLimit as number,
           used: tightest.used,
           requested: gpu.count,
           account,
           user: job.user ?? undefined,
           runningJobs: tightest.runningJobs,
-          hierarchy: buildHierarchy(chain, levels, null),
+          hierarchy: buildHierarchy(chain, levels, null, gpu.display),
         };
       }
       const limitingLevel = levels.find((level) => level.entry === limiting) as LevelMeasurement;
@@ -291,7 +324,7 @@ async function analyzeAssocReason(ctx: AnalyzerContext): Promise<LimitAnalysisDt
         kind: 'limit',
         domain: 'association',
         metric: 'gpus',
-        gpuType: gpu.display === 'gpu' ? undefined : gpu.display,
+        gpuType: limitingLevel.typed ? gpu.display : undefined,
         limit: limitingLevel.effectiveLimit as number,
         used: limitingLevel.used,
         requested: gpu.count,
@@ -299,7 +332,7 @@ async function analyzeAssocReason(ctx: AnalyzerContext): Promise<LimitAnalysisDt
         limitingAccount: limiting?.account ?? undefined,
         user: job.user ?? undefined,
         runningJobs: limitingLevel.runningJobs,
-        hierarchy: buildHierarchy(chain, levels, limiting),
+        hierarchy: buildHierarchy(chain, levels, limiting, gpu.display),
       };
     }
     case 'AssocMaxJobsLimit': {
