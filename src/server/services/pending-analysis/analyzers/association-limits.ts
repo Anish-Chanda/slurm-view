@@ -119,6 +119,18 @@ function tightestKnownLevel(levels: LevelMeasurement[], requested: number): Leve
   return best;
 }
 
+// Pick which of one association's limits binds: a proven-exceeded one (typed
+// first, as the more specific), else the least headroom among known usage.
+function pickBindingCandidate(candidates: LevelMeasurement[], requested: number): LevelMeasurement {
+  const proven = candidates.find(
+    (candidate) => candidate.knownUsed + requested > (candidate.effectiveLimit ?? 0)
+  );
+  if (proven !== undefined) {
+    return proven;
+  }
+  return tightestKnownLevel(candidates, requested);
+}
+
 async function analyzeAssocLimits(ctx: AnalyzerContext): Promise<LimitAnalysisDto | null> {
   const reason = ctx.targeted.job.stateReason;
   if (!isAssocReason(reason) || ctx.assoc === null) {
@@ -226,27 +238,37 @@ async function analyzeAssocLimits(ctx: AnalyzerContext): Promise<LimitAnalysisDt
       }
       const levels: LevelMeasurement[] = [];
       for (const entry of chain) {
-        const typedLimit = entry.grpTres.gres[gpu.key] ?? null;
-        const raw = typedLimit ?? entry.grpTres.gres['gpu'] ?? null;
-        if (raw === null) {
-          continue;
+        // Slurm enforces typed and generic limits independently, so an entry
+        // may carry both. Measure each, then keep the one that binds.
+        const candidates: LevelMeasurement[] = [];
+        const consider = (raw: number | null, typed: boolean): void => {
+          if (raw === null) {
+            return;
+          }
+          const { effectiveLimit } = effectiveAssocTresLimit(raw, limitFactor);
+          if (effectiveLimit === null) {
+            return;
+          }
+          // A generic gres/gpu limit covers every GPU type, so count all of them.
+          // Only a typed limit is scoped to the requested type.
+          const pick = typed ? allocatedGpuType(gpu.display) : allocatedGpuTotal;
+          const usage = calculateAssociationEntryGroupUsage(entry, assocStore, resolved, { jobs }, pick);
+          candidates.push({
+            entry,
+            effectiveLimit,
+            used: usage.unknown > 0 ? null : usage.total,
+            knownUsed: usage.total,
+            runningJobs: usage.runningJobs,
+            typed,
+          });
+        };
+        if (gpu.key !== 'gpu') {
+          consider(entry.grpTres.gres[gpu.key] ?? null, true);
         }
-        const { effectiveLimit } = effectiveAssocTresLimit(raw, limitFactor);
-        if (effectiveLimit === null) {
-          continue;
+        consider(entry.grpTres.gres['gpu'] ?? null, false);
+        if (candidates.length > 0) {
+          levels.push(pickBindingCandidate(candidates, gpu.count));
         }
-        // A generic gres/gpu limit covers every GPU type, so count all of them.
-        // Only a typed limit is scoped to the requested type.
-        const pick = typedLimit === null || gpu.key === 'gpu' ? allocatedGpuTotal : allocatedGpuType(gpu.display);
-        const usage = calculateAssociationEntryGroupUsage(entry, assocStore, resolved, { jobs }, pick);
-        levels.push({
-          entry,
-          effectiveLimit,
-          used: usage.unknown > 0 ? null : usage.total,
-          knownUsed: usage.total,
-          runningJobs: usage.runningJobs,
-          typed: typedLimit !== null && gpu.key !== 'gpu',
-        });
       }
       if (levels.length === 0) {
         return null;

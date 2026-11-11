@@ -2239,6 +2239,29 @@ describe('GPU allocation presence', () => {
       expect(account).toMatchObject({ limit: 50, used: 9, limiting: false });
       expect(account?.gpuType).toBeUndefined();
     });
+
+    // One association carrying both limits: Slurm enforces each, so the
+    // binding one must be reported.
+    test('same level with both limits, generic binds: banner generic', async () => {
+      // Generic: 9 in use + 2 > 9. Typed: 3 a100 + 2 <= 6.
+      const result = await runMixed({}, { gpu: 9, 'gpu:a100': 6 });
+      expect(result?.gpuType).toBeUndefined();
+      expect(result?.limit).toBe(9);
+      expect(result?.used).toBe(9);
+      const account = result?.hierarchy?.find((row) => !row.user && row.account === 'organization-a');
+      expect(account).toMatchObject({ limit: 9, used: 9, limiting: true });
+      expect(account?.gpuType).toBeUndefined();
+    });
+
+    test('same level with both limits, typed binds: banner typed', async () => {
+      // Typed: 3 a100 + 2 > 4. Generic: 9 in use + 2 <= 50.
+      const result = await runMixed({}, { gpu: 50, 'gpu:a100': 4 });
+      expect(result?.gpuType).toBe('a100');
+      expect(result?.limit).toBe(4);
+      expect(result?.used).toBe(3);
+      const account = result?.hierarchy?.find((row) => !row.user && row.account === 'organization-a');
+      expect(account).toMatchObject({ limit: 4, used: 3, limiting: true, gpuType: 'a100' });
+    });
   });
 });
 
