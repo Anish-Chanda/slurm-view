@@ -275,9 +275,9 @@ function NeverRunsBanner({ analysis }: { analysis: LimitAnalysisDto }) {
       <p className="font-semibold">This job exceeds your current limit</p>
       <p className="mt-0.5">
         It requests{" "}
-        {metricQuantity(analysis.metric, analysis.requested, analysis.gpuType)},
+        {metricQuantity(analysis.metric, analysis.requested, level.gpuType)},
         but the limit for {level.user ? `${level.user} @ ${level.account}` : level.account} is{" "}
-        {metricQuantity(analysis.metric, level.limit, analysis.gpuType)}. It will
+        {metricQuantity(analysis.metric, level.limit, level.gpuType)}. It will
         probably never run unless the request or the limit changes.
       </p>
     </div>
