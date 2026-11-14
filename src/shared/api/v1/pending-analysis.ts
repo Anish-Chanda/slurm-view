@@ -121,6 +121,9 @@ export interface LimitAnalysisDto {
     account: string;
     user?: string;
     partition?: string;
+    // GPU limits only: set when this level's limit is scoped to one GPU type.
+    // Absent for generic gres/gpu limits, which count every type.
+    gpuType?: string;
     parent: string | null;
     limit: number | null;
     used: number | null;

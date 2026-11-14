@@ -108,14 +108,15 @@ function AssociationTreeLevel({
   levels,
   index,
   metric,
-  gpuType,
 }: {
   levels: AssociationLevel[];
   index: number;
   metric: LimitAnalysisDto["metric"];
-  gpuType?: string;
 }) {
   const level = levels[index];
+  // Each level carries its own GPU scope: typed limits count one type, generic
+  // gres/gpu limits count all, so the banner's type must not be reused here.
+  const gpuType = level.gpuType;
   const limiting = level.limiting;
   const label = level.user ? `${level.user} @ ${level.account}` : level.account;
   const usage =
@@ -178,7 +179,6 @@ function AssociationTreeLevel({
             levels={levels}
             index={index + 1}
             metric={metric}
-            gpuType={gpuType}
           />
         </ol>
       ) : null}
@@ -205,7 +205,6 @@ function AssociationTree({ analysis }: { analysis: LimitAnalysisDto }) {
           levels={levels}
           index={0}
           metric={analysis.metric}
-          gpuType={analysis.gpuType}
         />
       </ol>
     </section>
@@ -276,9 +275,9 @@ function NeverRunsBanner({ analysis }: { analysis: LimitAnalysisDto }) {
       <p className="font-semibold">This job exceeds your current limit</p>
       <p className="mt-0.5">
         It requests{" "}
-        {metricQuantity(analysis.metric, analysis.requested, analysis.gpuType)},
+        {metricQuantity(analysis.metric, analysis.requested, level.gpuType)},
         but the limit for {level.user ? `${level.user} @ ${level.account}` : level.account} is{" "}
-        {metricQuantity(analysis.metric, level.limit, analysis.gpuType)}. It will
+        {metricQuantity(analysis.metric, level.limit, level.gpuType)}. It will
         probably never run unless the request or the limit changes.
       </p>
     </div>
