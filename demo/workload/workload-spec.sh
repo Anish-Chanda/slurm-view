@@ -22,6 +22,7 @@ DEMO_RUNNING_SLOTS=(
   wrf-restart
   cfd-factorization
   climate-restart
+  budget-baseline
 )
 
 DEMO_PENDING_SLOTS=(
@@ -37,10 +38,13 @@ DEMO_PENDING_SLOTS=(
   md-postprocess
   checkpoint-restart
   reserved-calibration
+  budget-expansion
+  v100-budget-eval
+  h100-multi
 )
 
 DEMO_PENDING_REASONS=(
-  AssocGrpCpuLimit
+  'AssocGrpCpuLimit|AssocGrpMemLimit'
   AssocGrpGRES
   AssocMaxJobsLimit
   QOSGrpCpuLimit
@@ -52,6 +56,9 @@ DEMO_PENDING_REASONS=(
   Dependency
   ReqNodeNotAvail
   Reservation
+  'AssocGrpCPURunMinutesLimit|AssocGrpMemRunMinutes'
+  AssocGrpGRESRunMinutes
+  'AssocGrpCpuLimit|AssocGrpMemLimit|AssocGrpGRES'
 )
 
 DEMO_ARRAY_SLOT=parameter-sweep
@@ -59,6 +66,22 @@ DEMO_ARRAY_NAME=parameter-sweep
 DEMO_ARRAY_USER=demo04
 DEMO_ARRAY_SIZE=256
 DEMO_ARRAY_THROTTLE=4
+
+workload_account_for() {
+  local user=$1
+  local slot=$2
+
+  case "${slot}" in
+    budget-baseline|budget-expansion) printf "%s\n" budgets ;;
+    *) demo_account_for "${user}" ;;
+  esac
+}
+
+workload_reason_matches() {
+  local actual=$1
+  local expected=$2
+  [[ -n "${actual}" && "|${expected}|" == *"|${actual}|"* ]]
+}
 
 workload_comment_for() {
   local slot=$1

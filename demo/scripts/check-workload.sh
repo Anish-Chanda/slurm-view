@@ -79,7 +79,7 @@ wait_reason() {
     state="$(state_for "${job_id}" || true)"
     reason="$(reason_for "${job_id}" || true)"
 
-    if [[ "${state}" == "PENDING" && "${reason}" == "${expected}" ]]; then
+    if [[ "${state}" == "PENDING" ]] && workload_reason_matches "${reason}" "${expected}"; then
       return 0
     fi
 

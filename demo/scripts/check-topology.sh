@@ -188,6 +188,9 @@ account_parent() {
 [[ "$(account_parent ai)" == "research" ]] || \
   die "ai should be a child of research"
 
+[[ "$(account_parent budgets)" == "root" ]] || \
+  die "budgets should be a child of root"
+
 [[ "$(account_parent teaching)" == "root" ]] || \
   die "teaching should be a child of root"
 
@@ -209,6 +212,20 @@ assoc_group_tres() {
     cluster=slurm-view-demo \
     account="${account}" \
     format=Account,User,GrpTRES \
+    | awk -F'|' \
+        -v account="${account}" \
+        -v user="${user}" \
+        '$1 == account && $2 == user { print $3; exit }'
+}
+
+assoc_group_run_mins() {
+  local account=$1
+  local user=${2:-}
+
+  sacctmgr -nP show assoc \
+    cluster=slurm-view-demo \
+    account="${account}" \
+    format=Account,User,GrpTRESRunMins \
     | awk -F'|' \
         -v account="${account}" \
         -v user="${user}" \
@@ -242,11 +259,35 @@ qos_field() {
 [[ "$(assoc_group_tres molecular)" == *"cpu=64"* ]] || \
   die "molecular should have GrpTRES cpu=64"
 
+[[ "$(assoc_group_tres molecular)" == *"mem=60G"* ]] || \
+  die "molecular should have GrpTRES mem=60G"
+
 [[ "$(assoc_group_tres "$(demo_account_for demo01)" demo01)" == *"cpu=48"* ]] || \
   die "demo01/proteins should have GrpTRES cpu=48"
 
 [[ "$(assoc_group_tres ai)" == *"gres/gpu:h100=1"* ]] || \
   die "ai should have GrpTRES gres/gpu:h100=1"
+
+[[ "$(assoc_group_tres ai)" == *"cpu=8"* ]] || \
+  die "ai should have GrpTRES cpu=8"
+
+[[ "$(assoc_group_tres ai)" == *"mem=16G"* ]] || \
+  die "ai should have GrpTRES mem=16G"
+
+[[ "$(assoc_group_run_mins budgets)" == *"cpu=361"* ]] || \
+  die "budgets should have a 361 CPU-minute budget"
+
+[[ "$(assoc_group_run_mins budgets)" == *"mem=361G"* ]] || \
+  die "budgets should have a 361 GiB-minute budget"
+
+[[ "$(assoc_group_run_mins climate demo03)" == *"gres/gpu:v100=361"* ]] || \
+  die "demo03 should have a 361 V100 GPU-minute budget"
+
+sacctmgr -nP show assoc \
+  cluster=slurm-view-demo account=budgets user=demo02 \
+  format=Account,User \
+  | grep -qx "budgets|demo02" || \
+    die "missing demo02/budgets association"
 
 [[ "$(assoc_max_jobs ml101)" == "1" ]] || \
   die "ml101 should have MaxJobs=1"

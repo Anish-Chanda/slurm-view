@@ -98,6 +98,7 @@ ensure_account proteins molecular "Protein simulation workloads"
 ensure_account chemistry molecular "Computational chemistry workloads"
 ensure_account climate research "Climate modeling workloads"
 ensure_account ai research "AI and accelerator workloads"
+ensure_account budgets root "Runtime-minute budget showcase"
 
 ensure_account teaching root "Teaching workloads"
 ensure_account cfd101 teaching "CFD course workloads"
@@ -127,6 +128,7 @@ ensure_account_parent proteins molecular
 ensure_account_parent chemistry molecular
 ensure_account_parent climate research
 ensure_account_parent ai research
+ensure_account_parent budgets root
 
 ensure_account_parent teaching root
 ensure_account_parent cfd101 teaching
@@ -143,7 +145,7 @@ sacctmgr -i modify account \
 sacctmgr -i modify account \
   where name=molecular cluster="${CLUSTER}" \
   set FairShare=45 QOS="${ALL_QOS}" DefaultQOS=normal \
-      GrpTRES=cpu=64 \
+      GrpTRES=cpu=64,mem=60G \
   >/dev/null
 
 sacctmgr -i modify account \
@@ -164,7 +166,13 @@ sacctmgr -i modify account \
 sacctmgr -i modify account \
   where name=ai cluster="${CLUSTER}" \
   set FairShare=20 QOS="${ALL_QOS}" DefaultQOS=normal \
-      GrpTRES=gres/gpu:h100=1 \
+      GrpTRES=cpu=8,mem=16G,gres/gpu:h100=1 \
+  >/dev/null
+
+sacctmgr -i modify account \
+  where name=budgets cluster="${CLUSTER}" \
+  set FairShare=10 QOS="${ALL_QOS}" DefaultQOS=normal \
+      GrpTRESRunMins=cpu=361,mem=361G \
   >/dev/null
 
 sacctmgr -i modify account \
@@ -216,6 +224,24 @@ for index in "${!DEMO_USERS[@]}"; do
     "${DEMO_ACCOUNTS[$index]}"
 done
 
+# Reuse demo02 under a separate association for the budget showcase.
+if ! sacctmgr -nP show assoc \
+    cluster="${CLUSTER}" account=budgets user=demo02 \
+    format=Cluster,Account,User \
+  | grep -qx "${CLUSTER}|budgets|demo02"; then
+  sacctmgr -i add user demo02 account=budgets cluster="${CLUSTER}"
+fi
+
+sacctmgr -i modify user \
+  where name=demo02 account=budgets cluster="${CLUSTER}" \
+  set DefaultQOS=normal QOS="${ALL_QOS}" \
+  >/dev/null
+
+sacctmgr -i modify user \
+  where name=demo02 \
+  set DefaultAccount=chemistry \
+  >/dev/null
+
 # The demo originally placed demo01-demo04 directly under the two top-level
 # accounts. Remove those legacy associations after their replacement leaf
 # associations exist. This keeps upgrades of an existing demo VM aligned with
@@ -248,6 +274,12 @@ remove_legacy_association demo04 teaching
 sacctmgr -i modify user \
   where name=demo01 account="$(demo_account_for demo01)" cluster="${CLUSTER}" \
   set GrpTRES=cpu=48 \
+  >/dev/null
+
+# The existing V100 anchor provides the GPU-minute commitment.
+sacctmgr -i modify user \
+  where name=demo03 account=climate cluster="${CLUSTER}" \
+  set GrpTRESRunMins=gres/gpu:v100=361 \
   >/dev/null
 
 log "accounting initialized"

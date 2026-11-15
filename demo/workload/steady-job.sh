@@ -19,6 +19,18 @@ case "${job_name}" in
   mesh-preconditioner)
     description="mesh preconditioner"
     ;;
+  budget-baseline)
+    description="runtime-minute budget anchor"
+    ;;
+  budget-expansion)
+    description="CPU and memory-minute budget request"
+    ;;
+  v100-budget-eval)
+    description="V100 GPU-minute budget request"
+    ;;
+  h100-multi)
+    description="combined CPU, memory, and H100 limit request"
+    ;;
   ml-lab-session)
     description="A100 teaching lab"
     ;;
