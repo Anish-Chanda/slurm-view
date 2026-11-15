@@ -143,6 +143,7 @@ if [[ ! -d "$TARGET" ]]; then
     node -e 'if (typeof require("./dist/server/index.js").startServer !== "function") process.exit(1)'
   )
 
+  chmod 755 "$STAGING"
   mv -- "$STAGING" "$TARGET"
   STAGING=""
 
