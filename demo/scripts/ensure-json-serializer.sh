@@ -147,8 +147,15 @@ dnf builddep -y \
   --disablerepo='*-source' \
   "${SOURCE_RPM}"
 
-[[ -f /etc/profile.d/lmod.sh ]] || \
-  die "Lmod initialization script was not installed"
+LMOD_INIT=""
+for candidate in /etc/lmod-ohpc/profile.sh /etc/profile.d/lmod.sh; do
+  if [[ -r "$candidate" ]]; then
+    LMOD_INIT="$candidate"
+    break
+  fi
+done
+
+[[ -n "$LMOD_INIT" ]] || die "Lmod initialization script was not installed"
 
 pkg-config --exists json-c || \
   die "json-c development files are not available"
@@ -172,11 +179,12 @@ if [[ "${BUILD_USER}" != "root" ]]; then
       HOME="${BUILD_HOME}" \
       RPMBUILD_TOP="${RPMBUILD_TOP}" \
       SOURCE_RPM="${SOURCE_RPM}" \
+      LMOD_INIT="${LMOD_INIT}" \
     bash -c '
       set -euo pipefail
 
       set +u
-      source /etc/profile.d/lmod.sh
+      source "${LMOD_INIT}"
       set -u
       export -f module
 
@@ -190,7 +198,7 @@ else
   log "building Slurm RPMs as root"
 
   set +u
-  source /etc/profile.d/lmod.sh
+  source "${LMOD_INIT}"
   set -u
   export -f module
 
