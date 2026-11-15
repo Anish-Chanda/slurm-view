@@ -30,6 +30,7 @@ import { buildAssociationStore, ancestorChainById, normalizeAssociationId, norma
 import type { AssociationEntry } from '../../../src/server/models/association.js';
 import { buildQosStore, emptyQosEntry } from '../../../src/server/models/qos.js';
 import {
+  calculateAssociationEntryGroupRunMinutesMany,
   remainingSeconds,
   sumRunMinutes,
 } from '../../../src/server/services/pending-analysis/usage.js';
@@ -585,20 +586,33 @@ describe('run-minute conservatism', () => {
     });
   }
 
-  test('independently exceeded run-minute level reports with requested null', async () => {
+  test('independently exceeded run-minute level reports both usage and projected request', async () => {
     const result = await analyzeAssocLimits(runMinutesCtx([], [bigCpuJob('61')]));
     expect(result?.kind).toBe('limit');
     expect(result?.limit).toBe(100000);
-    expect(result?.requested).toBeNull();
+    expect(result?.requested).toBe(240);
     expect(result?.used).not.toBeNull();
     expect(result?.limitingAccount).toBe('organization-a');
+    expect(result?.runtimeMinuteOverview?.hierarchy[1]?.constraints).toEqual([
+      expect.objectContaining({
+        metric: 'cpuMinutes',
+        committed: result?.used,
+        projected: 240,
+        status: 'usageExceeded',
+      }),
+    ]);
   });
 
-  test('run-minute levels below the limit establish no limiter', async () => {
+  test('run-minute levels below the limit still report the tightest budget as evidence', async () => {
     const result = await analyzeAssocLimits(runMinutesCtx([], [
       makeJob({ id: '62', account: 'organization-a', qos: 'normal', startTime: new Date(Date.now() - 60_000) }),
     ]));
-    expect(result).toBeNull();
+    expect(result?.kind).toBe('limit');
+    expect(result?.limit).toBe(100000);
+    expect(result?.requested).toBe(240);
+    expect(result?.used).not.toBeNull();
+    expect(result?.limitingAccount).toBeUndefined();
+    expect(result?.hierarchy?.every((level) => !level.limiting)).toBe(true);
   });
 
   test('Safe-adjacent QOS flags do not change used math or fabricate requested', async () => {
@@ -607,7 +621,8 @@ describe('run-minute conservatism', () => {
       const plain = await analyzeAssocLimits(runMinutesCtx([], [bigCpuJob('63')]));
       const safe = await analyzeAssocLimits(runMinutesCtx(['Safe'], [bigCpuJob('64')]));
       expect(safe?.used).toBe(plain?.used);
-      expect(safe?.requested).toBeNull();
+      expect(safe?.requested).toBe(plain?.requested);
+      expect(safe?.requested).toBe(240);
     } finally {
       jest.useRealTimers();
     }
@@ -760,7 +775,7 @@ describe('reservation adapter fallback discipline', () => {
 
   test('abort does not retry as text', async () => {
     const aborted = new CommandError({
-      kind: 'aborted', executable: 'scontrol', args: [], stderrSnippet: null, message: 'Command aborted: scontrol',
+      kind: 'aborted', executable: 'scontrol', args: [], message: 'Command aborted: scontrol',
     });
     const run: SlurmRunFn = jest.fn().mockRejectedValue(aborted);
     await expect(fetchReservationDetail({ ...ctx, run }, 'resv1')).rejects.toBe(aborted);
@@ -769,7 +784,7 @@ describe('reservation adapter fallback discipline', () => {
 
   test('timeout propagates without text retry', async () => {
     const timedOut = new CommandError({
-      kind: 'timeout', executable: 'scontrol', args: [], stderrSnippet: null, message: 'timed out',
+      kind: 'timeout', executable: 'scontrol', args: [], message: 'timed out',
     });
     const run: SlurmRunFn = jest.fn().mockRejectedValue(timedOut);
     await expect(fetchReservationDetail({ ...ctx, run }, 'resv1')).rejects.toBe(timedOut);
@@ -996,6 +1011,73 @@ describe('service refresh, cooldown, and missing-job mapping', () => {
     expect(fake.calls.assoc).toBe(assocAfterFirst);
     await service.analyze('55', { nowMs: 4_000_000 + 60_000 });
     expect(fake.calls.assoc).toBeGreaterThanOrEqual(assocAfterFirst + 1);
+  });
+
+  test('contradiction refresh uses only the reported resource, not the overview', async () => {
+    const fake: Fake = {
+      targeted: pendingCpuJob(57, 'AssocGrpCpuLimit'),
+      squeueTexts: [
+        formattedSqueue([
+          squeueJob({
+            job_id: 91,
+            job_state: ['RUNNING'],
+            tres_req_str: 'cpu=10,mem=100M,node=1',
+            tres_alloc_str: 'cpu=10,mem=100M,node=1',
+          }),
+        ]),
+      ],
+      // The reported CPU limit is genuinely exceeded. Memory at the same
+      // association has headroom, but only the reported constraint may decide
+      // whether a contradiction refresh is needed.
+      assocTexts: [
+        `${assocHeader}\n1||c|organization-a|||root|cpu=10,mem=1000||||\n2|1|c|organization-a|alice||organization-a|||||`,
+      ],
+      qosTexts: [qosRow],
+      calls: { squeue: 0, assoc: 0, qos: 0, partition: 0 },
+    };
+    const { service } = serviceFor(fake);
+    const result = await service.analyze('57', { nowMs: 5_000_000 });
+    if (result.analysis?.kind !== 'limit' || result.analysis.used === null) {
+      throw new Error('expected quantified limit analysis');
+    }
+    expect(result.analysis.metric).toBe('cpus');
+    expect(result.analysis.used).toBe(10);
+    expect(result.analysis.used + (result.analysis.requested ?? 0)).toBeGreaterThan(
+      result.analysis.limit
+    );
+    const memory = result.analysis.associationOverview?.hierarchy
+      .find((level) => level.account === 'organization-a' && level.user === undefined)
+      ?.constraints.find((constraint) => constraint.resource === 'memoryMiB');
+    expect(memory).toMatchObject({ status: 'withinLimit', used: 100, requested: 100 });
+    // No contradiction refresh: each evidence snapshot was loaded exactly once.
+    expect(fake.calls.squeue).toBe(1);
+    expect(fake.calls.assoc).toBe(1);
+    expect(fake.calls.qos).toBe(1);
+  });
+
+  test('runtime-minute estimates that fit do not trigger a contradiction refresh', async () => {
+    const fake: Fake = {
+      targeted: { ...pendingCpuJob(58, 'AssocGrpCPURunMinutesLimit'), time_limit: 60 },
+      squeueTexts: [''],
+      assocTexts: [
+        `${assocHeader}\n1||c|organization-a|||root||cpu=10000||\n2|1|c|organization-a|alice||organization-a|||||`,
+      ],
+      qosTexts: [qosRow],
+      calls: { squeue: 0, assoc: 0, qos: 0, partition: 0 },
+    };
+    const { service } = serviceFor(fake);
+    const result = await service.analyze('58', { nowMs: 6_000_000 });
+    if (result.analysis?.kind !== 'limit') {
+      throw new Error('expected limit analysis');
+    }
+    expect(result.analysis.metric).toBe('cpuMinutes');
+    expect(result.analysis.used).toBe(0);
+    expect(result.analysis.requested).toBe(60);
+    // The estimate fits the limit, but disagreement with Slurm's reason must
+    // not trigger the instantaneous contradiction refresh path.
+    expect(fake.calls.squeue).toBe(1);
+    expect(fake.calls.assoc).toBe(1);
+    expect(fake.calls.qos).toBe(1);
   });
 
   test('missing job via errors[] becomes 404; unrelated errors stay 503', async () => {
@@ -1268,7 +1350,7 @@ describe('run-minute unknown contributors', () => {
     expect(result?.limitingAccount).toBe('organization-a');
   });
 
-  test('unknown remainder without a proven lower bound yields nothing', async () => {
+  test('unknown remainder without a proven lower bound still reports useful evidence', async () => {
     const result = await analyzeAssocLimits(cpuRunMinutesCtx([
       makeJob({
         id: '144', account: 'organization-a', qos: 'normal',
@@ -1277,7 +1359,557 @@ describe('run-minute unknown contributors', () => {
       }),
       makeJob({ id: '145', account: 'organization-a', qos: 'normal', startTime: null }),
     ]));
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result?.limit).toBe(100000);
+    expect(result?.used).toBeNull();
+    expect(result?.requested).toBe(240);
+    expect(result?.limitingAccount).toBeUndefined();
+    expect(result?.runtimeMinuteOverview?.hierarchy[1]?.constraints[0]).toMatchObject({
+      metric: 'cpuMinutes',
+      committed: null,
+      projected: 240,
+      status: 'unknown',
+    });
+  });
+});
+
+describe('association runtime-minute limits', () => {
+  const RUNTIME_NOW = new Date('2026-06-01T12:00:00Z');
+  const noGpus = { total: 0, byType: {} };
+  const oneHour = 60 * 60 * 1000;
+  const ninetyMinutes = 90 * 60 * 1000;
+
+  beforeEach(() => {
+    jest.useFakeTimers().setSystemTime(RUNTIME_NOW);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  function runtimeEntries(
+    runMins: AssociationEntry['grpTresRunMins']
+  ): AssociationEntry[] {
+    return [
+      assocEntry({ id: '1', parentId: null, account: 'root' }),
+      assocEntry({
+        id: '2',
+        parentId: '1',
+        account: 'organization-a',
+        parentAccount: 'root',
+        grpTresRunMins: runMins,
+      }),
+      assocEntry({ id: '9', parentId: '2', account: 'organization-a', user: 'alice' }),
+    ];
+  }
+
+  function runtimeJob(
+    id: string,
+    opts: {
+      cpus?: number | null;
+      memoryMiB?: number | null;
+      gpus?: Job['allocated']['gpus'];
+      qos?: string;
+      startTime?: Date | null;
+      timeLimit?: Job['timeLimit'];
+    } = {}
+  ): Job {
+    return makeJob({
+      id,
+      state: 'RUNNING',
+      account: 'organization-a',
+      user: 'alice',
+      partition: 'debug',
+      qos: opts.qos ?? 'normal',
+      startTime:
+        opts.startTime === undefined ? new Date(RUNTIME_NOW.getTime() - oneHour) : opts.startTime,
+      timeLimit: opts.timeLimit ?? { kind: 'finite', seconds: 7200 },
+      allocated: {
+        cpus: opts.cpus ?? null,
+        memoryMiB: opts.memoryMiB ?? null,
+        nodes: 1,
+        gpus: opts.gpus ?? noGpus,
+        gpuPresent: true,
+      },
+    });
+  }
+
+  function runtimeAnalyze(opts: {
+    reason: 'AssocGrpCPURunMinutesLimit' | 'AssocGrpMemRunMinutes' | 'AssocGrpGRESRunMinutes';
+    requested: Job['requested'];
+    entries: AssociationEntry[];
+    jobs?: Job[];
+    timeLimit?: Job['timeLimit'];
+    qos?: string | null;
+    qosEntries?: Array<ReturnType<typeof emptyQosEntry>> | null;
+    user?: string;
+    partition?: string;
+    memory?: MemoryRequirement;
+  }) {
+    const pending = makeJob({
+      id: '3001',
+      state: 'PENDING',
+      stateReason: opts.reason,
+      account: 'organization-a',
+      user: opts.user ?? 'alice',
+      partition: opts.partition ?? 'debug',
+      qos: opts.qos === undefined ? 'normal' : opts.qos,
+      requested: opts.requested,
+      timeLimit: opts.timeLimit ?? { kind: 'finite', seconds: 3600 },
+    });
+    const base = makeCtx(pending, {
+      jobs: opts.jobs ?? [],
+      assocEntries: opts.entries,
+      memory: opts.memory,
+    });
+    return analyzeAssocLimits({
+      ...base,
+      qos:
+        opts.qosEntries === null
+          ? null
+          : {
+              store: buildQosStore(opts.qosEntries ?? [emptyQosEntry('normal')]),
+              capturedAt: new Date(),
+            },
+    });
+  }
+
+  function accountRuntimeConstraint(
+    result: Awaited<ReturnType<typeof runtimeAnalyze>>,
+    metric: 'cpuMinutes' | 'memoryMiBMinutes' | 'gpuMinutes',
+    gpuType?: string
+  ) {
+    return result?.runtimeMinuteOverview?.hierarchy[1]?.constraints.find(
+      (constraint) =>
+        constraint.metric === metric && constraint.gpuType === gpuType
+    );
+  }
+
+  test.each([
+    { cpus: 0, qos: 'missing', startTime: null },
+    { cpus: null, qos: 'free', startTime: null },
+    { cpus: 2, qos: 'normal', startTime: new Date(RUNTIME_NOW.getTime() - 3 * oneHour) },
+  ])('known zero runtime contributions stay exact: %j', (opts) => {
+    const jobs = [runtimeJob('zero', opts)];
+    const qosStore = buildQosStore([{ ...emptyQosEntry('free'), usageFactor: 0 }]);
+    const now = RUNTIME_NOW;
+    const sum = sumRunMinutes(jobs, now, qosStore, () => true, (job) => job.allocated.cpus);
+    const entries = runtimeEntries({ cpu: 1000, memMiB: null, node: null, gres: {} });
+    const store = buildAssociationStore(entries);
+    const many = calculateAssociationEntryGroupRunMinutesMany(
+      entries[1]!, store, new Map([['zero', '9']]), { jobs, qosStore, now },
+      { cpu: (job) => job.allocated.cpus },
+    );
+    for (const result of [sum, many.cpu]) {
+      expect(result).toMatchObject({ total: 0, unknown: 0, runningJobs: 1, topConsumers: [] });
+    }
+  });
+
+  test.each([0, null])('zero UsageFactor projects zero with amount %s and unlimited runtime', async (cpus) => {
+    const result = await runtimeAnalyze({
+      reason: 'AssocGrpCPURunMinutesLimit',
+      requested: { cpus, memoryMiB: null, nodes: 1, gpus: noGpus },
+      timeLimit: { kind: 'infinite' },
+      qosEntries: [{ ...emptyQosEntry('normal'), usageFactor: 0 }],
+      entries: runtimeEntries({ cpu: 1000, memMiB: null, node: null, gres: {} }),
+    });
+    expect(result?.requested).toBe(0);
+  });
+
+  test('zero resource projection stays zero with unknown QOS and unlimited runtime', async () => {
+    const result = await runtimeAnalyze({
+      reason: 'AssocGrpMemRunMinutes',
+      requested: { cpus: 1, memoryMiB: 0, nodes: 1, gpus: noGpus },
+      timeLimit: { kind: 'infinite' },
+      qosEntries: null,
+      entries: runtimeEntries({ cpu: null, memMiB: 1000, node: null, gres: {} }),
+    });
+    expect(result?.requested).toBe(0);
+  });
+
+  test.each([100, 1000])('top consumers stay in the selected association scope (limit %s)', async (cpu) => {
+    const entries = runtimeEntries({ cpu: 10000, memMiB: null, node: null, gres: {} });
+    entries[2] = { ...entries[2]!, grpTresRunMins: { cpu, memMiB: null, node: null, gres: {} } };
+    entries.push(assocEntry({ id: '10', parentId: '2', account: 'organization-a', user: 'bob' }));
+    const result = await runtimeAnalyze({
+      reason: 'AssocGrpCPURunMinutesLimit',
+      requested: { cpus: 1, memoryMiB: null, nodes: 1, gpus: noGpus },
+      entries,
+      jobs: [runtimeJob('alice-job', { cpus: 1 }), { ...runtimeJob('bob-job', { cpus: 20 }), user: 'bob' }],
+    });
+    expect(result?.limit).toBe(cpu);
+    expect(result?.used).toBe(60);
+    expect(result?.topConsumers).toEqual([
+      { jobId: 'alice-job', user: 'alice', account: 'organization-a', value: 60 },
+    ]);
+  });
+
+  test('projects CPU minutes from the request, finite runtime, and QOS UsageFactor', async () => {
+    const result = await runtimeAnalyze({
+      reason: 'AssocGrpCPURunMinutesLimit',
+      requested: { cpus: 4, memoryMiB: null, nodes: 1, gpus: noGpus },
+      qos: 'premium',
+      qosEntries: [
+        emptyQosEntry('normal'),
+        { ...emptyQosEntry('premium'), usageFactor: 2 },
+      ],
+      entries: runtimeEntries({ cpu: 1000, memMiB: null, node: null, gres: {} }),
+    });
+    expect(result?.metric).toBe('cpuMinutes');
+    expect(result?.requested).toBe(480);
+    expect(result?.used).toBe(0);
+    expect(accountRuntimeConstraint(result, 'cpuMinutes')).toMatchObject({
+      limit: 1000,
+      committed: 0,
+      projected: 480,
+      status: 'withinLimit',
+    });
+  });
+
+  test('uses remaining time and each running job QOS factor for committed CPU minutes', async () => {
+    const result = await runtimeAnalyze({
+      reason: 'AssocGrpCPURunMinutesLimit',
+      requested: { cpus: 4, memoryMiB: null, nodes: 1, gpus: noGpus },
+      qos: 'premium',
+      qosEntries: [
+        emptyQosEntry('normal'),
+        { ...emptyQosEntry('premium'), usageFactor: 2 },
+      ],
+      jobs: [
+        runtimeJob('3002', {
+          cpus: 2,
+          qos: 'premium',
+          startTime: new Date(RUNTIME_NOW.getTime() - ninetyMinutes),
+        }),
+      ],
+      entries: runtimeEntries({ cpu: 1000, memMiB: null, node: null, gres: {} }),
+    });
+    // 2 CPUs x 30 remaining minutes x factor 2.
+    expect(result?.used).toBe(120);
+    expect(result?.requested).toBe(480);
+  });
+
+  test('projects memory minutes from the aggregate memory request', async () => {
+    const result = await runtimeAnalyze({
+      reason: 'AssocGrpMemRunMinutes',
+      requested: { cpus: 1, memoryMiB: null, nodes: 2, gpus: noGpus },
+      memory: { kind: 'perNode', memoryMiB: 4096 },
+      entries: runtimeEntries({ cpu: null, memMiB: 1_000_000, node: null, gres: {} }),
+    });
+    expect(result?.metric).toBe('memoryMiBMinutes');
+    // 4 GiB per node x 2 nodes x 60 minutes.
+    expect(result?.requested).toBe(491_520);
+    expect(accountRuntimeConstraint(result, 'memoryMiBMinutes')).toMatchObject({
+      limit: 1_000_000,
+      committed: 0,
+      projected: 491_520,
+      status: 'withinLimit',
+    });
+  });
+
+  test('applies a generic GPU limit to every allocated GPU', async () => {
+    const result = await runtimeAnalyze({
+      reason: 'AssocGrpGRESRunMinutes',
+      requested: { cpus: 1, memoryMiB: null, nodes: 1, gpus: { total: 2, byType: {} } },
+      jobs: [
+        runtimeJob('3003', {
+          cpus: 1,
+          gpus: { total: 3, byType: { a100: 2, h100: 1 } },
+        }),
+      ],
+      entries: runtimeEntries({ cpu: null, memMiB: null, node: null, gres: { gpu: 500 } }),
+    });
+    expect(result?.metric).toBe('gpuMinutes');
+    expect(result?.used).toBe(180);
+    expect(result?.requested).toBe(120);
+    const gpu = accountRuntimeConstraint(result, 'gpuMinutes');
+    expect(gpu).toMatchObject({
+      limit: 500,
+      committed: 180,
+      projected: 120,
+      status: 'withinLimit',
+    });
+    expect(gpu).not.toHaveProperty('gpuType');
+  });
+
+  test('counts only the applicable type for typed GPU limits', async () => {
+    const result = await runtimeAnalyze({
+      reason: 'AssocGrpGRESRunMinutes',
+      requested: {
+        cpus: 1,
+        memoryMiB: null,
+        nodes: 1,
+        gpus: { total: 2, byType: { a100: 2 } },
+      },
+      jobs: [
+        runtimeJob('3004', { cpus: 1, gpus: { total: 1, byType: { a100: 1 } } }),
+        runtimeJob('3005', { cpus: 1, gpus: { total: 5, byType: { h100: 5 } } }),
+      ],
+      entries: runtimeEntries({
+        cpu: null,
+        memMiB: null,
+        node: null,
+        gres: { 'gpu:a100': 500, 'gpu:h100': 1 },
+      }),
+    });
+    expect(result?.gpuType).toBe('a100');
+    expect(result?.used).toBe(60);
+    expect(result?.requested).toBe(120);
+    expect(accountRuntimeConstraint(result, 'gpuMinutes', 'a100')).toMatchObject({
+      limit: 500,
+      committed: 60,
+      projected: 120,
+      status: 'withinLimit',
+    });
+    expect(accountRuntimeConstraint(result, 'gpuMinutes', 'h100')).toBeUndefined();
+  });
+
+  test('keeps generic and typed GPU constraints separate', async () => {
+    const result = await runtimeAnalyze({
+      reason: 'AssocGrpGRESRunMinutes',
+      requested: {
+        cpus: 1,
+        memoryMiB: null,
+        nodes: 1,
+        gpus: { total: 2, byType: { a100: 2 } },
+      },
+      jobs: [
+        runtimeJob('3006', { cpus: 1, gpus: { total: 1, byType: { a100: 1 } } }),
+        runtimeJob('3007', { cpus: 1, gpus: { total: 5, byType: { h100: 5 } } }),
+      ],
+      entries: runtimeEntries({
+        cpu: null,
+        memMiB: null,
+        node: null,
+        gres: { gpu: 500, 'gpu:a100': 100 },
+      }),
+    });
+    expect(accountRuntimeConstraint(result, 'gpuMinutes')).toMatchObject({
+      limit: 500,
+      committed: 360,
+      projected: 120,
+      status: 'withinLimit',
+    });
+    expect(accountRuntimeConstraint(result, 'gpuMinutes', 'a100')).toMatchObject({
+      limit: 100,
+      committed: 60,
+      projected: 120,
+      status: 'exceedsRequest',
+    });
+    expect(result?.gpuType).toBe('a100');
+    expect(result?.limit).toBe(100);
+  });
+
+  test('treats an unavailable QOS UsageFactor as unknown, never zero', async () => {
+    const result = await runtimeAnalyze({
+      reason: 'AssocGrpCPURunMinutesLimit',
+      requested: { cpus: 4, memoryMiB: null, nodes: 1, gpus: noGpus },
+      qos: 'missing',
+      qosEntries: [emptyQosEntry('normal')],
+      jobs: [runtimeJob('3008', { cpus: 2, qos: 'missing' })],
+      entries: runtimeEntries({ cpu: 1000, memMiB: null, node: null, gres: {} }),
+    });
+    expect(result).not.toBeNull();
+    expect(result?.used).toBeNull();
+    expect(result?.requested).toBeNull();
+    expect(accountRuntimeConstraint(result, 'cpuMinutes')).toMatchObject({
+      committed: null,
+      projected: null,
+      status: 'unknown',
+    });
+  });
+
+  test('marks a projection that alone exceeds the budget as exceedsRequest', async () => {
+    const result = await runtimeAnalyze({
+      reason: 'AssocGrpCPURunMinutesLimit',
+      requested: { cpus: 10, memoryMiB: null, nodes: 1, gpus: noGpus },
+      entries: runtimeEntries({ cpu: 100, memMiB: null, node: null, gres: {} }),
+    });
+    expect(result?.used).toBe(0);
+    expect(result?.requested).toBe(600);
+    expect(result?.limitingAccount).toBe('organization-a');
+    expect(accountRuntimeConstraint(result, 'cpuMinutes')).toMatchObject({
+      status: 'exceedsRequest',
+      committed: 0,
+      projected: 600,
+    });
+  });
+
+  test('marks known commitment plus the projection over the budget as usageExceeded', async () => {
+    const result = await runtimeAnalyze({
+      reason: 'AssocGrpCPURunMinutesLimit',
+      requested: { cpus: 4, memoryMiB: null, nodes: 1, gpus: noGpus },
+      jobs: [runtimeJob('3009', { cpus: 2 })],
+      entries: runtimeEntries({ cpu: 300, memMiB: null, node: null, gres: {} }),
+    });
+    expect(result?.used).toBe(120);
+    expect(result?.requested).toBe(240);
+    expect(accountRuntimeConstraint(result, 'cpuMinutes')).toMatchObject({
+      status: 'usageExceeded',
+      committed: 120,
+      projected: 240,
+    });
+  });
+
+  test('marks a healthy budget as withinLimit', async () => {
+    const result = await runtimeAnalyze({
+      reason: 'AssocGrpCPURunMinutesLimit',
+      requested: { cpus: 2, memoryMiB: null, nodes: 1, gpus: noGpus },
+      jobs: [runtimeJob('3010', { cpus: 1 })],
+      entries: runtimeEntries({ cpu: 1000, memMiB: null, node: null, gres: {} }),
+    });
+    expect(result?.used).toBe(60);
+    expect(result?.requested).toBe(120);
+    expect(result?.limitingAccount).toBeUndefined();
+    expect(accountRuntimeConstraint(result, 'cpuMinutes')).toMatchObject({
+      status: 'withinLimit',
+      committed: 60,
+      projected: 120,
+    });
+  });
+
+  test('reports unknown committed minutes when a contributor cannot be quantified', async () => {
+    const result = await runtimeAnalyze({
+      reason: 'AssocGrpCPURunMinutesLimit',
+      requested: { cpus: 4, memoryMiB: null, nodes: 1, gpus: noGpus },
+      jobs: [
+        runtimeJob('3011', { cpus: 2 }),
+        runtimeJob('3012', { cpus: 2, startTime: null }),
+      ],
+      entries: runtimeEntries({ cpu: 1000, memMiB: null, node: null, gres: {} }),
+    });
+    expect(result?.used).toBeNull();
+    expect(result?.requested).toBe(240);
+    expect(accountRuntimeConstraint(result, 'cpuMinutes')).toMatchObject({
+      status: 'unknown',
+      committed: null,
+      projected: 240,
+    });
+  });
+
+  test('keeps a known lower-bound violation when other contributors are unknown', async () => {
+    const result = await runtimeAnalyze({
+      reason: 'AssocGrpCPURunMinutesLimit',
+      requested: { cpus: 4, memoryMiB: null, nodes: 1, gpus: noGpus },
+      jobs: [
+        runtimeJob('3013', { cpus: 10 }),
+        runtimeJob('3014', { cpus: 2, startTime: null }),
+      ],
+      entries: runtimeEntries({ cpu: 500, memMiB: null, node: null, gres: {} }),
+    });
+    expect(result?.used).toBeNull();
+    expect(result?.limitingAccount).toBe('organization-a');
+    expect(accountRuntimeConstraint(result, 'cpuMinutes')).toMatchObject({
+      status: 'usageExceeded',
+      committed: null,
+      projected: 240,
+    });
+  });
+
+  test('does not fabricate a primary limit without a matching policy', async () => {
+    const memoryOnly = await runtimeAnalyze({
+      reason: 'AssocGrpCPURunMinutesLimit',
+      requested: { cpus: 1, memoryMiB: null, nodes: 1, gpus: noGpus },
+      entries: runtimeEntries({ cpu: null, memMiB: 1000, node: null, gres: {} }),
+    });
+    expect(memoryOnly).toBeNull();
+
+    const cpuOnlyForGres = await runtimeAnalyze({
+      reason: 'AssocGrpGRESRunMinutes',
+      requested: { cpus: 1, memoryMiB: null, nodes: 1, gpus: { total: 1, byType: {} } },
+      entries: runtimeEntries({ cpu: 1000, memMiB: null, node: null, gres: {} }),
+    });
+    expect(cpuOnlyForGres).toBeNull();
+
+    const unrelatedType = await runtimeAnalyze({
+      reason: 'AssocGrpGRESRunMinutes',
+      requested: {
+        cpus: 1,
+        memoryMiB: null,
+        nodes: 1,
+        gpus: { total: 1, byType: { a100: 1 } },
+      },
+      entries: runtimeEntries({
+        cpu: null,
+        memMiB: null,
+        node: null,
+        gres: { 'gpu:h100': 1000 },
+      }),
+    });
+    expect(unrelatedType).toBeNull();
+  });
+
+  test('evaluates every ancestry level, including a partition-specific association', async () => {
+    const result = await runtimeAnalyze({
+      reason: 'AssocGrpCPURunMinutesLimit',
+      requested: { cpus: 4, memoryMiB: null, nodes: 1, gpus: noGpus },
+      partition: 'debug',
+      entries: [
+        assocEntry({ id: '1', parentId: null, account: 'root' }),
+        assocEntry({
+          id: '2',
+          parentId: '1',
+          account: 'organization-a',
+          parentAccount: 'root',
+          grpTresRunMins: { cpu: 50, memMiB: null, node: null, gres: {} },
+        }),
+        assocEntry({
+          id: '3',
+          parentId: '2',
+          account: 'organization-a',
+          user: 'alice',
+        }),
+        assocEntry({
+          id: '4',
+          parentId: '2',
+          account: 'organization-a',
+          user: 'alice',
+          partition: 'debug',
+          grpTresRunMins: { cpu: 10000, memMiB: null, node: null, gres: {} },
+        }),
+      ],
+    });
+    expect(result?.limit).toBe(50);
+    expect(result?.limitingAccount).toBe('organization-a');
+    expect(result?.hierarchy?.map((level) => level.limit)).toEqual([10000, 50, null]);
+    expect(result?.hierarchy?.[0]).toMatchObject({ user: 'alice', partition: 'debug' });
+    expect(result?.hierarchy?.[1]?.limiting).toBe(true);
+    expect(result?.runtimeMinuteOverview?.hierarchy.map((level) => level.constraints.length)).toEqual([
+      1, 1, 0,
+    ]);
+  });
+
+  test('preserves the reported CPU reason while surfacing memory and GPU constraints', async () => {
+    const result = await runtimeAnalyze({
+      reason: 'AssocGrpCPURunMinutesLimit',
+      requested: {
+        cpus: 1,
+        memoryMiB: 8192,
+        nodes: 1,
+        gpus: { total: 2, byType: { a100: 2 } },
+      },
+      entries: runtimeEntries({
+        cpu: 10000,
+        memMiB: 1000,
+        node: null,
+        gres: { 'gpu:a100': 100 },
+      }),
+    });
+    expect(result?.metric).toBe('cpuMinutes');
+    expect(result?.limit).toBe(10000);
+    expect(result?.requested).toBe(60);
+    expect(accountRuntimeConstraint(result, 'cpuMinutes')).toMatchObject({
+      status: 'withinLimit',
+    });
+    expect(accountRuntimeConstraint(result, 'memoryMiBMinutes')).toMatchObject({
+      status: 'exceedsRequest',
+      limit: 1000,
+    });
+    expect(accountRuntimeConstraint(result, 'gpuMinutes', 'a100')).toMatchObject({
+      status: 'exceedsRequest',
+      limit: 100,
+    });
+    expect(result?.runtimeMinuteOverview?.hierarchy[1]?.constraints).toHaveLength(3);
   });
 });
 
@@ -1298,7 +1930,7 @@ describe('allocated-only usage accounting', () => {
         jobs: [makeJob({
           id: '151', account: 'organization-a',
           requested: { cpus: 32, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } },
-          allocated: { cpus: 2, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } },
+          allocated: { cpus: 2, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} }, gpuPresent: true },
         })],
       }),
       assoc: base,
@@ -1309,7 +1941,7 @@ describe('allocated-only usage accounting', () => {
         jobs: [makeJob({
           id: '152', account: 'organization-a',
           requested: { cpus: 32, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } },
-          allocated: { cpus: null, memoryMiB: null, nodes: null, gpus: { total: 0, byType: {} } },
+          allocated: { cpus: null, memoryMiB: null, nodes: null, gpus: { total: 0, byType: {} }, gpuPresent: true },
         })],
       }),
       assoc: base,
@@ -1320,7 +1952,7 @@ describe('allocated-only usage accounting', () => {
         jobs: [makeJob({
           id: '153', account: 'organization-a',
           requested: { cpus: 32, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } },
-          allocated: { cpus: 0, memoryMiB: null, nodes: null, gpus: { total: 0, byType: {} } },
+          allocated: { cpus: 0, memoryMiB: null, nodes: null, gpus: { total: 0, byType: {} }, gpuPresent: true },
         })],
       }),
       assoc: base,
@@ -1673,7 +2305,7 @@ describe('association evidence-aware selection', () => {
     return makeJob({
       id, account,
       requested: { cpus: cpus ?? 1, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } },
-      allocated: { cpus, memoryMiB: null, nodes: null, gpus: { total: 0, byType: {} } },
+      allocated: { cpus, memoryMiB: null, nodes: null, gpus: { total: 0, byType: {} }, gpuPresent: true },
     });
   }
 
@@ -2717,8 +3349,8 @@ describe('full association ancestry in hierarchy', () => {
       requested: { cpus: 1, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } },
     });
     const jobs = [
-      makeJob({ id: '1002', account: 'project-a', user: 'user-a', allocated: { cpus: 5, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } } }),
-      makeJob({ id: '1003', account: 'division-a', user: 'user-b', allocated: { cpus: 72, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } } }),
+      makeJob({ id: '1002', account: 'project-a', user: 'user-a', allocated: { cpus: 5, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} }, gpuPresent: true } }),
+      makeJob({ id: '1003', account: 'division-a', user: 'user-b', allocated: { cpus: 72, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} }, gpuPresent: true } }),
     ];
     const ctx = {
       ...makeCtx(pending, { jobs }),
@@ -2847,7 +3479,7 @@ describe('full association ancestry in hierarchy', () => {
       requested: { cpus: 1, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } },
     });
     const ctx = {
-      ...makeCtx(pending, { jobs: [makeJob({ id: '1013', account: 'project-a', user: 'user-a', partition: 'partition-a', allocated: { cpus: 10, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} } } })] }),
+      ...makeCtx(pending, { jobs: [makeJob({ id: '1013', account: 'project-a', user: 'user-a', partition: 'partition-a', allocated: { cpus: 10, memoryMiB: null, nodes: 1, gpus: { total: 0, byType: {} }, gpuPresent: true } })] }),
       assoc: { store: buildAssociationStore(partitionChain), capturedAt: new Date() },
     };
     const result = await analyzeAssocLimits(ctx);
@@ -2969,7 +3601,7 @@ describe('Association request above limit', () => {
     });
   });
 
-  // Job counts and run-minutes are outside the CPU/memory/GPU scope, so they are never flagged.
+  // Job counts are outside the CPU/memory/GPU scope, so they are never flagged.
   describe('AssocMaxJobsLimit', () => {
     test('is not flagged, even with a limit of zero', async () => {
       const entries = [
@@ -2983,11 +3615,14 @@ describe('Association request above limit', () => {
     });
   });
 
+  // Runtime-minute requests are projected commitments, not instantaneous
+  // requests, so the shared instantaneous flag list stays empty; the runtime
+  // analysis reports the projected overage independently.
   describe.each([
-    ['AssocGrpCPURunMinutesLimit', { cpu: 100, memMiB: null }],
-    ['AssocGrpMemRunMinutes', { cpu: null, memMiB: 100 }],
-  ])('%s', (reason, runMins) => {
-    test('is not flagged even when the job is far above the limit', async () => {
+    ['AssocGrpCPURunMinutesLimit', { cpu: 100, memMiB: null }, 240000],
+    ['AssocGrpMemRunMinutes', { cpu: null, memMiB: 100 }, 240000000],
+  ])('%s', (reason, runMins, projected) => {
+    test('is not flagged as an instantaneous request but reports the projected overage', async () => {
       const entries = limitsOf({ grpTresRunMins: { ...runMins, node: null, gres: {} } });
       const huge = { cpus: 4000, memoryMiB: 4_000_000, nodes: 1, gpus: noGpus };
       const timeLimit = { kind: 'finite' as const, seconds: 3600 };
@@ -2999,8 +3634,496 @@ describe('Association request above limit', () => {
       });
       const result = await analyze(reason, huge, entries, { qos: 'normal', timeLimit }, [running]);
       expect(result).not.toBeNull();
-      expect(result?.requested).toBeNull();
+      expect(result?.requested).toBe(projected);
+      expect(result?.runtimeMinuteOverview?.hierarchy.at(-2)?.constraints[0]).toMatchObject({
+        status: 'exceedsRequest',
+        projected,
+      });
       expect(flaggedLimits(result)).toEqual([]);
     });
+  });
+});
+
+describe('association multi-resource overview', () => {
+  const noGpus = { total: 0, byType: {} };
+
+  function accountChain(
+    grpTres: AssociationEntry['grpTres'],
+    accountPatch: Partial<AssociationEntry> = {}
+  ): AssociationEntry[] {
+    return [
+      assocEntry({ id: '1', parentId: null, account: 'root' }),
+      assocEntry({
+        id: '2',
+        parentId: '1',
+        account: 'organization-a',
+        parentAccount: 'root',
+        grpTres,
+        ...accountPatch,
+      }),
+      assocEntry({ id: '9', parentId: '2', account: 'organization-a', user: 'alice' }),
+    ];
+  }
+
+  function running(
+    id: string,
+    opts: {
+      user?: string;
+      cpus?: number | null;
+      memoryMiB?: number | null;
+      gpus?: { total: number; byType: Record<string, number> };
+      gpuPresent?: boolean;
+    } = {}
+  ): Job {
+    return makeJob({
+      id,
+      account: 'organization-a',
+      user: opts.user ?? 'alice',
+      allocated: {
+        cpus: opts.cpus === undefined ? 1 : opts.cpus,
+        memoryMiB: opts.memoryMiB === undefined ? 100 : opts.memoryMiB,
+        nodes: 1,
+        gpus: opts.gpus ?? noGpus,
+        gpuPresent: opts.gpuPresent ?? opts.gpus !== undefined,
+      },
+    });
+  }
+
+  async function analyzeOverview(opts: {
+    reason?: string;
+    requested: Job['requested'];
+    entries: AssociationEntry[];
+    jobs?: Job[];
+    qosEntries?: Array<ReturnType<typeof emptyQosEntry>>;
+    extra?: Partial<Job>;
+  }) {
+    const pending = makeJob({
+      id: '2001',
+      state: 'PENDING',
+      stateReason: opts.reason ?? 'AssocGrpCpuLimit',
+      account: 'organization-a',
+      user: 'alice',
+      requested: opts.requested,
+      ...opts.extra,
+    });
+    return analyzeAssocLimits({
+      ...makeCtx(pending, { jobs: opts.jobs ?? [], assocEntries: opts.entries }),
+      qos: {
+        store: buildQosStore(opts.qosEntries ?? [emptyQosEntry('normal')]),
+        capturedAt: new Date(),
+      },
+    });
+  }
+
+  test('keeps the reported CPU diagnosis while surfacing memory constraints', async () => {
+    const result = await analyzeOverview({
+      requested: { cpus: 8, memoryMiB: 8000, nodes: 1, gpus: noGpus },
+      entries: accountChain({ cpu: 10, memMiB: 2000, node: null, gres: {} }),
+      jobs: [running('2002', { cpus: 4, memoryMiB: 500 })],
+    });
+
+    expect(result?.metric).toBe('cpus');
+    expect(result?.limit).toBe(10);
+    expect(result?.used).toBe(4);
+    expect(result?.requested).toBe(8);
+    expect(result?.limitingAccount).toBe('organization-a');
+
+    const hierarchy = result?.associationOverview?.hierarchy ?? [];
+    expect(hierarchy.map((level) => level.account)).toEqual([
+      'organization-a',
+      'organization-a',
+      'root',
+    ]);
+    expect(hierarchy[0]).toMatchObject({
+      account: 'organization-a',
+      user: 'alice',
+      parent: 'organization-a',
+      constraints: [],
+    });
+    expect(hierarchy[1]?.constraints).toEqual([
+      { resource: 'cpus', limit: 10, used: 4, requested: 8, status: 'usageExceeded' },
+      { resource: 'memoryMiB', limit: 2000, used: 500, requested: 8000, status: 'exceedsRequest' },
+    ]);
+    expect(hierarchy[2]?.constraints).toEqual([]);
+  });
+
+  test('a tighter non-reported resource never replaces the primary reason', async () => {
+    const result = await analyzeOverview({
+      reason: 'AssocGrpMemLimit',
+      requested: { cpus: 20, memoryMiB: 5000, nodes: 1, gpus: noGpus },
+      entries: accountChain({ cpu: 10, memMiB: 10000, node: null, gres: {} }),
+    });
+
+    expect(result?.metric).toBe('memoryMiB');
+    expect(result?.limit).toBe(10000);
+    expect(result?.used).toBe(0);
+    expect(result?.requested).toBe(5000);
+    expect(result?.limitingAccount).toBeUndefined();
+    expect(result?.associationOverview?.hierarchy[1]?.constraints).toEqual([
+      { resource: 'cpus', limit: 10, used: 0, requested: 20, status: 'exceedsRequest' },
+      { resource: 'memoryMiB', limit: 10000, used: 0, requested: 5000, status: 'withinLimit' },
+    ]);
+  });
+
+  test('shares the full hierarchy, including partition-specific levels', async () => {
+    const entries = [
+      assocEntry({ id: '1', parentId: null, account: 'root', grpTres: { cpu: 100, memMiB: null, node: null, gres: {} } }),
+      assocEntry({ id: '2', parentId: '1', account: 'division-a', parentAccount: 'root', grpTres: { cpu: 100, memMiB: 200000, node: null, gres: {} } }),
+      assocEntry({ id: '3', parentId: '2', account: 'project-a', parentAccount: 'division-a', grpTres: { cpu: 50, memMiB: 200000, node: null, gres: {} } }),
+      assocEntry({ id: '4', parentId: '3', account: 'project-a', user: 'alice', partition: 'debug', grpTres: { cpu: null, memMiB: null, node: null, gres: { gpu: 2 } } }),
+    ];
+    const result = await analyzeOverview({
+      reason: 'AssocGrpCpuLimit',
+      requested: { cpus: 60, memoryMiB: 1000, nodes: 1, gpus: { total: 1, byType: { a100: 1 } } },
+      entries,
+      extra: { account: 'project-a', partition: 'debug' },
+    });
+
+    expect(result?.limitingAccount).toBe('project-a');
+    const overview = result?.associationOverview?.hierarchy ?? [];
+    expect(overview).toHaveLength(4);
+    expect(overview.map((level) => level.account)).toEqual([
+      'project-a',
+      'project-a',
+      'division-a',
+      'root',
+    ]);
+    expect(overview[0]).toMatchObject({
+      user: 'alice',
+      partition: 'debug',
+      parent: 'project-a',
+      constraints: [
+        { resource: 'gpus', limit: 2, used: 0, requested: 1, status: 'withinLimit' },
+      ],
+    });
+    expect(overview[1]).toMatchObject({
+      account: 'project-a',
+      parent: 'division-a',
+      constraints: [
+        { resource: 'cpus', limit: 50, used: 0, requested: 60, status: 'exceedsRequest' },
+        { resource: 'memoryMiB', limit: 200000, used: 0, requested: 1000, status: 'withinLimit' },
+      ],
+    });
+    expect(overview[1]?.partition).toBeUndefined();
+    expect(overview[2]).toMatchObject({
+      account: 'division-a',
+      parent: 'root',
+      constraints: [
+        { resource: 'cpus', limit: 100, used: 0, requested: 60, status: 'withinLimit' },
+        { resource: 'memoryMiB', limit: 200000, used: 0, requested: 1000, status: 'withinLimit' },
+      ],
+    });
+    expect(overview[3]?.constraints).toEqual([
+      { resource: 'cpus', limit: 100, used: 0, requested: 60, status: 'withinLimit' },
+    ]);
+
+    expect(
+      overview.map(({ account, user, partition, parent }) => ({
+        account,
+        ...(user !== undefined ? { user } : {}),
+        ...(partition !== undefined ? { partition } : {}),
+        parent,
+      }))
+    ).toEqual(
+      result?.hierarchy?.map(({ account, user, partition, parent }) => ({
+        account,
+        ...(user !== undefined ? { user } : {}),
+        ...(partition !== undefined ? { partition } : {}),
+        parent,
+      }))
+    );
+  });
+
+  test('evaluates generic and typed GPU limits independently at one association', async () => {
+    const result = await analyzeOverview({
+      reason: 'AssocGrpGRES',
+      requested: { cpus: null, memoryMiB: null, nodes: 1, gpus: { total: 2, byType: { a100: 2 } } },
+      entries: accountChain({
+        cpu: null,
+        memMiB: null,
+        node: null,
+        gres: { gpu: 8, 'gpu:a100': 5, 'gpu:v100': 5 },
+      }),
+      jobs: [
+        running('2003', { cpus: 1, memoryMiB: 100, gpus: { total: 4, byType: { a100: 4 } } }),
+        running('2004', { cpus: 1, memoryMiB: 100, gpus: { total: 3, byType: { h200: 3 } } }),
+      ],
+    });
+
+    expect(result?.metric).toBe('gpus');
+    expect(result?.gpuType).toBe('a100');
+    expect(result?.limit).toBe(5);
+    expect(result?.used).toBe(4);
+    expect(result?.requested).toBe(2);
+
+    expect(result?.associationOverview?.hierarchy[1]?.constraints).toEqual([
+      { resource: 'gpus', gpuType: 'a100', limit: 5, used: 4, requested: 2, status: 'usageExceeded' },
+      // v100 is not requested, so its configured limit is not applicable.
+      { resource: 'gpus', limit: 8, used: 7, requested: 2, status: 'usageExceeded' },
+    ]);
+  });
+
+  test('does not evaluate an exhausted GPU type the job did not request', async () => {
+    const result = await analyzeOverview({
+      reason: 'AssocGrpGRES',
+      requested: { cpus: null, memoryMiB: null, nodes: 1, gpus: { total: 1, byType: { a100: 1 } } },
+      entries: accountChain({
+        cpu: null,
+        memMiB: null,
+        node: null,
+        gres: { 'gpu:a100': 4, 'gpu:v100': 2 },
+      }),
+      jobs: [
+        running('2101', { gpus: { total: 3, byType: { v100: 3 } } }),
+      ],
+    });
+
+    expect(result?.associationOverview?.hierarchy[1]?.constraints).toEqual([
+      { resource: 'gpus', gpuType: 'a100', limit: 4, used: 0, requested: 1, status: 'withinLimit' },
+    ]);
+    expect(result?.metric).toBe('gpus');
+    expect(result?.gpuType).toBe('a100');
+  });
+
+  test('evaluates every reliably requested GPU type', async () => {
+    const result = await analyzeOverview({
+      requested: {
+        cpus: 8,
+        memoryMiB: 1000,
+        nodes: 1,
+        gpus: { total: 3, byType: { a100: 1, v100: 2 } },
+      },
+      entries: accountChain({
+        cpu: 10,
+        memMiB: null,
+        node: null,
+        gres: { 'gpu:a100': 4, 'gpu:v100': 4 },
+      }),
+      jobs: [
+        running('2107', { cpus: 1, gpus: { total: 4, byType: { a100: 4 } } }),
+      ],
+    });
+
+    expect(result?.metric).toBe('cpus');
+    expect(result?.associationOverview?.hierarchy[1]?.constraints).toEqual([
+      { resource: 'cpus', limit: 10, used: 1, requested: 8, status: 'withinLimit' },
+      { resource: 'gpus', gpuType: 'a100', limit: 4, used: 4, requested: 1, status: 'usageExceeded' },
+      { resource: 'gpus', gpuType: 'v100', limit: 4, used: 0, requested: 2, status: 'withinLimit' },
+    ]);
+  });
+
+  test('surfaces an additional GPU constraint for a CPU pending reason', async () => {
+    const result = await analyzeOverview({
+      requested: {
+        cpus: 8,
+        memoryMiB: 1000,
+        nodes: 1,
+        gpus: { total: 1, byType: { a100: 1 } },
+      },
+      entries: accountChain({
+        cpu: 10,
+        memMiB: null,
+        node: null,
+        gres: { 'gpu:a100': 2 },
+      }),
+      jobs: [
+        running('2102', { cpus: 1, gpus: { total: 2, byType: { a100: 2 } } }),
+      ],
+    });
+
+    expect(result?.metric).toBe('cpus');
+    expect(result?.associationOverview?.hierarchy[1]?.constraints).toEqual([
+      { resource: 'cpus', limit: 10, used: 1, requested: 8, status: 'withinLimit' },
+      { resource: 'gpus', gpuType: 'a100', limit: 2, used: 2, requested: 1, status: 'usageExceeded' },
+    ]);
+  });
+
+  test('omits GPU policies for a CPU-only job', async () => {
+    const result = await analyzeOverview({
+      requested: { cpus: 8, memoryMiB: 1000, nodes: 1, gpus: noGpus },
+      entries: accountChain({
+        cpu: 10,
+        memMiB: null,
+        node: null,
+        gres: { gpu: 2, 'gpu:a100': 2 },
+      }),
+      jobs: [
+        running('2103', { cpus: 1, gpus: { total: 2, byType: { a100: 2 } } }),
+      ],
+    });
+
+    expect(result?.metric).toBe('cpus');
+    expect(result?.associationOverview?.hierarchy[1]?.constraints).toEqual([
+      { resource: 'cpus', limit: 10, used: 1, requested: 8, status: 'withinLimit' },
+    ]);
+  });
+
+  test('treats an explicit zero GPU allocation as zero typed usage', async () => {
+    const result = await analyzeOverview({
+      reason: 'AssocGrpGRES',
+      requested: { cpus: null, memoryMiB: null, nodes: 1, gpus: { total: 1, byType: { a100: 1 } } },
+      entries: accountChain({
+        cpu: null,
+        memMiB: null,
+        node: null,
+        gres: { 'gpu:a100': 4 },
+      }),
+      jobs: [
+        running('2104', {
+          gpus: { total: 0, byType: { unknown: 0 } },
+          gpuPresent: true,
+        }),
+      ],
+    });
+
+    expect(result?.associationOverview?.hierarchy[1]?.constraints).toEqual([
+      { resource: 'gpus', gpuType: 'a100', limit: 4, used: 0, requested: 1, status: 'withinLimit' },
+    ]);
+  });
+
+  test('known usage proves a violation while another contributor is unknown', async () => {
+    const result = await analyzeOverview({
+      requested: { cpus: 2, memoryMiB: 1000, nodes: 1, gpus: noGpus },
+      entries: accountChain({ cpu: 10, memMiB: null, node: null, gres: {} }),
+      jobs: [
+        running('2105', { cpus: 9 }),
+        running('2106', { cpus: null }),
+      ],
+    });
+
+    expect(result?.associationOverview?.hierarchy[1]?.constraints).toEqual([
+      { resource: 'cpus', limit: 10, used: null, requested: 2, status: 'usageExceeded' },
+    ]);
+  });
+
+  test('keeps permanent violations at their own association levels', async () => {
+    const entries = [
+      assocEntry({ id: '1', parentId: null, account: 'root' }),
+      assocEntry({
+        id: '2',
+        parentId: '1',
+        account: 'organization-a',
+        parentAccount: 'root',
+        grpTres: { cpu: null, memMiB: 5000, node: null, gres: {} },
+      }),
+      assocEntry({
+        id: '9',
+        parentId: '2',
+        account: 'organization-a',
+        user: 'alice',
+        grpTres: { cpu: 4, memMiB: null, node: null, gres: {} },
+      }),
+    ];
+    const result = await analyzeOverview({
+      requested: { cpus: 8, memoryMiB: 8000, nodes: 1, gpus: noGpus },
+      entries,
+    });
+
+    const overview = result?.associationOverview?.hierarchy ?? [];
+    expect(overview[0]).toMatchObject({
+      user: 'alice',
+      constraints: [
+        { resource: 'cpus', limit: 4, used: 0, requested: 8, status: 'exceedsRequest' },
+      ],
+    });
+    expect(overview[1]).toMatchObject({
+      account: 'organization-a',
+      constraints: [
+        { resource: 'memoryMiB', limit: 5000, used: 0, requested: 8000, status: 'exceedsRequest' },
+      ],
+    });
+    expect(overview[0]?.constraints[0]?.resource).toBe('cpus');
+    expect(overview[1]?.constraints[0]?.resource).toBe('memoryMiB');
+  });
+
+  test('leaves typed measurements unknown when the GPU breakdown is incomplete', async () => {
+    const result = await analyzeOverview({
+      reason: 'AssocGrpGRES',
+      requested: {
+        cpus: null,
+        memoryMiB: null,
+        nodes: 1,
+        gpus: { total: 5, byType: { a100: 3, unknown: 2 } },
+      },
+      entries: accountChain({
+        cpu: null,
+        memMiB: null,
+        node: null,
+        gres: { 'gpu:a100': 5, 'gpu:v100': 4, gpu: 10 },
+      }),
+      jobs: [
+        // Positive total with no type detail: absent typed counts are unknown,
+        // not zero.
+        running('2005', { cpus: 1, memoryMiB: 100, gpus: { total: 3, byType: {} } }),
+      ],
+    });
+
+    expect(result?.associationOverview?.hierarchy[1]?.constraints).toEqual([
+      { resource: 'gpus', gpuType: 'a100', limit: 5, used: null, requested: 3, status: 'unknown' },
+      // The untyped remainder is not attributed to v100, so its limit is not
+      // evaluated for this job.
+      { resource: 'gpus', limit: 10, used: 3, requested: 5, status: 'withinLimit' },
+    ]);
+  });
+
+  test('marks memory usage unknown when an in-scope allocation is unquantified', async () => {
+    const result = await analyzeOverview({
+      requested: { cpus: 1, memoryMiB: 1000, nodes: 1, gpus: noGpus },
+      entries: accountChain({ cpu: 10, memMiB: 100000, node: null, gres: {} }),
+      jobs: [running('2006', { cpus: 1, memoryMiB: null })],
+    });
+
+    expect(result?.associationOverview?.hierarchy[1]?.constraints).toEqual([
+      { resource: 'cpus', limit: 10, used: 1, requested: 1, status: 'withinLimit' },
+      { resource: 'memoryMiB', limit: 100000, used: null, requested: 1000, status: 'unknown' },
+    ]);
+  });
+
+  test('applies QOS LimitFactor to every overview resource limit', async () => {
+    const result = await analyzeOverview({
+      requested: { cpus: 15, memoryMiB: 1500, nodes: 1, gpus: { total: 2, byType: {} } },
+      entries: accountChain({ cpu: 10, memMiB: 1000, node: null, gres: { gpu: 3 } }),
+      qosEntries: [{ ...emptyQosEntry('normal'), limitFactor: 2 }],
+    });
+
+    expect(result?.limit).toBe(20);
+    expect(result?.associationOverview?.hierarchy[1]?.constraints).toEqual([
+      { resource: 'cpus', limit: 20, used: 0, requested: 15, status: 'withinLimit' },
+      { resource: 'memoryMiB', limit: 2000, used: 0, requested: 1500, status: 'withinLimit' },
+      { resource: 'gpus', limit: 6, used: 0, requested: 2, status: 'withinLimit' },
+    ]);
+  });
+
+  test('omits non-resource association reasons from the overview', async () => {
+    const maxJobs = await analyzeOverview({
+      reason: 'AssocMaxJobsLimit',
+      requested: { cpus: 1, memoryMiB: 1000, nodes: 1, gpus: noGpus },
+      entries: accountChain({ cpu: null, memMiB: null, node: null, gres: {} }, { maxJobs: 2 }),
+      jobs: [running('2007', { user: 'alice' })],
+    });
+    expect(maxJobs?.metric).toBe('jobs');
+    expect(maxJobs?.associationOverview).toBeUndefined();
+
+    const runMinutes = await analyzeOverview({
+      reason: 'AssocGrpCPURunMinutesLimit',
+      requested: { cpus: 4000, memoryMiB: 1000, nodes: 1, gpus: noGpus },
+      entries: accountChain({ cpu: null, memMiB: null, node: null, gres: {} }, {
+        grpTresRunMins: { cpu: 100, memMiB: null, node: null, gres: {} },
+      }),
+      jobs: [
+        makeJob({
+          id: '2008',
+          account: 'organization-a',
+          user: 'alice',
+          qos: 'normal',
+          timeLimit: { kind: 'finite', seconds: 3600 },
+          startTime: new Date(Date.now() - 60_000),
+          allocated: { cpus: 4000, memoryMiB: 1000, nodes: 1, gpus: noGpus, gpuPresent: true },
+        }),
+      ],
+      extra: { qos: 'normal', timeLimit: { kind: 'finite', seconds: 3600 } },
+    });
+    expect(runMinutes?.metric).toBe('cpuMinutes');
+    expect(runMinutes?.associationOverview).toBeUndefined();
   });
 });

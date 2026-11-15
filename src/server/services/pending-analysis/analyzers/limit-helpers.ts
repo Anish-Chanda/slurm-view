@@ -1,5 +1,6 @@
 // Shared helpers for the association/QOS limit analyzers.
 import type { AnalyzerContext } from '../types.js';
+import type { GpuRequest } from '../../../models/job.js';
 import type { EffectiveQos, QosEntry } from '../../../models/qos.js';
 import { resolveJobAndPartitionQos } from '../policy.js';
 
@@ -20,6 +21,26 @@ function requestedGpuType(ctx: AnalyzerContext): { key: string; display: string;
     return { key: 'gpu', display: 'gpu', count: byType.total };
   }
   return null;
+}
+
+export interface RequestedGpuType {
+  type: string;
+  count: number;
+}
+
+// Generic GPU requests have no reliable type breakdown.
+function requestedGpuTypes(gpus: GpuRequest): RequestedGpuType[] {
+  if (gpus.total === 0) {
+    return [];
+  }
+  const types: RequestedGpuType[] = [];
+  for (const [type, count] of Object.entries(gpus.byType)) {
+    if (type === 'unknown' || !Number.isFinite(count) || count <= 0) {
+      continue;
+    }
+    types.push({ type, count });
+  }
+  return types.sort((a, b) => (a.type < b.type ? -1 : a.type > b.type ? 1 : 0));
 }
 
 // Memory total for TRES memory limits. ReqTRES already carries the total;
@@ -95,4 +116,5 @@ export {
   aggregateMemoryRequest,
   pickEffectiveQosEntry,
   requestedGpuType,
+  requestedGpuTypes,
 };

@@ -5,6 +5,7 @@ import type { QueueJob } from '../../models/queue-job.js';
 import type { AssociationEntry, AssociationStore } from '../../models/association.js';
 import { descendantAssociationIds, resolveAssociation } from '../../models/association.js';
 import type { QosStore } from '../../models/qos.js';
+import type { TimeLimit } from '../../models/job.js';
 
 export type RunMinuteResource = 'cpu' | 'mem';
 
@@ -143,14 +144,49 @@ function calculateAssociationEntryGroupUsage(
   options: UsageOptions,
   pick: (job: QueueJob) => number | null
 ): ScopeUsage {
+  return calculateAssociationEntryGroupUsageMany(entry, store, resolved, options, {
+    usage: pick,
+  }).usage;
+}
+
+function calculateAssociationEntryGroupUsageMany(
+  entry: AssociationEntry,
+  store: AssociationStore,
+  resolved: Map<string, string | null>,
+  options: UsageOptions,
+  picks: Readonly<Record<string, (job: QueueJob) => number | null>>
+): Record<string, ScopeUsage> {
+  const usage: Record<string, ScopeUsage> = {};
+  for (const key of Object.keys(picks)) {
+    usage[key] = { total: 0, runningJobs: 0, unknown: 0 };
+  }
+  const pickEntries = Object.entries(picks);
   const subtree = descendantAssociationIds(store, entry.id);
   const accounts = subtreeAccounts(store, subtree);
-  return accumulate(
-    options.jobs,
-    (job) => classifyEntryJob(resolved, subtree, accounts, job) === 'in',
-    pick,
-    (job) => classifyEntryJob(resolved, subtree, accounts, job) === 'unknown'
-  );
+  for (const job of options.jobs) {
+    if (!isRunning(job)) {
+      continue;
+    }
+    const classification = classifyEntryJob(resolved, subtree, accounts, job);
+    if (classification === 'out') {
+      continue;
+    }
+    for (const [key, pick] of pickEntries) {
+      const accumulator = usage[key] as ScopeUsage;
+      accumulator.runningJobs += 1;
+      if (classification === 'unknown') {
+        accumulator.unknown += 1;
+        continue;
+      }
+      const value = pick(job);
+      if (value === null || !Number.isFinite(value)) {
+        accumulator.unknown += 1;
+      } else {
+        accumulator.total += value;
+      }
+    }
+  }
+  return usage;
 }
 
 function calculateAssociationEntryUserUsage(
@@ -227,10 +263,24 @@ function remainingSeconds(job: QueueJob, now: Date): number | null {
   return Math.max(0, limitSeconds - elapsed);
 }
 
+function finiteTimeLimitMinutes(job: { readonly timeLimit: TimeLimit }): number | null {
+  const limit = job.timeLimit;
+  if (limit === null || limit.kind !== 'finite') {
+    return null;
+  }
+  if (!Number.isFinite(limit.seconds) || limit.seconds <= 0) {
+    return null;
+  }
+  return limit.seconds / 60;
+}
+
 // Return the job's QOS UsageFactor, or null when it is unknown. Jobs without
 // a Job QOS use the neutral factor 1. The partition QOS does not apply here;
 // a named QOS missing from the policy snapshot is unknown.
-function usageFactorFor(qosStore: QosStore | null | undefined, job: QueueJob): number | null {
+function usageFactorFor(
+  qosStore: QosStore | null | undefined,
+  job: { readonly qos: string | null }
+): number | null {
   if (job.qos === null) {
     return 1;
   }
@@ -269,6 +319,10 @@ function sumRunMinutes(
     const each = amount(job);
     const remaining = remainingSeconds(job, now);
     const factor = usageFactorFor(qosStore, job);
+    // A known zero contributes nothing even when other inputs are unavailable.
+    if (each === 0 || factor === 0 || remaining === 0) {
+      continue;
+    }
     if (each === null || remaining === null || factor === null) {
       unknown += 1;
       continue;
@@ -312,26 +366,89 @@ function calculateAssociationEntryGroupRunMinutes(
   resource: RunMinuteResource,
   options: RunMinutesOptions
 ): RunMinutesSum {
+  const sums = calculateAssociationEntryGroupRunMinutesMany(
+    entry,
+    store,
+    resolved,
+    options,
+    {
+      usage: (job) =>
+        resource === 'cpu' ? allocatedCpus(job) : allocatedMemoryMiB(job),
+    }
+  );
+  return sums.usage as RunMinutesSum;
+}
+
+function calculateAssociationEntryGroupRunMinutesMany(
+  entry: AssociationEntry,
+  store: AssociationStore,
+  resolved: Map<string, string | null>,
+  options: RunMinutesOptions,
+  picks: Readonly<Record<string, (job: QueueJob) => number | null>>
+): Record<string, RunMinutesSum> {
   const now = options.now ?? new Date();
+  const qosStore = options.qosStore ?? null;
   const subtree = descendantAssociationIds(store, entry.id);
   const accounts = subtreeAccounts(store, subtree);
-  const sum = sumRunMinutes(
-    options.jobs,
-    now,
-    options.qosStore ?? null,
-    (job) => classifyEntryJob(resolved, subtree, accounts, job) === 'in',
-    (job) =>
-      resource === 'cpu' ? allocatedCpus(job) : allocatedMemoryMiB(job)
-  );
-  // Include contributors with unknown membership in the count so the total
-  // is not presented as exact.
-  let membershipUnknown = 0;
+  const sums: Record<string, RunMinutesSum> = {};
+  const consumers: Record<
+    string,
+    Array<{ jobId: string; user: string | null; account: string | null; value: number }>
+  > = {};
+  for (const key of Object.keys(picks)) {
+    sums[key] = { total: 0, unknown: 0, runningJobs: 0, topConsumers: [] };
+    consumers[key] = [];
+  }
+  const pickEntries = Object.entries(picks);
   for (const job of options.jobs) {
-    if (isRunning(job) && classifyEntryJob(resolved, subtree, accounts, job) === 'unknown') {
-      membershipUnknown += 1;
+    if (!isRunning(job)) {
+      continue;
+    }
+    const classification = classifyEntryJob(resolved, subtree, accounts, job);
+    if (classification === 'out') {
+      continue;
+    }
+    const remaining = classification === 'in' ? remainingSeconds(job, now) : null;
+    const factor = usageFactorFor(qosStore, job);
+    for (const [key, pick] of pickEntries) {
+      const sum = sums[key] as RunMinutesSum;
+      sum.runningJobs += 1;
+      const each = pick(job);
+      // Zero resource usage is zero in every scope; a zero UsageFactor also
+      // proves zero timed usage regardless of membership or remaining time.
+      if (each === 0 || factor === 0 || remaining === 0) {
+        continue;
+      }
+      if (classification === 'unknown') {
+        sum.unknown += 1;
+        continue;
+      }
+      if (each === null || remaining === null || factor === null) {
+        sum.unknown += 1;
+        continue;
+      }
+      const contribution = each * (remaining / 60) * factor;
+      if (!Number.isFinite(contribution) || contribution < 0) {
+        sum.unknown += 1;
+        continue;
+      }
+      sum.total += contribution;
+      if (contribution > 0) {
+        consumers[key]?.push({
+          jobId: job.id,
+          user: job.user,
+          account: job.account,
+          value: contribution,
+        });
+      }
     }
   }
-  return { ...sum, unknown: sum.unknown + membershipUnknown, runningJobs: sum.runningJobs + membershipUnknown };
+  for (const key of Object.keys(picks)) {
+    const list = consumers[key] ?? [];
+    list.sort((a, b) => b.value - a.value);
+    (sums[key] as RunMinutesSum).topConsumers = list.slice(0, 10);
+  }
+  return sums;
 }
 
 function calculateQosGroupRunMinutes(
@@ -374,13 +491,40 @@ function allocatedGpuTotal(job: QueueJob): number | null {
   return Number.isFinite(value) && value >= 0 ? value : null;
 }
 
+// Absent GPU types count as zero only for complete allocation breakdowns.
+function hasCompleteGpuTypeBreakdown(gpus: QueueJob['allocated']['gpus']): boolean {
+  if (gpus.total === 0) {
+    return true;
+  }
+  let typedTotal = 0;
+  for (const [type, count] of Object.entries(gpus.byType)) {
+    if (!Number.isFinite(count) || count < 0) {
+      return false;
+    }
+    if (type === 'unknown') {
+      if (count === 0) {
+        continue;
+      }
+      return false;
+    }
+    typedTotal += count;
+  }
+  return typedTotal === gpus.total;
+}
+
 function allocatedGpuType(type: string): (job: QueueJob) => number | null {
   return (job) => {
     if (!job.allocated.gpuPresent) {
       return null;
     }
-    const value = job.allocated.gpus.byType[type] ?? 0;
-    return Number.isFinite(value) && value >= 0 ? value : null;
+    if (job.allocated.gpus.total === 0) {
+      return 0;
+    }
+    const value = job.allocated.gpus.byType[type];
+    if (value !== undefined) {
+      return Number.isFinite(value) && value >= 0 ? value : null;
+    }
+    return hasCompleteGpuTypeBreakdown(job.allocated.gpus) ? 0 : null;
   };
 }
 
@@ -391,7 +535,9 @@ export {
   allocatedMemoryMiB,
   allocatedNodes,
   calculateAssociationEntryGroupRunMinutes,
+  calculateAssociationEntryGroupRunMinutesMany,
   calculateAssociationEntryGroupUsage,
+  calculateAssociationEntryGroupUsageMany,
   calculateAssociationEntryUserUsage,
   calculateAssociationGroupRunMinutes,
   calculateAssociationGroupUsage,
@@ -399,6 +545,7 @@ export {
   calculateQosGroupRunMinutes,
   calculateQosGroupUsage,
   calculateQosUserUsage,
+  finiteTimeLimitMinutes,
   remainingSeconds,
   resolveJobAssociationIds,
   sumRunMinutes,

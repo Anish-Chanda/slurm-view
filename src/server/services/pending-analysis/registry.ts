@@ -20,6 +20,7 @@ const analyzers: Record<string, PendingAnalyzer> = {
   AssocMaxJobsLimit: analyzeAssocLimits,
   AssocGrpMemRunMinutes: analyzeAssocLimits,
   AssocGrpCPURunMinutesLimit: analyzeAssocLimits,
+  AssocGrpGRESRunMinutes: analyzeAssocLimits,
   QOSGrpCpuLimit: analyzeQosLimits,
   QOSGrpJobsLimit: analyzeQosLimits,
   QOSGrpMemLimit: analyzeQosLimits,

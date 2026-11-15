@@ -102,7 +102,78 @@ export type LimitMetric =
   | 'jobs'
   | 'gpus'
   | 'cpuMinutes'
-  | 'memoryMiBMinutes';
+  | 'memoryMiBMinutes'
+  | 'gpuMinutes';
+
+export type RuntimeMinuteMetric =
+  | 'cpuMinutes'
+  | 'memoryMiBMinutes'
+  | 'gpuMinutes';
+
+export type AssociationLimitStatus =
+  // The whole request alone is above the configured limit.
+  | 'exceedsRequest'
+  // Known usage plus the request is above the configured limit.
+  | 'usageExceeded'
+  // Known usage plus the request fits.
+  | 'withinLimit'
+  // Missing usage or request information prevents a reliable assessment.
+  | 'unknown';
+
+export interface AssociationLimitConstraintDto {
+  resource: ResourceKind;
+  // GPU limits only: set for gres/gpu:<type>; absent for generic gres/gpu.
+  gpuType?: string;
+  limit: number;
+  used: number | null;
+  requested: number | null;
+  status: AssociationLimitStatus;
+}
+
+export interface AssociationOverviewLevelDto {
+  account: string;
+  user?: string;
+  partition?: string;
+  parent: string | null;
+  // CPU and memory have at most one constraint. GPU may carry both a generic
+  // gres/gpu limit and one or more typed gres/gpu:<type> limits.
+  constraints: AssociationLimitConstraintDto[];
+}
+
+export interface AssociationOverviewDto {
+  hierarchy: AssociationOverviewLevelDto[];
+}
+
+export interface RuntimeMinuteConstraintDto {
+  metric: RuntimeMinuteMetric;
+  // GPU-minute constraints only: set for gres/gpu:<type>; absent for generic
+  // gres/gpu, which counts every allocated GPU.
+  gpuType?: string;
+  // Configured GrpTRESRunMins budget, in the metric's units.
+  limit: number;
+  // Estimated resource-minutes committed by visible running jobs. Null when
+  // an in-scope contributor cannot be quantified.
+  committed: number | null;
+  // Estimated resource-minutes the pending job would add. Null when the
+  // request, a finite time limit, or the QOS UsageFactor is unavailable, unless
+  // a zero resource amount or UsageFactor already proves zero commitment.
+  projected: number | null;
+  status: AssociationLimitStatus;
+}
+
+export interface RuntimeMinuteOverviewLevelDto {
+  account: string;
+  user?: string;
+  partition?: string;
+  parent: string | null;
+  // CPU and memory have at most one constraint. GPU may carry both a generic
+  // gres/gpu limit and one or more typed gres/gpu:<type> limits.
+  constraints: RuntimeMinuteConstraintDto[];
+}
+
+export interface RuntimeMinuteOverviewDto {
+  hierarchy: RuntimeMinuteOverviewLevelDto[];
+}
 
 export interface LimitAnalysisDto {
   kind: 'limit';
@@ -131,6 +202,13 @@ export interface LimitAnalysisDto {
     // The job's whole request is above this level's limit, so it can never start.
     exceedsLimit?: boolean;
   }>;
+  // Present for association CPU, memory, and GPU reasons. The primary fields
+  // above continue to describe only the resource Slurm reported.
+  associationOverview?: AssociationOverviewDto;
+  // Present for association runtime-minute reasons. Separate from
+  // associationOverview because these are estimated resource-time commitments,
+  // not instantaneous allocations.
+  runtimeMinuteOverview?: RuntimeMinuteOverviewDto;
   topConsumers?: Array<{
     jobId: string;
     user: string | null;

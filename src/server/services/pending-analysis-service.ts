@@ -146,8 +146,18 @@ async function buildContext(
   };
 }
 
+// Runtime-minute estimates cannot establish a contradiction with Slurm.
+const RUNTIME_MINUTE_METRICS: ReadonlySet<string> = new Set([
+  'cpuMinutes',
+  'memoryMiBMinutes',
+  'gpuMinutes',
+]);
+
 function isContradiction(analysis: PendingAnalysisDto | null): boolean {
   if (analysis === null || analysis.kind !== 'limit') {
+    return false;
+  }
+  if (RUNTIME_MINUTE_METRICS.has(analysis.metric)) {
     return false;
   }
   if (analysis.used === null || analysis.requested === null) {
