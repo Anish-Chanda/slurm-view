@@ -280,8 +280,8 @@ qos_field() {
 [[ "$(assoc_group_run_mins budgets)" == *"mem=361G"* ]] || \
   die "budgets should have a 361 GiB-minute budget"
 
-[[ "$(assoc_group_run_mins climate demo03)" == *"gres/gpu:v100=361"* ]] || \
-  die "demo03 should have a 361 V100 GPU-minute budget"
+[[ "$(assoc_group_run_mins climate demo03)" == *"gres/gpu:mi250=361"* ]] || \
+  die "demo03 should have a 361 MI250 GPU-minute budget"
 
 sacctmgr -nP show assoc \
   cluster=slurm-view-demo account=budgets user=demo02 \

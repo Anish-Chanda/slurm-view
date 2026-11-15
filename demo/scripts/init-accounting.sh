@@ -279,7 +279,7 @@ sacctmgr -i modify user \
 # The existing V100 anchor provides the GPU-minute commitment.
 sacctmgr -i modify user \
   where name=demo03 account=climate cluster="${CLUSTER}" \
-  set GrpTRESRunMins=gres/gpu:v100=361 \
+  set GrpTRESRunMins=gres/gpu:mi250=361 \
   >/dev/null
 
 log "accounting initialized"

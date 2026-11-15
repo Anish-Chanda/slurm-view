@@ -620,7 +620,7 @@ WRF_RESTART_SCRIPT="$(prepare_job_script demo03 wrf-restart "${STEADY_TEMPLATE}"
 CLIMATE_RESTART_SCRIPT="$(prepare_job_script demo03 climate-restart "${STEADY_TEMPLATE}")"
 LEGACY_CUDA_SCRIPT="$(prepare_job_script demo03 legacy-cuda-forecast "${STEADY_TEMPLATE}")"
 OCEAN_ROCM_SCRIPT="$(prepare_job_script demo03 ocean-rocm "${STEADY_TEMPLATE}")"
-V100_BUDGET_SCRIPT="$(prepare_job_script demo03 v100-budget-eval "${STEADY_TEMPLATE}")"
+MI250_BUDGET_SCRIPT="$(prepare_job_script demo03 mi250-budget-eval "${STEADY_TEMPLATE}")"
 
 CFD_MESH_SCRIPT="$(prepare_job_script demo04 cfd-mesh "${STEADY_TEMPLATE}")"
 MEMCAP_SCRIPT="$(prepare_job_script demo04 mesh-preconditioner "${STEADY_TEMPLATE}")"
@@ -1000,16 +1000,16 @@ ensure_pending \
   >/dev/null
 
 ensure_pending \
-  v100-budget-eval AssocGrpGRESRunMinutes \
-  demo03 v100-budget-eval "${V100_BUDGET_SCRIPT}" \
+  mi250-budget-eval AssocGrpGRESRunMinutes \
+  demo03 mi250-budget-eval "${MI250_BUDGET_SCRIPT}" \
   --qos=normal \
   --partition=gpu \
-  --nodelist=gpu01 \
+  --nodelist=gpu05 \
   --nodes=1 \
   --ntasks=1 \
   --cpus-per-task=1 \
   --mem=1G \
-  --gres=gpu:v100:1 \
+  --gres=gpu:mi250:1 \
   --time=06:00:00 \
   >/dev/null
 

@@ -39,7 +39,7 @@ DEMO_PENDING_SLOTS=(
   checkpoint-restart
   reserved-calibration
   budget-expansion
-  v100-budget-eval
+  mi250-budget-eval
 )
 
 DEMO_PENDING_REASONS=(

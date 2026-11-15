@@ -25,8 +25,8 @@ case "${job_name}" in
   budget-expansion)
     description="CPU and memory-minute budget request"
     ;;
-  v100-budget-eval)
-    description="V100 GPU-minute budget request"
+  mi250-budget-eval)
+    description="MI250 GPU-minute budget request"
     ;;
   h100-multi)
     description="combined CPU, memory, and H100 limit request"
