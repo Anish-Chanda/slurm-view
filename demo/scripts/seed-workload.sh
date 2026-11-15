@@ -635,7 +635,6 @@ ARRAY_SCRIPT="$(prepare_job_script demo04 parameter-sweep "${ARRAY_TEMPLATE}")"
 
 VISION_SCRIPT="$(prepare_job_script demo05 vision-pretrain "${STEADY_TEMPLATE}")"
 H100_EVAL_SCRIPT="$(prepare_job_script demo05 h100-eval "${STEADY_TEMPLATE}")"
-H100_MULTI_SCRIPT="$(prepare_job_script demo05 h100-multi "${STEADY_TEMPLATE}")"
 
 ML_SESSION_SCRIPT="$(prepare_job_script demo06 ml-lab-session "${STEADY_TEMPLATE}")"
 ML_NEXT_SCRIPT="$(prepare_job_script demo06 ml-lab-next "${STEADY_TEMPLATE}")"
@@ -844,14 +843,14 @@ ensure_pending \
   >/dev/null
 
 ensure_pending \
-  h100-eval AssocGrpGRES \
+  h100-eval 'AssocGrpCpuLimit|AssocGrpMemLimit|AssocGrpGRES' \
   demo05 h100-eval "${H100_EVAL_SCRIPT}" \
   --qos=normal \
   --partition=gpu \
   --nodes=1 \
   --ntasks=1 \
-  --cpus-per-task=2 \
-  --mem=4G \
+  --cpus-per-task=5 \
+  --mem=10G \
   --gres=gpu:h100:1 \
   --time=06:00:00 \
   >/dev/null
@@ -1011,20 +1010,6 @@ ensure_pending \
   --cpus-per-task=1 \
   --mem=1G \
   --gres=gpu:v100:1 \
-  --time=06:00:00 \
-  >/dev/null
-
-ensure_pending \
-  h100-multi 'AssocGrpCpuLimit|AssocGrpMemLimit|AssocGrpGRES' \
-  demo05 h100-multi "${H100_MULTI_SCRIPT}" \
-  --qos=normal \
-  --partition=gpu \
-  --nodelist=gpu03 \
-  --nodes=1 \
-  --ntasks=1 \
-  --cpus-per-task=5 \
-  --mem=10G \
-  --gres=gpu:h100:1 \
   --time=06:00:00 \
   >/dev/null
 

@@ -40,12 +40,11 @@ DEMO_PENDING_SLOTS=(
   reserved-calibration
   budget-expansion
   v100-budget-eval
-  h100-multi
 )
 
 DEMO_PENDING_REASONS=(
   'AssocGrpCpuLimit|AssocGrpMemLimit'
-  AssocGrpGRES
+  'AssocGrpCpuLimit|AssocGrpMemLimit|AssocGrpGRES'
   AssocMaxJobsLimit
   QOSGrpCpuLimit
   QOSMaxMemoryPerUser
@@ -58,7 +57,6 @@ DEMO_PENDING_REASONS=(
   Reservation
   'AssocGrpCPURunMinutesLimit|AssocGrpMemRunMinutes'
   AssocGrpGRESRunMinutes
-  'AssocGrpCpuLimit|AssocGrpMemLimit|AssocGrpGRES'
 )
 
 DEMO_ARRAY_SLOT=parameter-sweep
