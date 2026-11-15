@@ -133,6 +133,72 @@ function isDependencyAnalysis(value: Record<string, unknown>): boolean {
   );
 }
 
+function isAssociationLimitConstraint(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    isOneOf(value.resource, ["cpus", "memoryMiB", "gpus"]) &&
+    isOptionalString(value.gpuType) &&
+    isNumber(value.limit) &&
+    isNullableNumber(value.used) &&
+    isNullableNumber(value.requested) &&
+    isOneOf(value.status, [
+      "exceedsRequest",
+      "usageExceeded",
+      "withinLimit",
+      "unknown",
+    ])
+  );
+}
+
+function isAssociationOverview(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    isArrayOf(
+      value.hierarchy,
+      (level) =>
+        isRecord(level) &&
+        typeof level.account === "string" &&
+        isOptionalString(level.user) &&
+        isOptionalString(level.partition) &&
+        isNullableString(level.parent) &&
+        isArrayOf(level.constraints, isAssociationLimitConstraint),
+    )
+  );
+}
+
+function isRuntimeMinuteConstraint(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    isOneOf(value.metric, ["cpuMinutes", "memoryMiBMinutes", "gpuMinutes"]) &&
+    isOptionalString(value.gpuType) &&
+    isNumber(value.limit) &&
+    isNullableNumber(value.committed) &&
+    isNullableNumber(value.projected) &&
+    isOneOf(value.status, [
+      "exceedsRequest",
+      "usageExceeded",
+      "withinLimit",
+      "unknown",
+    ])
+  );
+}
+
+function isRuntimeMinuteOverview(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    isArrayOf(
+      value.hierarchy,
+      (level) =>
+        isRecord(level) &&
+        typeof level.account === "string" &&
+        isOptionalString(level.user) &&
+        isOptionalString(level.partition) &&
+        isNullableString(level.parent) &&
+        isArrayOf(level.constraints, isRuntimeMinuteConstraint),
+    )
+  );
+}
+
 function isLimitAnalysis(value: Record<string, unknown>): boolean {
   return (
     isOneOf(value.domain, ["association", "qos"]) &&
@@ -144,6 +210,7 @@ function isLimitAnalysis(value: Record<string, unknown>): boolean {
       "gpus",
       "cpuMinutes",
       "memoryMiBMinutes",
+      "gpuMinutes",
     ]) &&
     isNumber(value.limit) &&
     isNullableNumber(value.used) &&
@@ -166,8 +233,14 @@ function isLimitAnalysis(value: Record<string, unknown>): boolean {
           isNullableString(item.parent) &&
           isNullableNumber(item.limit) &&
           isNullableNumber(item.used) &&
-          typeof item.limiting === "boolean",
+          typeof item.limiting === "boolean" &&
+          (item.exceedsLimit === undefined ||
+            typeof item.exceedsLimit === "boolean"),
       )) &&
+    (value.associationOverview === undefined ||
+      isAssociationOverview(value.associationOverview)) &&
+    (value.runtimeMinuteOverview === undefined ||
+      isRuntimeMinuteOverview(value.runtimeMinuteOverview)) &&
     (value.topConsumers === undefined ||
       isArrayOf(
         value.topConsumers,

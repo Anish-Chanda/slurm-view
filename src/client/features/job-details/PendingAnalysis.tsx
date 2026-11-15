@@ -95,7 +95,7 @@ function PendingAnalysis({ job }: { job: JobDto }) {
         );
         break;
       case "limit":
-        body = <LimitAnalysis analysis={analysis} />;
+        body = <LimitAnalysis analysis={analysis} job={job} />;
         break;
       case "requiredNodes":
         body = <RequiredNodesAnalysis analysis={analysis} />;
