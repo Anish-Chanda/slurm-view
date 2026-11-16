@@ -294,7 +294,7 @@ wait_reason() {
   local state=""
   local reason=""
 
-  for _ in $(seq 1 80); do
+  for _ in $(seq 1 60); do
     state="$(job_state "${job_id}" || true)"
     reason="$(job_reason "${job_id}" || true)"
 
@@ -304,7 +304,7 @@ wait_reason() {
 
     [[ -n "${state}" ]] || break
     [[ "${state}" == "PENDING" ]] || break
-    sleep 0.25
+    sleep 1
   done
 
   show_job_diagnostics "${job_id}"
