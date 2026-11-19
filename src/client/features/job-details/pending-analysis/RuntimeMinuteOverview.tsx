@@ -296,6 +296,15 @@ function RuntimeMinuteResourceSummary({
   overview: RuntimeMinuteOverviewDto;
   job?: JobDto;
 }) {
+  const exceededCount = overview.hierarchy.reduce(
+    (total, level) =>
+      total +
+      level.constraints.filter(
+        ({ status }) => status === "exceedsRequest" || status === "usageExceeded",
+      ).length,
+    0,
+  );
+
   return (
     <section aria-labelledby="runtime-minute-summary">
       <h3
@@ -319,6 +328,19 @@ function RuntimeMinuteResourceSummary({
           />
         ))}
       </div>
+      {exceededCount > 1 ? (
+        <p className="mt-3 text-xs text-gray-600">
+          <span className="font-medium text-amber-700">
+            {exceededCount} runtime-minute limits show estimated overages
+          </span>.{" "}
+          <a
+            href="#association-hierarchy"
+            className="font-medium text-blue-700 underline underline-offset-2"
+          >
+            View hierarchy
+          </a>
+        </p>
+      ) : null}
     </section>
   );
 }

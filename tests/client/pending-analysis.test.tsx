@@ -534,6 +534,11 @@ describe("PendingAnalysis variants", () => {
     expect(within(table).getByText("1 / 2 a100 GPUs")).toBeTruthy();
     expect(within(table).getByText("3 / 10 GPUs")).toBeTruthy();
 
+    expect(screen.getByText("4 limits exceeded")).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "View hierarchy" }).getAttribute("href"),
+    ).toBe("#association-hierarchy");
+
     const alert = screen.getByRole("alert");
     expect(alert.textContent).toContain(
       "This job exceeds more than one current limit",
@@ -544,6 +549,56 @@ describe("PendingAnalysis variants", () => {
     expect(alert.textContent).toContain("user-a @ project-a");
     expect(alert.textContent).toContain("project-a");
     expect(screen.getAllByText(/probably never run/)).toHaveLength(1);
+  });
+
+  test("counts each exceeded limit across levels and GPU scopes", async () => {
+    renderAnalysis(
+      {
+        kind: "limit",
+        domain: "association",
+        metric: "cpus",
+        limit: 8,
+        used: 0,
+        requested: 12,
+        associationOverview: {
+          hierarchy: [
+            {
+              account: "project-a",
+              user: "user-a",
+              parent: "project-a",
+              constraints: [
+                { resource: "cpus", limit: 8, used: 0, requested: 12, status: "exceedsRequest" },
+                { resource: "gpus", gpuType: "a100", limit: 1, used: 0, requested: 2, status: "exceedsRequest" },
+                { resource: "gpus", limit: 3, used: 2, requested: 2, status: "usageExceeded" },
+              ],
+            },
+            {
+              account: "project-a",
+              parent: null,
+              constraints: [
+                { resource: "cpus", limit: 10, used: 0, requested: 12, status: "exceedsRequest" },
+                { resource: "memoryMiB", limit: 1000, used: null, requested: 200, status: "unknown" },
+              ],
+            },
+          ],
+        },
+      },
+      "AssocGrpCpuLimit",
+      {
+        requested: {
+          cpus: 12,
+          memoryMiB: 200,
+          nodes: 1,
+          gpus: { total: 2, byType: { a100: 2 } },
+        },
+      },
+    );
+
+    expect(await screen.findByText("4 limits exceeded")).toBeTruthy();
+    expect(
+      within(screen.getByRole("article", { name: "CPU association limits" })).getByText("0 / 8 CPUs"),
+    ).toBeTruthy();
+    expect(within(screen.getByRole("alert")).getAllByRole("listitem")).toHaveLength(3);
   });
 
   test("association overview marks resources without limits", async () => {
@@ -601,6 +656,7 @@ describe("PendingAnalysis variants", () => {
     expect(within(table).queryByText(/ GPUs$/)).toBeNull();
     expect(within(table).getAllByText("—")).toHaveLength(5);
     expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(/limits exceeded/)).toBeNull();
 
     const selector = screen.getByRole("group", {
       name: "Choose association resource",
@@ -728,6 +784,7 @@ describe("PendingAnalysis variants", () => {
     ).toBeTruthy();
     expect(within(card).queryByText(/CPUs over the limit/)).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(/limits exceeded/)).toBeNull();
 
     const table = screen.getByRole("table", {
       name: /Association hierarchy from root to user association/,
@@ -948,6 +1005,12 @@ describe("PendingAnalysis variants", () => {
       expect(within(memoryCard).queryByText("Reported by Slurm")).toBeNull();
       expect(within(gpuCard).queryByText("Reported by Slurm")).toBeNull();
       expect(screen.queryByText("Primary diagnosis")).toBeNull();
+      expect(
+        screen.getByText("3 runtime-minute limits show estimated overages"),
+      ).toBeTruthy();
+      expect(
+        screen.getByRole("link", { name: "View hierarchy" }).getAttribute("href"),
+      ).toBe("#association-hierarchy");
 
       expect(
         within(cpuCard).getByText("120 CPU-minutes / 300 CPU-minutes"),
@@ -1181,6 +1244,7 @@ describe("PendingAnalysis variants", () => {
         within(table).getAllByText("Projection unavailable").length,
       ).toBeGreaterThan(0);
       expect(within(table).queryByText(/%/)).toBeNull();
+      expect(screen.queryByText(/runtime-minute limits show estimated overages/)).toBeNull();
     });
 
     test("runtime estimates never imply a permanent scheduling block", async () => {

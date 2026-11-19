@@ -439,6 +439,15 @@ function AssociationResourceSummary({
   overview: AssociationOverviewDto;
   request: JobRequest | null;
 }) {
+  const exceededCount = overview.hierarchy.reduce(
+    (total, level) =>
+      total +
+      level.constraints.filter(
+        ({ status }) => status === "exceedsRequest" || status === "usageExceeded",
+      ).length,
+    0,
+  );
+
   return (
     <section aria-labelledby="association-resource-summary">
       <h3
@@ -462,6 +471,20 @@ function AssociationResourceSummary({
           />
         ))}
       </div>
+      {exceededCount > 1 ? (
+        <p className="mt-3 text-xs text-gray-600">
+          <span className="font-medium text-amber-700">
+            {exceededCount} limits exceeded
+          </span>{" "}
+          across the association hierarchy.{" "}
+          <a
+            href="#association-hierarchy"
+            className="font-medium text-blue-700 underline underline-offset-2"
+          >
+            View hierarchy
+          </a>
+        </p>
+      ) : null}
     </section>
   );
 }
