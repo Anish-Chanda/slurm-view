@@ -26,6 +26,10 @@ export type {
   RequiredNodesAnalysisDto,
   ReservationAnalysisDto,
   ArrayThrottleAnalysisDto,
+  AssociationLimitConstraintDto,
+  AssociationLimitStatus,
+  AssociationOverviewDto,
+  AssociationOverviewLevelDto,
   DependencyAnalysisDto,
   DependencyClauseDto,
   DependencyStatus,
@@ -38,6 +42,10 @@ export type {
   ResourceNodeAnalysisDto,
   ResourceShortageDto,
   ResourcesAnalysisDto,
+  RuntimeMinuteConstraintDto,
+  RuntimeMinuteMetric,
+  RuntimeMinuteOverviewDto,
+  RuntimeMinuteOverviewLevelDto,
 } from './pending-analysis.js';
 export type { PartitionsResponse } from './partitions.js';
 export type { UiSettingsResponse, ChartViewPolicy, NavbarViewPolicy } from './ui-settings.js';

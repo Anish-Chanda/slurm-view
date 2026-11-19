@@ -1,4 +1,8 @@
-import type { LimitAnalysisDto } from "../../../../shared/api/v1/pending-analysis.ts";
+import type { JobDto } from "../../../../shared/api/v1/jobs.ts";
+import type {
+  LimitAnalysisDto,
+  LimitMetric,
+} from "../../../../shared/api/v1/pending-analysis.ts";
 import {
   EVIDENCE_TABLE,
   EVIDENCE_TABLE_HEAD,
@@ -6,36 +10,15 @@ import {
   EVIDENCE_TABLE_WRAPPER,
   JobLink,
 } from "./AnalysisShell.tsx";
-import { formatInteger, formatMetric } from "./analysis-formatting.ts";
+import {
+  AssociationOverview,
+  associationLabel,
+} from "./AssociationOverview.tsx";
+import { RuntimeMinuteOverview } from "./RuntimeMinuteOverview.tsx";
+import { formatMetric } from "./analysis-formatting.ts";
+import { metricName, metricQuantity } from "./limit-formatting.ts";
 
-function metricName(
-  metric: LimitAnalysisDto["metric"],
-  gpuType?: string,
-): string {
-  if (metric === "gpus")
-    return gpuType ? `${gpuType} GPU` : "GPU";
-  if (metric === "cpus") return "CPU";
-  if (metric === "memoryMiB") return "Memory";
-  if (metric === "nodes") return "Node";
-  if (metric === "jobs") return "Job";
-  return metric === "cpuMinutes" ? "CPU-minutes" : "Memory MiB-minutes";
-}
-
-function metricQuantity(
-  metric: LimitAnalysisDto["metric"],
-  value: number,
-  gpuType?: string,
-): string {
-  if (metric === "gpus")
-    return `${formatInteger(value)} ${gpuType ? `${gpuType} GPU${value === 1 ? "" : "s"}` : `GPU${value === 1 ? "" : "s"}`}`;
-  if (metric === "cpus")
-    return `${formatInteger(value)} CPU${value === 1 ? "" : "s"}`;
-  if (metric === "nodes")
-    return `${formatInteger(value)} node${value === 1 ? "" : "s"}`;
-  if (metric === "jobs")
-    return `${formatInteger(value)} job${value === 1 ? "" : "s"}`;
-  return formatMetric(metric, value, gpuType);
-}
+type AssociationLevel = NonNullable<LimitAnalysisDto["hierarchy"]>[number];
 
 function LimitUsage({ analysis }: { analysis: LimitAnalysisDto }) {
   const title = `${metricName(analysis.metric, analysis.gpuType)} limit`;
@@ -102,8 +85,6 @@ function LimitUsage({ analysis }: { analysis: LimitAnalysisDto }) {
   );
 }
 
-type AssociationLevel = NonNullable<LimitAnalysisDto["hierarchy"]>[number];
-
 function AssociationTreeLevel({
   levels,
   index,
@@ -146,11 +127,6 @@ function AssociationTreeLevel({
             }
           >
             {label}
-            {level.user ? (
-              <span className="ml-2 text-xs font-normal text-gray-500">
-                User association
-              </span>
-            ) : null}
             {level.partition ? (
               <span className="ml-2 text-xs font-normal text-gray-500">
                 {level.partition}
@@ -264,27 +240,128 @@ function Consumers({ analysis }: { analysis: LimitAnalysisDto }) {
   );
 }
 
+interface PermanentViolation {
+  metric: LimitMetric;
+  gpuType?: string;
+  requested: number;
+  limit: number;
+  account: string;
+  user?: string;
+  partition?: string;
+}
+
+function permanentViolations(analysis: LimitAnalysisDto): PermanentViolation[] {
+  const violations: PermanentViolation[] = [];
+  const overview = analysis.associationOverview;
+  if (overview !== undefined) {
+    for (const level of overview.hierarchy) {
+      for (const constraint of level.constraints) {
+        if (
+          constraint.status === "exceedsRequest" &&
+          constraint.requested !== null
+        ) {
+          violations.push({
+            metric: constraint.resource,
+            ...(constraint.gpuType !== undefined
+              ? { gpuType: constraint.gpuType }
+              : {}),
+            requested: constraint.requested,
+            limit: constraint.limit,
+            account: level.account,
+            ...(level.user !== undefined ? { user: level.user } : {}),
+            ...(level.partition !== undefined
+              ? { partition: level.partition }
+              : {}),
+          });
+        }
+      }
+    }
+  }
+  // Runtime-minute estimates cannot establish permanent scheduling violations.
+  if (overview !== undefined || analysis.runtimeMinuteOverview !== undefined) {
+    return violations;
+  }
+  if (analysis.requested === null) return [];
+  return (analysis.hierarchy ?? [])
+    .filter((level) => level.exceedsLimit && level.limit !== null)
+    .map((level) => ({
+      metric: analysis.metric,
+      ...(level.gpuType !== undefined ? { gpuType: level.gpuType } : {}),
+      requested: analysis.requested as number,
+      limit: level.limit as number,
+      account: level.account,
+      ...(level.user !== undefined ? { user: level.user } : {}),
+      ...(level.partition !== undefined ? { partition: level.partition } : {}),
+    }));
+}
+
 function NeverRunsBanner({ analysis }: { analysis: LimitAnalysisDto }) {
-  const level = analysis.hierarchy?.find((entry) => entry.exceedsLimit);
-  if (!level || analysis.requested === null || level.limit === null) return null;
+  const violations = permanentViolations(analysis);
+  if (violations.length === 0) return null;
   return (
     <div
       role="alert"
       className="mb-5 border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
     >
-      <p className="font-semibold">This job exceeds your current limit</p>
-      <p className="mt-0.5">
-        It requests{" "}
-        {metricQuantity(analysis.metric, analysis.requested, level.gpuType)},
-        but the limit for {level.user ? `${level.user} @ ${level.account}` : level.account} is{" "}
-        {metricQuantity(analysis.metric, level.limit, level.gpuType)}. It will
-        probably never run unless the request or the limit changes.
+      <p className="font-semibold">
+        {violations.length > 1
+          ? "This job exceeds more than one current limit"
+          : "This job exceeds your current limit"}
       </p>
+      {violations.length === 1 ? (
+        <p className="mt-0.5">
+          It requests{" "}
+          {metricQuantity(
+            violations[0]!.metric,
+            violations[0]!.requested,
+            violations[0]!.gpuType,
+          )}
+          , but the limit for{" "}
+          {associationLabel(violations[0]!)} is{" "}
+          {metricQuantity(
+            violations[0]!.metric,
+            violations[0]!.limit,
+            violations[0]!.gpuType,
+          )}
+          . It will probably never run unless the request or the limit changes.
+        </p>
+      ) : (
+        <>
+          <ul className="mt-1 list-disc space-y-1 pl-5">
+            {violations.map((violation, index) => (
+              <li key={`${violation.metric}:${violation.account}:${index}`}>
+                It requests{" "}
+                {metricQuantity(
+                  violation.metric,
+                  violation.requested,
+                  violation.gpuType,
+                )}
+                , but the limit for {associationLabel(violation)} is{" "}
+                {metricQuantity(
+                  violation.metric,
+                  violation.limit,
+                  violation.gpuType,
+                )}
+                .
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1">
+            It will probably never run unless the requests or the limits change.
+          </p>
+        </>
+      )}
     </div>
   );
 }
 
-function LimitAnalysis({ analysis }: { analysis: LimitAnalysisDto }) {
+function LimitAnalysis({
+  analysis,
+  job,
+}: {
+  analysis: LimitAnalysisDto;
+  job?: JobDto;
+}) {
   const context =
     analysis.domain === "qos"
       ? [
@@ -297,16 +374,38 @@ function LimitAnalysis({ analysis }: { analysis: LimitAnalysisDto }) {
           .filter(Boolean)
           .join(" · ")
       : null;
+  const overview =
+    analysis.domain === "association" ? analysis.associationOverview : undefined;
+  const runtimeOverview =
+    analysis.domain === "association"
+      ? analysis.runtimeMinuteOverview
+      : undefined;
   return (
     <div>
       {context ? <p className="mb-4 text-sm text-gray-600">{context}</p> : null}
       <NeverRunsBanner analysis={analysis} />
-      <LimitUsage analysis={analysis} />
-      {analysis.domain === "association" && analysis.hierarchy?.length ? (
-        <div className="mt-6 border-t border-gray-100 pt-6">
-          <AssociationTree analysis={analysis} />
-        </div>
-      ) : null}
+      {overview !== undefined ? (
+        <AssociationOverview
+          analysis={analysis}
+          overview={overview}
+          job={job}
+        />
+      ) : runtimeOverview !== undefined ? (
+        <RuntimeMinuteOverview
+          analysis={analysis}
+          overview={runtimeOverview}
+          job={job}
+        />
+      ) : (
+        <>
+          <LimitUsage analysis={analysis} />
+          {analysis.domain === "association" && analysis.hierarchy?.length ? (
+            <div className="mt-6 border-t border-gray-100 pt-6">
+              <AssociationTree analysis={analysis} />
+            </div>
+          ) : null}
+        </>
+      )}
       <Consumers analysis={analysis} />
     </div>
   );
