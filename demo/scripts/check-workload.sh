@@ -75,16 +75,16 @@ wait_reason() {
   local state=""
   local reason=""
 
-  for _ in $(seq 1 40); do
+  for _ in $(seq 1 60); do
     state="$(state_for "${job_id}" || true)"
     reason="$(reason_for "${job_id}" || true)"
 
-    if [[ "${state}" == "PENDING" && "${reason}" == "${expected}" ]]; then
+    if [[ "${state}" == "PENDING" ]] && workload_reason_matches "${reason}" "${expected}"; then
       return 0
     fi
 
     [[ "${state}" == "PENDING" ]] || break
-    sleep 0.25
+    sleep 1
   done
 
   squeue -a -j "${job_id}" \

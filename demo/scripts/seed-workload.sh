@@ -93,7 +93,7 @@ prepare_job_script() {
   local job_dir
   local target
 
-  account="$(demo_account_for "${user}")" || die "no demo account for ${user}"
+  account="$(workload_account_for "${user}" "${job_name}")" || die "no demo account for ${user}"
   uid="$(id -u "${user}")"
   gid="$(id -g "${user}")"
   job_dir="${SHARED_HOME_DIR}/${user}/projects/${account}/${job_name}"
@@ -200,7 +200,7 @@ submit_job() {
   local comment
   local response
 
-  account="$(demo_account_for "${user}")" || die "no demo account for ${user}"
+  account="$(workload_account_for "${user}" "${slot}")" || die "no demo account for ${user}"
   workdir="$(dirname -- "${script}")"
   comment="$(workload_comment_for "${slot}")"
 
@@ -235,7 +235,7 @@ submit_array() {
   local comment
   local response
 
-  account="$(demo_account_for "${user}")" || die "no demo account for ${user}"
+  account="$(workload_account_for "${user}" "${slot}")" || die "no demo account for ${user}"
   workdir="$(dirname -- "${script}")"
   comment="$(workload_comment_for "${slot}")"
 
@@ -294,17 +294,17 @@ wait_reason() {
   local state=""
   local reason=""
 
-  for _ in $(seq 1 80); do
+  for _ in $(seq 1 60); do
     state="$(job_state "${job_id}" || true)"
     reason="$(job_reason "${job_id}" || true)"
 
-    if [[ "${state}" == "PENDING" && "${reason}" == "${expected}" ]]; then
+    if [[ "${state}" == "PENDING" ]] && workload_reason_matches "${reason}" "${expected}"; then
       return 0
     fi
 
     [[ -n "${state}" ]] || break
     [[ "${state}" == "PENDING" ]] || break
-    sleep 0.25
+    sleep 1
   done
 
   show_job_diagnostics "${job_id}"
@@ -609,6 +609,8 @@ REPLICA_SCRIPT="$(prepare_job_script demo01 replica-expansion "${STEADY_TEMPLATE
 POSTPROCESS_SCRIPT="$(prepare_job_script demo01 md-postprocess "${STEADY_TEMPLATE}")"
 
 LAMMPS_SCRIPT="$(prepare_job_script demo02 lammps-solvation "${STEADY_TEMPLATE}")"
+BUDGET_BASE_SCRIPT="$(prepare_job_script demo02 budget-baseline "${STEADY_TEMPLATE}")"
+BUDGET_EXP_SCRIPT="$(prepare_job_script demo02 budget-expansion "${STEADY_TEMPLATE}")"
 
 WRF_MEMBER_SCRIPT="$(prepare_job_script demo03 wrf-member-07 "${STEADY_TEMPLATE}")"
 WRF_EXTRA_SCRIPT="$(prepare_job_script demo03 wrf-ensemble-extra "${STEADY_TEMPLATE}")"
@@ -618,6 +620,7 @@ WRF_RESTART_SCRIPT="$(prepare_job_script demo03 wrf-restart "${STEADY_TEMPLATE}"
 CLIMATE_RESTART_SCRIPT="$(prepare_job_script demo03 climate-restart "${STEADY_TEMPLATE}")"
 LEGACY_CUDA_SCRIPT="$(prepare_job_script demo03 legacy-cuda-forecast "${STEADY_TEMPLATE}")"
 OCEAN_ROCM_SCRIPT="$(prepare_job_script demo03 ocean-rocm "${STEADY_TEMPLATE}")"
+MI250_BUDGET_SCRIPT="$(prepare_job_script demo03 mi250-budget-eval "${STEADY_TEMPLATE}")"
 
 CFD_MESH_SCRIPT="$(prepare_job_script demo04 cfd-mesh "${STEADY_TEMPLATE}")"
 MEMCAP_SCRIPT="$(prepare_job_script demo04 mesh-preconditioner "${STEADY_TEMPLATE}")"
@@ -704,6 +707,18 @@ ensure_running \
   --ntasks=1 \
   --cpus-per-task=1 \
   --mem=8G \
+  --time=06:00:00 \
+  >/dev/null
+
+ensure_running \
+  budget-baseline demo02 budget-baseline "${BUDGET_BASE_SCRIPT}" \
+  --qos=normal \
+  --partition=compute \
+  --nodelist=cpu07 \
+  --nodes=1 \
+  --ntasks=1 \
+  --cpus-per-task=1 \
+  --mem=1G \
   --time=06:00:00 \
   >/dev/null
 
@@ -828,14 +843,14 @@ ensure_pending \
   >/dev/null
 
 ensure_pending \
-  h100-eval AssocGrpGRES \
+  h100-eval 'AssocGrpCpuLimit|AssocGrpMemLimit|AssocGrpGRES' \
   demo05 h100-eval "${H100_EVAL_SCRIPT}" \
   --qos=normal \
   --partition=gpu \
   --nodes=1 \
   --ntasks=1 \
-  --cpus-per-task=2 \
-  --mem=4G \
+  --cpus-per-task=5 \
+  --mem=10G \
   --gres=gpu:h100:1 \
   --time=06:00:00 \
   >/dev/null
@@ -969,6 +984,33 @@ ensure_pending \
   --mem=4G \
   --gres=gpu:v100:1 \
   --time=00:20:00 \
+  >/dev/null
+
+ensure_pending \
+  budget-expansion 'AssocGrpCPURunMinutesLimit|AssocGrpMemRunMinutes' \
+  demo02 budget-expansion "${BUDGET_EXP_SCRIPT}" \
+  --qos=normal \
+  --partition=compute \
+  --nodelist=cpu07 \
+  --nodes=1 \
+  --ntasks=1 \
+  --cpus-per-task=1 \
+  --mem=1G \
+  --time=06:00:00 \
+  >/dev/null
+
+ensure_pending \
+  mi250-budget-eval AssocGrpGRESRunMinutes \
+  demo03 mi250-budget-eval "${MI250_BUDGET_SCRIPT}" \
+  --qos=normal \
+  --partition=gpu \
+  --nodelist=gpu05 \
+  --nodes=1 \
+  --ntasks=1 \
+  --cpus-per-task=1 \
+  --mem=1G \
+  --gres=gpu:mi250:1 \
+  --time=06:00:00 \
   >/dev/null
 
 log "demo workload is seeded"
