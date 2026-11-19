@@ -67,9 +67,12 @@ jobs:
 
           echo "Installing modules for running kernel: ${RUNNING_KERNEL}"
 
-          sudo dnf install -y \
-            dnf-plugins-core \
-            kmod \
+          sudo dnf install -y dnf-plugins-core kmod
+
+          sudo dnf \
+            --repofrompath=rocky102-baseos,https://download.rockylinux.org/pub/rocky/10.2/BaseOS/x86_64/os/ \
+            --enablerepo=rocky102-baseos \
+            install -y \
             "kernel-modules-core-${RUNNING_KERNEL}" \
             "kernel-modules-${RUNNING_KERNEL}" \
             "kernel-modules-extra-${RUNNING_KERNEL}"
