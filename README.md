@@ -38,7 +38,7 @@ It gives users a quick view of cluster utilization and the job queue, while stil
       <sub>Pending reason: resources</sub>
     </td>
     <td width="50%" align="center">
-      <img width="100%" src="https://github.com/user-attachments/assets/270260aa-336e-42f8-8a61-fe08c7bf0564" alt="Pending reason: association limits">
+      <img width="100%" src="https://github.com/user-attachments/assets/71460813-c767-4bcd-9cbc-7a9555f5078f" alt="Pending reason: association limits">
       <br>
       <sub>Pending reason: association limits</sub>
     </td>
@@ -77,7 +77,7 @@ Slurm's pending reason is useful, but it often does not tell the whole story.
 
 For supported reasons, Slurm View looks at the surrounding scheduler state and presents the information that helps explain why the job is waiting. This includes resource constraints, priority, dependencies, association and QOS limits, required nodes, partitions, reservations, and array throttling.
 
-The analysis stays tied to information reported by Slurm rather than trying to predict when a job will start.
+For association limits, Slurm View shows CPU, memory, and GPU constraints across the association hierarchy, even when Slurm reports only one of them. It also highlights requests that exceed configured limits and provides estimated CPU-, memory-, and GPU-minute budget usage.
 
 ### Job efficiency
 
